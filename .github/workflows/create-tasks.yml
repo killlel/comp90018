@@ -37,7 +37,7 @@ jobs:
         run: |
           set -e
           REPO="${{ github.repository }}"
-          for label in "Ivan" "Scott" "Natalie" "Raina" "All" "Sprint 1" "Sprint 2" "Sprint 3"; do
+          for label in "Sprint 1" "Sprint 2" "Sprint 3"; do
             gh label create "$label" --repo "$REPO" --color "ededed" --force
           done
 
@@ -144,7 +144,7 @@ jobs:
               continue
             fi
 
-            create_args=(--repo "$REPO" --title "$title" --body "$body" --label "$assignee_label,$sprint")
+            create_args=(--repo "$REPO" --title "$title" --body "$body" --label "$sprint")
             if [ -n "$assignee_github" ]; then
               create_args+=(--assignee "$assignee_github")
             fi
@@ -153,7 +153,7 @@ jobs:
             echo "Created: $issue_url"
 
             issue_number=$(basename "$issue_url")
-            gh api "repos/$REPO/issues/$issue_number" -f milestone="$milestone_number" --silent
+            gh api "repos/$REPO/issues/$issue_number" -F milestone="$milestone_number" --silent
 
             item_id=$(gh project item-add "$PROJECT_NUMBER" \
               --owner "$OWNER" \
