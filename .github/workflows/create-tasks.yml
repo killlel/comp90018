@@ -70,6 +70,14 @@ jobs:
           echo "sprint2=$m2" >> "$GITHUB_OUTPUT"
           echo "sprint3=$m3" >> "$GITHUB_OUTPUT"
 
+      - name: Debug auth
+        env:
+          GH_TOKEN: ${{ secrets.PROJECTS_PAT }}
+        run: |
+          gh auth status
+          gh api user --jq '.login'
+          gh api graphql -f query='query { viewer { login } }'
+
       - name: Look up project and Status field
         id: project
         env:
