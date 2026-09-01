@@ -1,0 +1,208 @@
+[
+  {
+    "title": "Design and implement the Supabase database schema (users, submissions, record shelf, reactions tables)",
+    "assignee_label": "Ivan",
+    "assignee_github": "guangyu11",
+    "sprint": "Sprint 1",
+    "story": "As a developer, I want a Supabase database schema for users, submissions, record shelf, and reactions, so that the app has a reliable, structured place to store and query anonymous song data.",
+    "acceptance_criteria": [
+      "Tables for users, submissions, record shelf, and reactions exist in Supabase with correct relationships and constraints",
+      "Required fields are non-nullable and enforce basic data validation (e.g. foreign keys, correct types)",
+      "Sample CRUD queries against each table succeed without errors",
+      "Schema is documented (ER diagram or migration file) so the rest of the team can build against it"
+    ]
+  },
+  {
+    "title": "Build the mood/context matchmaking algorithm that queries and returns matched song recommendations",
+    "assignee_label": "Ivan",
+    "assignee_github": "guangyu11",
+    "sprint": "Sprint 2",
+    "story": "As a user, I want to receive song recommendations that match my selected mood and context, so that the songs I get feel relevant to how I'm feeling right now.",
+    "acceptance_criteria": [
+      "Given a mood/context input, the algorithm returns exactly three recommendations",
+      "Recommendations are relevant to the selected mood/context in manual spot-checks",
+      "No matches / sparse data is handled with a sensible fallback instead of an error or empty crash",
+      "Response time is acceptable for a mobile UI (no long blocking waits)"
+    ]
+  },
+  {
+    "title": "Implement haptic feedback for physical interactions (e.g. the needle-drop gesture)",
+    "assignee_label": "Ivan",
+    "assignee_github": "guangyu11",
+    "sprint": "Sprint 2",
+    "story": "As a user, I want to feel haptic feedback when I interact with a record (e.g. the needle drop), so that the interaction feels physical and satisfying rather than just a tap on glass.",
+    "acceptance_criteria": [
+      "Device vibrates/haptic-taps on the needle-drop gesture, verified on at least one physical Android device",
+      "Feedback triggers only on the intended gesture, not on unrelated taps",
+      "Feature does not crash on devices/emulators without haptic support — it degrades gracefully"
+    ]
+  },
+  {
+    "title": "Implement backend logic for anonymous reactions (written privately against the sender)",
+    "assignee_label": "Ivan",
+    "assignee_github": "guangyu11",
+    "sprint": "Sprint 3",
+    "story": "As a user who submitted a song, I want to see reactions to it without the reactor's identity being exposed to anyone else, so that the emotional feedback stays meaningful without compromising anonymity.",
+    "acceptance_criteria": [
+      "A reaction can be recorded against a submission without storing the reactor's identity anywhere the submitter can access it",
+      "The submitter can view reactions without seeing who sent them",
+      "Duplicate or invalid reaction attempts are handled without crashing or corrupting stored data"
+    ]
+  },
+  {
+    "title": "Implement user authentication via Supabase anonymous auth",
+    "assignee_label": "Scott",
+    "assignee_github": "PokkaPokka",
+    "sprint": "Sprint 1",
+    "story": "As a user, I want to use the app without creating a public profile or revealing my identity, so that I can participate in Vinyl anonymously and comfortably.",
+    "acceptance_criteria": [
+      "A new user gets an anonymous session without entering an email/password",
+      "The session persists across app restarts (user isn't unexpectedly logged out)",
+      "Auth failures (e.g. no network) show a clear error state rather than crashing the app"
+    ]
+  },
+  {
+    "title": "Build the virtual record room frontend",
+    "assignee_label": "Scott",
+    "assignee_github": "PokkaPokka",
+    "sprint": "Sprint 1",
+    "story": "As a user, I want to see my three recommended songs presented as vinyl records in a virtual room, so that discovering music feels immersive and distinct from a normal song list.",
+    "acceptance_criteria": [
+      "The three recommended songs render as vinyl records in the room UI",
+      "Screen loads without crashing when there are 0, 1, or 3 recommendations",
+      "User can navigate into and out of this screen through the normal app flow"
+    ]
+  },
+  {
+    "title": "Integrate the GPS sensor for approximate location/distance display",
+    "assignee_label": "Scott",
+    "assignee_github": "PokkaPokka",
+    "sprint": "Sprint 2",
+    "story": "As a user, I want to see a rough distance or location for where a song was sent from, so that I feel a sense of connection to another person without their exact location being revealed.",
+    "acceptance_criteria": [
+      "App requests location permission and handles both granted and denied cases without crashing",
+      "Approximate distance/location displays correctly for a submission with valid coordinates",
+      "Missing or unavailable GPS data falls back to a sensible UI state rather than crashing"
+    ]
+  },
+  {
+    "title": "Implement settings and profile backend logic",
+    "assignee_label": "Scott",
+    "assignee_github": "PokkaPokka",
+    "sprint": "Sprint 3",
+    "story": "As a user, I want my preferences and account settings saved reliably, so that my experience stays consistent each time I return to the app.",
+    "acceptance_criteria": [
+      "Preference changes are saved and persisted across sessions",
+      "Reading settings on app launch returns the previously saved values",
+      "Invalid or malformed settings updates are rejected without corrupting stored data"
+    ]
+  },
+  {
+    "title": "Build the song submission feature: record data structure and song API calls, plus the attached message with mood/genre tagging",
+    "assignee_label": "Natalie",
+    "assignee_github": "killlel",
+    "sprint": "Sprint 1",
+    "story": "As a user, I want to submit a song along with a short anonymous message and mood/genre tags, so that I can pass along something meaningful to someone else who might need it.",
+    "acceptance_criteria": [
+      "A user can submit a song with a message and at least one mood/genre tag, and it is stored correctly",
+      "Required fields are validated before submission (e.g. can't submit with no song selected)",
+      "Submission errors (e.g. network failure) show clear feedback rather than failing silently"
+    ]
+  },
+  {
+    "title": "Design and build the onboarding questionnaire",
+    "assignee_label": "Natalie",
+    "assignee_github": "killlel",
+    "sprint": "Sprint 1",
+    "story": "As a new user, I want to be guided through an initial mood/context questionnaire, so that I understand how the app works and start getting relevant recommendations immediately.",
+    "acceptance_criteria": [
+      "New users see the questionnaire on first launch and can complete it",
+      "Answers submitted are used to generate the first recommendation set without errors",
+      "The questionnaire cannot be submitted without the minimum required input, or has an explicit, sensible skip/default path"
+    ]
+  },
+  {
+    "title": "Integrate the accelerometer sensor for shake-based interactions",
+    "assignee_label": "Natalie",
+    "assignee_github": "killlel",
+    "sprint": "Sprint 2",
+    "story": "As a user, I want to shake my phone to get a new or urgent recommendation, so that I have a playful, physical way to ask for something different.",
+    "acceptance_criteria": [
+      "A shake gesture is reliably detected within a reasonable sensitivity threshold",
+      "Shaking triggers a new recommendation request without duplicate/rapid-fire triggers from one shake",
+      "Feature does not crash on devices with a missing or faulty accelerometer"
+    ]
+  },
+  {
+    "title": "Integrate the magnetometer sensor for compass-bearing display",
+    "assignee_label": "Natalie",
+    "assignee_github": "killlel",
+    "sprint": "Sprint 3",
+    "story": "As a user, I want to rotate my phone like a compass to see the rough direction a song came from, so that I feel a tangible, almost magical sense of connection to a stranger.",
+    "acceptance_criteria": [
+      "Rotating the phone updates the compass-bearing display in real time",
+      "Displayed bearing is reasonably accurate against a known reference direction",
+      "Feature degrades gracefully (no crash) on devices without magnetometer support"
+    ]
+  },
+  {
+    "title": "Design the UI/UX for the record room, vinyl cards, and virtual record player",
+    "assignee_label": "Raina",
+    "assignee_github": "rainacc",
+    "sprint": "Sprint 1",
+    "story": "As a user, I want the record room, vinyl cards, and record player to feel visually cohesive and intentional, so that the app feels like a crafted experience rather than a generic music list.",
+    "acceptance_criteria": [
+      "All three components follow a consistent visual language (colour, typography, spacing)",
+      "Design assets/mockups are reviewed and agreed on by the team before implementation starts",
+      "Design meets basic accessibility guidelines (contrast, tap target size)"
+    ]
+  },
+  {
+    "title": "Produce wireframes for core app screens",
+    "assignee_label": "Raina",
+    "assignee_github": "rainacc",
+    "sprint": "Sprint 1",
+    "story": "As a designer, I want wireframes for the core screens before development starts, so that the team builds toward a shared, agreed layout instead of guessing at structure mid-sprint.",
+    "acceptance_criteria": [
+      "Wireframes exist for every core screen (onboarding, record room, submission, settings, etc.)",
+      "Wireframes are reviewed and signed off by the team before development starts on those screens",
+      "Wireframes clearly show the navigation flow between screens"
+    ]
+  },
+  {
+    "title": "Design and build the frontend for the decorated vinyl card component",
+    "assignee_label": "Raina",
+    "assignee_github": "rainacc",
+    "sprint": "Sprint 2",
+    "story": "As a user, I want each vinyl record to be visually decorated and distinct, so that each recommendation feels like a unique object rather than an identical list item.",
+    "acceptance_criteria": [
+      "Each vinyl card renders with visual decoration based on its song/mood data",
+      "Card handles missing or partial data (e.g. no genre tag) without breaking the layout",
+      "Card is interactive (tappable) and communicates state changes clearly (e.g. selected/saved)"
+    ]
+  },
+  {
+    "title": "Design and build the frontend for the settings/profile screen",
+    "assignee_label": "Raina",
+    "assignee_github": "rainacc",
+    "sprint": "Sprint 3",
+    "story": "As a user, I want a clear settings and profile screen, so that I can manage my preferences and account without confusion.",
+    "acceptance_criteria": [
+      "Settings screen displays the user's current preferences accurately",
+      "User can update and save preferences from this screen without errors",
+      "Screen handles the empty/default state gracefully for a first-time user"
+    ]
+  },
+  {
+    "title": "Integration testing across frontend, backend, and sensor components",
+    "assignee_label": "All",
+    "assignee_github": null,
+    "sprint": "Sprint 3",
+    "story": "As a team, we want to test that frontend, backend, and sensor components work together correctly, so that we catch integration issues before they affect real users.",
+    "acceptance_criteria": [
+      "The core user flow (onboarding to submission to recommendation to reaction) completes end-to-end without crashes",
+      "Sensor-driven features (GPS, accelerometer, magnetometer, haptics) work correctly alongside backend calls",
+      "Issues found during integration testing are logged as GitHub issues before the sprint ends"
+    ]
+  }
+]

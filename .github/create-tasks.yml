@@ -1,0 +1,162 @@
+name: Create Vinyl project tasks
+
+# Manual trigger only — run this once from the Actions tab to seed all
+# tasks as issues, assign them, add them to the sprint milestone, add
+# them to the Project board, and set their board status to Backlog.
+on:
+  workflow_dispatch:
+    inputs:
+      project_number:
+        description: "Project number 1"
+        required: true
+        type: string
+      backlog_status_name:
+        description: "Backlog"
+        required: false
+        type: string
+        default: "Backlog"
+      dry_run:
+        description: "If true, print what would be created instead of creating it"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  create-tasks:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure labels exist
+        env:
+          GH_TOKEN: ${{ secrets.PROJECTS_PAT }}
+        run: |
+          set -e
+          REPO="${{ github.repository }}"
+          for label in "Ivan" "Scott" "Natalie" "Raina" "All" "Sprint 1" "Sprint 2" "Sprint 3"; do
+            gh label create "$label" --repo "$REPO" --color "ededed" --force
+          done
+
+      - name: Ensure sprint milestones exist
+        id: milestones
+        env:
+          GH_TOKEN: ${{ secrets.PROJECTS_PAT }}
+        run: |
+          set -e
+          REPO="${{ github.repository }}"
+
+          create_or_get_milestone () {
+            local title="$1"
+            local due_on="$2"
+            existing=$(gh api "repos/$REPO/milestones?state=all" --jq \
+              ".[] | select(.title==\"$title\") | .number")
+            if [ -n "$existing" ]; then
+              echo "$existing"
+              return
+            fi
+            gh api "repos/$REPO/milestones" -f title="$title" -f due_on="$due_on" \
+              --jq '.number'
+          }
+
+          m1=$(create_or_get_milestone "Sprint 1 (31 Aug – 13 Sep)" "2026-09-13T23:59:59Z")
+          m2=$(create_or_get_milestone "Sprint 2 (14 Sep – 27 Sep)" "2026-09-27T23:59:59Z")
+          m3=$(create_or_get_milestone "Sprint 3 (28 Sep – 11 Oct)" "2026-10-11T23:59:59Z")
+
+          echo "sprint1=$m1" >> "$GITHUB_OUTPUT"
+          echo "sprint2=$m2" >> "$GITHUB_OUTPUT"
+          echo "sprint3=$m3" >> "$GITHUB_OUTPUT"
+
+      - name: Look up project and Status field
+        id: project
+        env:
+          GH_TOKEN: ${{ secrets.PROJECTS_PAT }}
+          PROJECT_NUMBER: ${{ inputs.project_number }}
+          OWNER: ${{ github.repository_owner }}
+          BACKLOG_NAME: ${{ inputs.backlog_status_name }}
+        run: |
+          set -e
+          project_json=$(gh project view "$PROJECT_NUMBER" --owner "$OWNER" --format json)
+          project_id=$(echo "$project_json" | jq -r '.id')
+
+          fields_json=$(gh project field-list "$PROJECT_NUMBER" --owner "$OWNER" --format json)
+          status_field_id=$(echo "$fields_json" | jq -r '.fields[] | select(.name=="Status") | .id')
+          backlog_option_id=$(echo "$fields_json" | jq -r --arg name "$BACKLOG_NAME" \
+            '.fields[] | select(.name=="Status") | .options[] | select(.name==$name) | .id')
+
+          if [ -z "$status_field_id" ] || [ "$status_field_id" = "null" ]; then
+            echo "::error::No 'Status' field found on this project."
+            exit 1
+          fi
+          if [ -z "$backlog_option_id" ] || [ "$backlog_option_id" = "null" ]; then
+            echo "::error::No status option named '$BACKLOG_NAME' found. Check the board's column names."
+            exit 1
+          fi
+
+          echo "project_id=$project_id" >> "$GITHUB_OUTPUT"
+          echo "status_field_id=$status_field_id" >> "$GITHUB_OUTPUT"
+          echo "backlog_option_id=$backlog_option_id" >> "$GITHUB_OUTPUT"
+
+      - name: Create issues, assign, milestone, add to project, set status
+        env:
+          GH_TOKEN: ${{ secrets.PROJECTS_PAT }}
+          PROJECT_NUMBER: ${{ inputs.project_number }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+          PROJECT_ID: ${{ steps.project.outputs.project_id }}
+          STATUS_FIELD_ID: ${{ steps.project.outputs.status_field_id }}
+          BACKLOG_OPTION_ID: ${{ steps.project.outputs.backlog_option_id }}
+          MILESTONE_SPRINT1: ${{ steps.milestones.outputs.sprint1 }}
+          MILESTONE_SPRINT2: ${{ steps.milestones.outputs.sprint2 }}
+          MILESTONE_SPRINT3: ${{ steps.milestones.outputs.sprint3 }}
+        run: |
+          set -e
+          jq -c '.[]' tasks.json | while read -r task; do
+            title=$(echo "$task" | jq -r '.title')
+            assignee_label=$(echo "$task" | jq -r '.assignee_label')
+            assignee_github=$(echo "$task" | jq -r '.assignee_github // empty')
+            sprint=$(echo "$task" | jq -r '.sprint')
+            story=$(echo "$task" | jq -r '.story')
+            criteria=$(echo "$task" | jq -r '.acceptance_criteria[] | "- [ ] " + .')
+
+            case "$sprint" in
+              "Sprint 1") milestone_number="$MILESTONE_SPRINT1" ;;
+              "Sprint 2") milestone_number="$MILESTONE_SPRINT2" ;;
+              "Sprint 3") milestone_number="$MILESTONE_SPRINT3" ;;
+            esac
+
+            body=$(printf "**User story:**\n\n%s\n\n**Acceptance criteria:**\n\n%s" "$story" "$criteria")
+
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "Would create: [$assignee_label/$sprint] $title (assignee: ${assignee_github:-none}) -> Backlog"
+              continue
+            fi
+
+            create_args=(--repo "$REPO" --title "$title" --body "$body" --label "$assignee_label,$sprint")
+            if [ -n "$assignee_github" ]; then
+              create_args+=(--assignee "$assignee_github")
+            fi
+
+            issue_url=$(gh issue create "${create_args[@]}")
+            echo "Created: $issue_url"
+
+            issue_number=$(basename "$issue_url")
+            gh api "repos/$REPO/issues/$issue_number" -f milestone="$milestone_number" --silent
+
+            item_id=$(gh project item-add "$PROJECT_NUMBER" \
+              --owner "$OWNER" \
+              --url "$issue_url" \
+              --format json --jq '.id')
+
+            gh project item-edit \
+              --id "$item_id" \
+              --project-id "$PROJECT_ID" \
+              --field-id "$STATUS_FIELD_ID" \
+              --single-select-option-id "$BACKLOG_OPTION_ID"
+
+            echo "  -> milestoned to $sprint, moved to Backlog"
+          done
