@@ -41,3 +41,9 @@ replay_pid*
 .externalNativeBuild
 .cxx
 local.properties
+
+# Secrets
+.env
+*.jks
+*.keystore
+keystore.properties
