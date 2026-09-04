@@ -47,3 +47,6 @@ local.properties
 *.jks
 *.keystore
 keystore.properties
+
+# IDE state for the root folder (Vinyl/.idea/ is tracked separately)
+/.idea/
