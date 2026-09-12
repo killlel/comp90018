@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.example.vinyl.data.GoogleAuthRepository
 import com.example.vinyl.data.Supabase
+import com.example.vinyl.ui.navigation.VinylNavHost
 import com.example.vinyl.ui.theme.VinylTheme
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
@@ -35,20 +36,43 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             VinylTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    AuthScreen(modifier = Modifier.padding(innerPadding))
-                }
+                VinylApp()
             }
         }
     }
 }
 
 @Composable
-fun AuthScreen(modifier: Modifier = Modifier) {
+fun VinylApp(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val googleAuthRepository = remember { GoogleAuthRepository(context) }
     val sessionStatus by Supabase.client.auth.sessionStatus.collectAsState()
+
+    when (sessionStatus) {
+        is SessionStatus.Authenticated -> {
+            VinylNavHost(
+                modifier = modifier,
+                onSignOut = { scope.launch { googleAuthRepository.signOut() } },
+            )
+        }
+        else -> {
+            Scaffold(modifier = modifier.fillMaxSize()) { innerPadding ->
+                AuthScreen(
+                    modifier = Modifier.padding(innerPadding),
+                    googleAuthRepository = googleAuthRepository,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AuthScreen(
+    googleAuthRepository: GoogleAuthRepository,
+    modifier: Modifier = Modifier,
+) {
+    val scope = rememberCoroutineScope()
     var isSigningIn by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
@@ -57,30 +81,20 @@ fun AuthScreen(modifier: Modifier = Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        when (val status = sessionStatus) {
-            is SessionStatus.Authenticated -> {
-                Text("Signed in as ${status.session.user?.email}")
-                Button(onClick = { scope.launch { googleAuthRepository.signOut() } }) {
-                    Text("Sign out")
+        if (isSigningIn) {
+            CircularProgressIndicator()
+        } else {
+            Button(onClick = {
+                scope.launch {
+                    isSigningIn = true
+                    errorMessage = googleAuthRepository.signIn()
+                        .exceptionOrNull()?.message
+                    isSigningIn = false
                 }
-            }
-            else -> {
-                if (isSigningIn) {
-                    CircularProgressIndicator()
-                } else {
-                    Button(onClick = {
-                        scope.launch {
-                            isSigningIn = true
-                            errorMessage = googleAuthRepository.signIn()
-                                .exceptionOrNull()?.message
-                            isSigningIn = false
-                        }
-                    }) {
-                        Text("Sign in with Google")
-                    }
-                }
-                errorMessage?.let { Text(it) }
+            }) {
+                Text("Sign in with Google")
             }
         }
+        errorMessage?.let { Text(it) }
     }
 }
