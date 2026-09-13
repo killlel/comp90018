@@ -20,11 +20,11 @@ open class SubmissionRepository(
     open suspend fun searchSongs(query: String): List<Track> = iTunes.searchSongs(query)
 
 
-     // Submits a song. Returns the new submission's uuid on success.
+    // Submits a song. Returns the new submission's uuid on success.
     open suspend fun submitSong(
         track: Track,
         message: String,
-        mood: MoodTag,
+        mood: MoodTag?,
         context: ContextTag? = null,
         submissionGenres: List<String> = emptyList(),
         lat: Double? = null,
@@ -36,7 +36,7 @@ open class SubmissionRepository(
             put("p_title", track.trackName)
             put("p_artist", track.artistName)
             put("p_message", message)
-            put("p_mood", mood.wireValue)
+            mood?.let { put("p_mood", it.wireValue) } ?: put("p_mood", JsonNull)
 
             track.collectionName?.let { put("p_album", it) } ?: put("p_album", JsonNull)
             track.artworkUrl?.let { put("p_artwork_url", it) } ?: put("p_artwork_url", JsonNull)

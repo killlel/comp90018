@@ -5,21 +5,18 @@ import com.example.vinyl.data.MoodTag
 import com.example.vinyl.data.Track
 import kotlinx.coroutines.delay
 
+/**
+ * Stubs out submission only — search still hits the real iTunes API via the inherited
+ * SubmissionRepository.searchSongs(). Use this while the submit_song Postgres function's
+ * permissions are being sorted out, so "Send this record" succeeds locally without touching
+ * Supabase at all.
+ */
 class FakeSubmissionRepository : SubmissionRepository() {
-    override suspend fun searchSongs(query: String): List<Track> {
-        delay(300) // simulate network latency
-        if (query.isBlank()) return emptyList()
-        return listOf(
-            Track(trackId = 1, trackName = "Landslide", artistName = "Fleetwood Mac", collectionName = "Fleetwood Mac"),
-            Track(trackId = 2, trackName = "Nights", artistName = "Frank Ocean", collectionName = "Blonde"),
-        )
-    }
-
     override suspend fun submitSong(
-        track: Track, message: String, mood: MoodTag, context: ContextTag?,
+        track: Track, message: String, mood: MoodTag?, context: ContextTag?,
         submissionGenres: List<String>, lat: Double?, lng: Double?,
     ): Result<String> {
-        delay(500)
+        delay(500) // simulate network latency so the send animation still has something to wait on
         return Result.success("fake-submission-id")
     }
 }

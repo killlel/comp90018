@@ -8,13 +8,16 @@ import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
+import io.ktor.http.ContentType
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 
 class ITunesApiService(
     private val client: HttpClient = HttpClient(OkHttp) {
         install(ContentNegotiation) {
-            json(Json { ignoreUnknownKeys = true })
+            val json = Json { ignoreUnknownKeys = true }
+            json(json)
+            json(json, contentType = ContentType.Text.JavaScript)
         }
     }
 ) {

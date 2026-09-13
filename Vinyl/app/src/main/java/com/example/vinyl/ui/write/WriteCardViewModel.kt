@@ -2,6 +2,7 @@ package com.example.vinyl.ui.write
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.util.Log
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.data.Track
 import com.example.vinyl.repository.SubmissionRepository
@@ -9,7 +10,8 @@ import com.example.vinyl.repository.FakeSubmissionRepository
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
-class WriteCardViewModel( private val repository: SubmissionRepository = FakeSubmissionRepository()
+class WriteCardViewModel(
+    private val repository: SubmissionRepository = FakeSubmissionRepository()
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(WriteCardUiState())
@@ -28,7 +30,14 @@ class WriteCardViewModel( private val repository: SubmissionRepository = FakeSub
                         return@collectLatest
                     }
                     _uiState.update { it.copy(isSearching = true) }
-                    val results = runCatching { repository.searchSongs(q) }.getOrElse { emptyList() }
+                    val results = try {
+                        repository.searchSongs(q)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e // expected: collectLatest cancelled this for a newer keystroke
+                    } catch (e: Exception) {
+                        Log.e("WriteCardVM", "search failed", e)
+                        emptyList()
+                    }
                     _uiState.update { it.copy(searchResults = results, isSearching = false) }
                 }
         }
@@ -59,16 +68,14 @@ class WriteCardViewModel( private val repository: SubmissionRepository = FakeSub
 
     fun submit(lat: Double? = null, lng: Double? = null) {
         val state = _uiState.value
-        val track = state.selectedTrack
-        val mood = state.mood
-        if (track == null || mood == null || state.message.isBlank()) return
+        val track = state.selectedTrack ?: return
 
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, submissionError = null) }
             repository.submitSong(
                 track = track,
                 message = state.message,
-                mood = mood,
+                mood = state.mood,
                 // context is the recipient's listening moment, not something the sender sets
                 context = null,
                 submissionGenres = state.selectedGenres.toList(),

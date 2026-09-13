@@ -4,16 +4,16 @@ data class MoodOption(val tag: MoodTag, val title: String, val subtitle: String)
 
 object MoodOptions {
     val all = listOf(
-        MoodOption(MoodTag.Happy, "Happy", "Things are good, plain and simple"),
-        MoodOption(MoodTag.Sad, "Sad", "Carrying something heavy today"),
-        MoodOption(MoodTag.Calm, "Calm", "Quiet, unremarkably fine"),
-        MoodOption(MoodTag.Energetic, "Energetic", "Can't sit still, buzzing"),
-        MoodOption(MoodTag.Nostalgic, "Nostalgic", "Thinking back on something"),
-        MoodOption(MoodTag.Anxious, "Anxious", "Mind won't quite settle"),
-        MoodOption(MoodTag.Romantic, "Romantic", "Someone is on your mind"),
+        MoodOption(MoodTag.Happy, "Happy", "Simply feeling good"),
+        MoodOption(MoodTag.Sad, "Sad", "Heavy today"),
+        MoodOption(MoodTag.Calm, "Calm", "Quiet and fine"),
+        MoodOption(MoodTag.Energetic, "Energetic", "Buzzing with energy"),
+        MoodOption(MoodTag.Nostalgic, "Nostalgic", "Looking back"),
+        MoodOption(MoodTag.Anxious, "Anxious", "Mind won't settle"),
+        MoodOption(MoodTag.Romantic, "Romantic", "Thinking of someone"),
         MoodOption(MoodTag.Angry, "Angry", "Better out than in"),
-        MoodOption(MoodTag.Hopeful, "Hopeful", "Something might be starting"),
-        MoodOption(MoodTag.Lonely, "Lonely", "Missing a place or a person"),
+        MoodOption(MoodTag.Hopeful, "Hopeful", "A new start ahead"),
+        MoodOption(MoodTag.Lonely, "Lonely", "Missing someone"),
     )
 }
 

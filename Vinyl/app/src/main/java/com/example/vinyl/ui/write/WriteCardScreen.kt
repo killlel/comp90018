@@ -6,6 +6,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
@@ -22,17 +23,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path as ComposePath
+import androidx.compose.ui.graphics.PathOperation
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.layout.ContentScale
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
 import com.example.vinyl.data.GenreOptions
 import com.example.vinyl.data.MoodOptions
 import com.example.vinyl.data.Track
@@ -50,8 +58,30 @@ fun WriteCardScreen(
     val state by viewModel.uiState.collectAsState()
     val audioController = rememberAudioPreviewController()
 
-    LaunchedEffect(state.submittedId) {
-        state.submittedId?.let { onSent(it) }
+    // Frozen copy of the card's data for the send animation to render from —
+    // the ViewModel resets its state as soon as the network call succeeds,
+    // which would otherwise yank the card/disc/envelope out from under the animation mid-flight.
+    var sendSnapshot by remember { mutableStateOf<WriteCardUiState?>(null) }
+    var sendAnimationDone by remember { mutableStateOf(false) }
+    val isSending = sendSnapshot != null
+
+    // Only leave once BOTH the network call has actually succeeded AND the animation has
+    // finished playing — otherwise a fast network response cuts the animation off mid-flight.
+    LaunchedEffect(state.submittedId, sendAnimationDone) {
+        val id = state.submittedId
+        if (id != null && sendAnimationDone) {
+            sendSnapshot = null
+            sendAnimationDone = false
+            onSent(id)
+        }
+    }
+
+    // If sending failed, drop the animation and let the user see the error and retry
+    LaunchedEffect(state.submissionError) {
+        if (state.submissionError != null) {
+            sendSnapshot = null
+            sendAnimationDone = false
+        }
     }
 
     Column(
@@ -72,20 +102,46 @@ fun WriteCardScreen(
                 color = VinylPalette.TextPrimary,
                 fontSize = 28.sp,
             )
-            TextButton(
-                onClick = viewModel::onTogglePreview,
-                enabled = state.isPreviewMode || state.canSubmit,
-            ) {
-                Text(
-                    text = if (state.isPreviewMode) "Edit" else "Preview",
-                    color = if (state.isPreviewMode || state.canSubmit)
-                        VinylPalette.TealAccent else VinylPalette.TextMuted,
-                    fontSize = 14.sp,
-                )
+            val previewButtonActive = state.isPreviewMode || state.canSubmit
+            if (previewButtonActive) {
+                Button(
+                    onClick = viewModel::onTogglePreview,
+                    shape = RoundedCornerShape(50),
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = VinylPalette.TealAccent,
+                        contentColor = VinylPalette.Background,
+                    ),
+                ) {
+                    Text(
+                        text = if (state.isPreviewMode) "Edit" else "Preview",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            } else {
+                OutlinedButton(
+                    onClick = viewModel::onTogglePreview,
+                    enabled = false,
+                    shape = RoundedCornerShape(50),
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
+                    border = BorderStroke(1.5.dp, VinylPalette.TextMuted.copy(alpha = 0.3f)),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        disabledContentColor = VinylPalette.TextMuted.copy(alpha = 0.3f),
+                    ),
+                ) {
+                    Text("Preview", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                }
             }
         }
 
-        if (state.isPreviewMode) {
+        if (isSending) {
+            SendingAnimation(
+                state = sendSnapshot!!,
+                onFinished = { sendAnimationDone = true },
+                modifier = Modifier.weight(1f),
+            )
+        } else if (state.isPreviewMode) {
             CardPreview(state = state, modifier = Modifier.weight(1f))
         } else {
             LazyColumn(
@@ -99,16 +155,27 @@ fun WriteCardScreen(
                 item { GenreChips(state, viewModel) }
                 item { EnvelopeStylePicker(state, viewModel) }
                 item { LocationToggle(state, viewModel) }
-                state.submissionError?.let { err ->
-                    item { Text(err, color = Color(0xFFE08787), fontSize = 13.sp) }
-                }
                 item { Spacer(modifier = Modifier.height(80.dp)) }
             }
         }
 
+        state.submissionError?.let { err ->
+            Text(
+                err,
+                color = Color(0xFFE08787),
+                fontSize = 13.sp,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+            )
+        }
+
         SendBar(
             state = state,
-            onSend = { viewModel.submit(/* lat, lng from your GPS layer once wired */) },
+            isSending = isSending,
+            onSend = {
+                sendSnapshot = state
+                sendAnimationDone = false
+                viewModel.submit(/* lat, lng from your GPS layer once wired */)
+            },
         )
     }
 }
@@ -122,6 +189,12 @@ private fun SongPickerSection(
     val track = state.selectedTrack
 
     Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("SONG", color = VinylPalette.TextMuted, fontSize = 11.sp, letterSpacing = 1.sp)
+            Text(" *", color = Color(0xFFE08787), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+
         if (track != null) {
             SelectedTrackCard(track, onClear = { viewModel.onTrackCleared() }, audioController = audioController)
         } else {
@@ -191,18 +264,33 @@ private fun SelectedTrackCard(
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(
-            onClick = { audioController.toggle(track.previewUrl) },
-            enabled = track.previewUrl != null,
+        val isPlayingThis = audioController.isPlaying && audioController.currentUrl == track.previewUrl
+
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(CircleShape)
+                .background(VinylPalette.Background)
+                .clickable(enabled = track.previewUrl != null) { audioController.toggle(track.previewUrl) },
+            contentAlignment = Alignment.Center,
         ) {
+            if (track.artworkUrl != null) {
+                AsyncImage(
+                    model = track.artworkUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                // Scrim so the play/pause icon stays legible over any artwork
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)))
+            }
             Icon(
-                imageVector = if (audioController.isPlaying && audioController.currentUrl == track.previewUrl)
-                    Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                imageVector = if (isPlayingThis) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                 contentDescription = "Preview 30 seconds",
-                tint = if (track.previewUrl != null) VinylPalette.TealAccent else VinylPalette.TextMuted,
+                tint = if (track.previewUrl != null) Color.White else VinylPalette.TextMuted,
             )
         }
-        Spacer(modifier = Modifier.width(4.dp))
+        Spacer(modifier = Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(track.trackName, color = VinylPalette.TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             Text(track.artistName, color = VinylPalette.TextMuted, fontSize = 13.sp)
@@ -215,8 +303,6 @@ private fun SelectedTrackCard(
 
 @Composable
 private fun LetterSection(state: WriteCardUiState, viewModel: WriteCardViewModel) {
-    val lineHeight = 28.dp
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -224,46 +310,44 @@ private fun LetterSection(state: WriteCardUiState, viewModel: WriteCardViewModel
             .background(VinylPalette.Cream)
             .padding(16.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .drawBehind {
-                    val startY = 46.dp.toPx()
-                    val lineSpacing = lineHeight.toPx()
-                    var y = startY
-                    while (y < size.height) {
-                        drawLine(
-                            color = VinylPalette.Background.copy(alpha = 0.12f),
-                            start = Offset(0f, y),
-                            end = Offset(size.width, y),
-                            strokeWidth = 1.dp.toPx(),
-                        )
-                        y += lineSpacing
-                    }
+        OutlinedTextField(
+            value = state.message,
+            onValueChange = viewModel::onMessageChange,
+            placeholder = {
+                Column {
+                    Text(
+                        "Share a message…",
+                        color = VinylPalette.Background.copy(alpha = 0.45f),
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        "What does this song mean to you? Where are you right now?\n\n" +
+                                "Your words will travel with the music and maybe reach someone special somewhere in the world.",
+                        color = VinylPalette.Background.copy(alpha = 0.4f),
+                        fontSize = 15.sp,
+                        lineHeight = 22.sp,
+                    )
                 }
-        ) {
-            OutlinedTextField(
-                value = state.message,
-                onValueChange = viewModel::onMessageChange,
-                placeholder = { Text("Write anything you'd like to share…", color = VinylPalette.Background.copy(alpha = 0.4f)) },
-                textStyle = androidx.compose.ui.text.TextStyle(
-                    color = VinylPalette.Background,
-                    fontSize = 18.sp,
-                    lineHeight = 28.sp,
-                ),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedBorderColor = Color.Transparent,
-                    unfocusedBorderColor = Color.Transparent,
-                    focusedTextColor = VinylPalette.Background,
-                    unfocusedTextColor = VinylPalette.Background,
-                    cursorColor = VinylPalette.Background,
-                ),
-                minLines = 5,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
+            },
+            textStyle = androidx.compose.ui.text.TextStyle(
+                color = VinylPalette.Background,
+                fontSize = 18.sp,
+                lineHeight = 28.sp,
+            ),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent,
+                focusedBorderColor = Color.Transparent,
+                unfocusedBorderColor = Color.Transparent,
+                focusedTextColor = VinylPalette.Background,
+                unfocusedTextColor = VinylPalette.Background,
+                cursorColor = VinylPalette.Background,
+            ),
+            minLines = 10,
+            modifier = Modifier.fillMaxWidth(),
+        )
 
         Text(
             text = "${state.messageCharsRemaining} characters left",
@@ -311,6 +395,7 @@ private fun MoodCard(
 ) {
     Column(
         modifier = modifier
+            .height(76.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(if (selected) VinylPalette.TealAccent.copy(alpha = 0.15f) else VinylPalette.PanelDark)
             .border(
@@ -319,10 +404,18 @@ private fun MoodCard(
                 shape = RoundedCornerShape(10.dp),
             )
             .clickable(onClick = onClick)
-            .padding(12.dp)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.Center,
     ) {
         Text(title, color = VinylPalette.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-        Text(subtitle, color = VinylPalette.TextMuted, fontSize = 11.sp)
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            subtitle,
+            color = VinylPalette.TextMuted,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -389,7 +482,10 @@ private fun EnvelopeStylePicker(state: WriteCardUiState, viewModel: WriteCardVie
     Column {
         Text("ENVELOPE STYLE", color = VinylPalette.TextMuted, fontSize = 11.sp, letterSpacing = 1.sp)
         Spacer(modifier = Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+        ) {
             EnvelopeStyle.entries.forEach { style ->
                 val selected = state.envelopeStyle == style
                 Box(
@@ -431,14 +527,14 @@ private fun LocationToggle(state: WriteCardUiState, viewModel: WriteCardViewMode
 }
 
 @Composable
-private fun SendBar(state: WriteCardUiState, onSend: () -> Unit) {
+private fun SendBar(state: WriteCardUiState, isSending: Boolean, onSend: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .background(VinylPalette.Background)
             .padding(20.dp)
     ) {
-        val active = state.canSubmit && !state.isSubmitting
+        val active = state.canSubmit && !state.isSubmitting && !isSending
         OutlinedButton(
             onClick = onSend,
             enabled = active,
@@ -450,7 +546,7 @@ private fun SendBar(state: WriteCardUiState, onSend: () -> Unit) {
                 disabledContentColor = VinylPalette.TextMuted,
             ),
         ) {
-            Text(if (state.isSubmitting) "Sending…" else "Send this record", fontWeight = FontWeight.SemiBold)
+            Text(if (isSending || state.isSubmitting) "Sending…" else "Send this record", fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -489,20 +585,37 @@ private fun CardPreview(state: WriteCardUiState, modifier: Modifier = Modifier) 
             letterSpacing = 1.sp,
         )
 
-        VinylPreviewDisc(trackName = track.trackName)
+        VinylPreviewDisc(trackName = track.trackName, envelopeStyle = state.envelopeStyle)
 
         // --- The letter card — cream, dark text ---
+        // Narrower than the disc/envelope (40dp margin vs their 30dp) so it never outgrows them
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(horizontal = 40.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(VinylPalette.Cream)
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Column {
-                Text(track.trackName, color = cardTextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Medium)
-                Text(track.artistName, color = cardTextMuted, fontSize = 14.sp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (track.artworkUrl != null) {
+                    AsyncImage(
+                        model = track.artworkUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                    )
+                }
+                Column {
+                    Text(track.trackName, color = cardTextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Medium)
+                    Text(track.artistName, color = cardTextMuted, fontSize = 14.sp)
+                }
             }
 
             Box(
@@ -510,20 +623,6 @@ private fun CardPreview(state: WriteCardUiState, modifier: Modifier = Modifier) 
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
                     .background(VinylPalette.Background.copy(alpha = 0.05f))
-                    .drawBehind {
-                        val startY = 30.dp.toPx()
-                        val lineSpacing = 26.dp.toPx()
-                        var y = startY
-                        while (y < size.height) {
-                            drawLine(
-                                color = cardTextPrimary.copy(alpha = 0.12f),
-                                start = Offset(0f, y),
-                                end = Offset(size.width, y),
-                                strokeWidth = 1.dp.toPx(),
-                            )
-                            y += lineSpacing
-                        }
-                    }
                     .padding(16.dp)
             ) {
                 Text(
@@ -534,33 +633,30 @@ private fun CardPreview(state: WriteCardUiState, modifier: Modifier = Modifier) 
                 )
             }
 
-            moodOption?.let {
-                Box(
+            if (moodOption != null || state.selectedGenres.isNotEmpty()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(VinylPalette.TealAccent)
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Min),
                 ) {
-                    Text(it.title.uppercase(), color = VinylPalette.Background, fontSize = 10.sp, letterSpacing = 1.sp)
-                }
-            }
-
-            if (state.selectedGenres.isNotEmpty()) {
-                Column {
-                    Text("GENRE", color = cardTextMuted, fontSize = 10.sp, letterSpacing = 1.sp)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        state.selectedGenres.take(4).forEach { genre ->
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(50))
-                                    .background(VinylPalette.Background.copy(alpha = 0.06f))
-                                    .border(1.dp, cardTextMuted.copy(alpha = 0.3f), RoundedCornerShape(50))
-                                    .padding(horizontal = 10.dp, vertical = 4.dp)
-                            ) {
-                                Text(genre, color = cardTextPrimary, fontSize = 11.sp)
-                            }
-                        }
+                    moodOption?.let {
+                        CardInfoBlock(
+                            label = "MOOD",
+                            value = it.title,
+                            textPrimary = cardTextPrimary,
+                            textMuted = cardTextMuted,
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                        )
+                    }
+                    if (state.selectedGenres.isNotEmpty()) {
+                        CardInfoBlock(
+                            label = "GENRE",
+                            value = state.selectedGenres.take(3).joinToString(" · "),
+                            textPrimary = cardTextPrimary,
+                            textMuted = cardTextMuted,
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                        )
                     }
                 }
             }
@@ -575,7 +671,7 @@ private fun CardPreview(state: WriteCardUiState, modifier: Modifier = Modifier) 
             )
         }
 
-        EnvelopePreview(style = state.envelopeStyle)
+        EnvelopePreview(style = state.envelopeStyle, modifier = Modifier.padding(horizontal = 30.dp))
 
         Text(
             text = "This is what the person who receives it will see. Reactions stay anonymous — you'll only see that someone listened.",
@@ -588,25 +684,63 @@ private fun CardPreview(state: WriteCardUiState, modifier: Modifier = Modifier) 
 }
 
 @Composable
-private fun EnvelopePreview(style: EnvelopeStyle, modifier: Modifier = Modifier) {
+private fun CardInfoBlock(
+    label: String,
+    value: String,
+    textPrimary: Color,
+    textMuted: Color,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(textPrimary.copy(alpha = 0.06f))
+            .border(1.dp, textPrimary.copy(alpha = 0.15f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            value,
+            color = textPrimary,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(label, color = textMuted, fontSize = 10.sp, letterSpacing = 1.sp)
+    }
+}
+
+@Composable
+internal fun EnvelopePreview(style: EnvelopeStyle, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .aspectRatio(1.7f)
+            .aspectRatio(1f)
             .clip(RoundedCornerShape(12.dp))
             .background(Brush.linearGradient(style.colors))
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val w = size.width
             val h = size.height
-            val flap = ComposePath().apply {
-                moveTo(0f, 0f)
-                lineTo(w / 2f, h * 0.55f)
-                lineTo(w, 0f)
-                close()
+
+            when (style.motif) {
+                EnvelopeMotif.MOON -> drawMoonMotif(w, h)
+                EnvelopeMotif.HEARTS -> drawHeartsMotif(w, h)
+                EnvelopeMotif.NONE -> Unit
             }
-            drawPath(flap, color = Color.Black.copy(alpha = 0.16f))
-            drawPath(flap, color = Color.White.copy(alpha = 0.15f), style = Stroke(width = 1.5.dp.toPx()))
+
+            if (style.showFold) {
+                val flap = ComposePath().apply {
+                    moveTo(0f, 0f)
+                    lineTo(w / 2f, h * 0.55f)
+                    lineTo(w, 0f)
+                    close()
+                }
+                drawPath(flap, color = Color.Black.copy(alpha = 0.16f))
+                drawPath(flap, color = Color.White.copy(alpha = 0.15f), style = Stroke(width = 1.5.dp.toPx()))
+            }
         }
 
         Box(
@@ -632,8 +766,71 @@ private fun EnvelopePreview(style: EnvelopeStyle, modifier: Modifier = Modifier)
     }
 }
 
+internal fun DrawScope.drawMoonMotif(w: Float, h: Float) {
+    val moonRadius = minOf(w, h) * 0.14f
+    val moonCenter = Offset(w * 0.72f, h * 0.28f)
+
+    val moonCircle = ComposePath().apply {
+        addOval(Rect(center = moonCenter, radius = moonRadius))
+    }
+    val cutCircle = ComposePath().apply {
+        addOval(Rect(center = moonCenter + Offset(moonRadius * 0.55f, -moonRadius * 0.25f), radius = moonRadius))
+    }
+    val crescent = ComposePath().apply { op(moonCircle, cutCircle, PathOperation.Difference) }
+    drawPath(crescent, color = Color(0xFFF4F0EA).copy(alpha = 0.9f))
+
+    val stars = listOf(
+        Offset(w * 0.15f, h * 0.18f) to 2.2.dp,
+        Offset(w * 0.30f, h * 0.35f) to 1.4.dp,
+        Offset(w * 0.55f, h * 0.12f) to 1.8.dp,
+        Offset(w * 0.85f, h * 0.50f) to 1.5.dp,
+        Offset(w * 0.42f, h * 0.55f) to 1.2.dp,
+        Offset(w * 0.65f, h * 0.65f) to 1.6.dp,
+    )
+    stars.forEach { (pos, radius) ->
+        drawCircle(color = Color.White.copy(alpha = 0.75f), radius = radius.toPx(), center = pos)
+    }
+}
+
+internal fun DrawScope.drawHeartsMotif(w: Float, h: Float) {
+    // (xFraction, yFraction, sizeFraction of the shorter side)
+    val hearts = listOf(
+        Triple(0.18f, 0.22f, 0.11f),
+        Triple(0.78f, 0.16f, 0.09f),
+        Triple(0.52f, 0.42f, 0.13f),
+        Triple(0.28f, 0.65f, 0.10f),
+        Triple(0.85f, 0.58f, 0.08f),
+    )
+    val shortSide = minOf(w, h)
+    hearts.forEach { (fx, fy, fSize) ->
+        drawPath(
+            path = heartPath(cx = w * fx, cy = h * fy, size = shortSide * fSize),
+            color = Color.White.copy(alpha = 0.4f),
+        )
+    }
+}
+
+private fun heartPath(cx: Float, cy: Float, size: Float): ComposePath = ComposePath().apply {
+    moveTo(cx, cy + size * 0.35f)
+    cubicTo(
+        cx - size * 0.5f, cy - size * 0.15f,
+        cx - size * 0.5f, cy - size * 0.55f,
+        cx, cy - size * 0.2f,
+    )
+    cubicTo(
+        cx + size * 0.5f, cy - size * 0.55f,
+        cx + size * 0.5f, cy - size * 0.15f,
+        cx, cy + size * 0.35f,
+    )
+    close()
+}
+
 @Composable
-private fun VinylPreviewDisc(trackName: String) {
+internal fun VinylPreviewDisc(trackName: String, envelopeStyle: EnvelopeStyle) {
+    // Pick a representative color from the envelope's palette for the label —
+    // the middle stop tends to read better than the first/last (often the darkest/lightest)
+    val labelColor = envelopeStyle.colors[envelopeStyle.colors.size / 2]
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -654,7 +851,7 @@ private fun VinylPreviewDisc(trackName: String) {
                     style = Stroke(width = 1.dp.toPx()),
                 )
             }
-            drawCircle(color = Color.White, radius = radius * 0.32f, center = center)
+            drawCircle(color = labelColor, radius = radius * 0.32f, center = center)
             drawCircle(color = Color.Black, radius = 5.dp.toPx(), center = center)
 
             val textRadius = radius * 0.88f
@@ -662,7 +859,7 @@ private fun VinylPreviewDisc(trackName: String) {
                 addCircle(center.x, center.y, textRadius, android.graphics.Path.Direction.CW)
             }
             val paint = Paint().apply {
-                color = android.graphics.Color.WHITE
+                color = labelColor.toArgb()
                 textSize = 11.sp.toPx()
                 textAlign = Paint.Align.CENTER
                 isAntiAlias = true
