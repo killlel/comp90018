@@ -3,7 +3,7 @@ package com.example.vinyl.repository
 import com.example.vinyl.data.ContextTag
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.data.Track
-import com.example.vinyl.data.AppSupabase
+import com.example.vinyl.data.Supabase
 import com.example.vinyl.network.ITunesApiService
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.serialization.json.JsonArray
@@ -15,7 +15,7 @@ import kotlinx.serialization.json.put
 
 open class SubmissionRepository(
     private val iTunes: ITunesApiService = ITunesApiService(),
-    private val supabase: io.github.jan.supabase.SupabaseClient = AppSupabase.client,
+    private val supabase: io.github.jan.supabase.SupabaseClient = Supabase.client,
 ) {
     open suspend fun searchSongs(query: String): List<Track> = iTunes.searchSongs(query)
 

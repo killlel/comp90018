@@ -21,30 +21,37 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.vinyl.data.GoogleAuthRepository
+import com.example.vinyl.data.MoodOptions
+import com.example.vinyl.data.MoodTag
+import com.example.vinyl.data.Supabase
 import com.example.vinyl.ui.daily.ArrivedRecordOption
 import com.example.vinyl.ui.daily.ArrivedTodayScreen
 import com.example.vinyl.ui.daily.ArrivedTodayUiState
-import com.example.vinyl.data.MoodOptions
-import com.example.vinyl.data.MoodTag
 import com.example.vinyl.ui.daily.MoodQuestionnaireScreen
 import com.example.vinyl.ui.daily.UnopenedRecordScreen
 import com.example.vinyl.ui.daily.UnopenedRecordUiState
@@ -53,23 +60,6 @@ import com.example.vinyl.ui.received.ReceivedCardUiState
 import com.example.vinyl.ui.theme.VinylPalette
 import com.example.vinyl.ui.theme.VinylTheme
 import com.example.vinyl.ui.write.WriteCardScreen
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import com.example.vinyl.data.GoogleAuthRepository
-import com.example.vinyl.data.Supabase
-import com.example.vinyl.ui.theme.VinylTheme
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.status.SessionStatus
 import kotlinx.coroutines.launch
@@ -80,9 +70,20 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             VinylTheme {
-                VinylApp()
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    AuthScreen(modifier = Modifier.padding(innerPadding))
+                // TESTING ONLY: lets you skip the Google sign-in gate and go straight to
+                // VinylApp() without a real session. Remove before submitting/shipping.
+                var bypassAuthForTesting by remember { mutableStateOf(false) }
+                val sessionStatus by Supabase.client.auth.sessionStatus.collectAsState()
+
+                if (sessionStatus is SessionStatus.Authenticated || bypassAuthForTesting) {
+                    VinylApp()
+                } else {
+                    Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                        AuthScreen(
+                            modifier = Modifier.padding(innerPadding),
+                            onSkipForTesting = { bypassAuthForTesting = true },
+                        )
+                    }
                 }
             }
         }
@@ -328,7 +329,14 @@ private fun PlaceholderTab(label: String) {
         contentAlignment = Alignment.Center,
     ) {
         Text(label, color = VinylPalette.TextMuted, fontSize = 16.sp)
-fun AuthScreen(modifier: Modifier = Modifier) {
+    }
+}
+
+@Composable
+private fun AuthScreen(
+    modifier: Modifier = Modifier,
+    onSkipForTesting: () -> Unit = {},
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val googleAuthRepository = remember { GoogleAuthRepository(context) }
@@ -364,6 +372,11 @@ fun AuthScreen(modifier: Modifier = Modifier) {
                     }
                 }
                 errorMessage?.let { Text(it) }
+
+                // TESTING ONLY — bypasses sign-in entirely. Remove before submitting/shipping.
+                TextButton(onClick = onSkipForTesting) {
+                    Text("Skip sign-in (testing)", color = VinylPalette.Background)
+                }
             }
         }
     }
