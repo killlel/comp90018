@@ -6,6 +6,7 @@ object VinylPalette {
     val Background = Color(0xFF0D0D0D)
     val PanelDark = Color(0xFF0E0E0E)
     val RecordDark = Color(0xFF141414)
+    val SheetSurface = Color(0xFF1C1C1C)
 
     val TealAccent = Color(0xFF77EDE5)
     val BrownAccent = Color(0xFF6E3A2C)
