@@ -64,6 +64,9 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
+    // Coil 2 (package `coil.compose`) — used by ReceivedCardScreen/WriteCardScreen, separate
+    // from the Coil 3 lines above (package `coil3.compose`) used by VinylSleeveThumbnail.
+    implementation("io.coil-kt:coil-compose:2.6.0")
 
     // networking + serialization for iTunes
     implementation(libs.kotlinx.serialization.json)
