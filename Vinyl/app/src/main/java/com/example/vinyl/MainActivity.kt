@@ -49,6 +49,7 @@ import com.example.vinyl.data.GoogleAuthRepository
 import com.example.vinyl.data.MoodOptions
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.data.Supabase
+import com.example.vinyl.ui.collection.CollectionScreen
 import com.example.vinyl.ui.daily.ArrivedRecordOption
 import com.example.vinyl.ui.daily.ArrivedTodayScreen
 import com.example.vinyl.ui.daily.ArrivedTodayUiState
@@ -160,8 +161,8 @@ private fun VinylApp() {
                 .padding(innerPadding),
         ) {
             when (selectedTab) {
-                // Placeholders — not the actual designs, just enough to prove the tab works
-                AppTab.Collection -> PlaceholderTab("Collection")
+                AppTab.Collection -> CollectionScreen()
+                // Placeholder — not the actual design, just enough to prove the tab works
                 AppTab.Home -> HomeTab(
                     onOpenReceive = {
                         dailyMood = null
