@@ -1,0 +1,23 @@
+{
+  "name": "comp90018",
+  "version": "1.0.0",
+  "description": "T01/02 - 05",
+  "homepage": "https://github.com/killlel/comp90018#readme",
+  "bugs": {
+    "url": "https://github.com/killlel/comp90018/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/killlel/comp90018.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}
