@@ -62,18 +62,28 @@ erDiagram
     submissions    ||--o{  shelf_items     : "is saved as"
     profiles       ||--o{  reactions       : sends
     submissions    ||--o{  reactions       : receives
+    genres         }o..o{  submissions     : "validated against (trigger, not FK)"
 
     auth_users {
         uuid id PK "managed by Supabase Auth"
     }
     profiles {
-        uuid    id                   PK,FK
-        text    display_name         "private to owner"
-        text    avatar_url           "private to owner"
-        boolean onboarding_completed
-        enum    default_mood
-        enum    default_context
-        jsonb   settings
+        uuid        id                   PK,FK
+        text        display_name         "private to owner"
+        text        avatar_url           "private to owner"
+        boolean     onboarding_completed
+        enum        default_mood
+        enum        default_context
+        jsonb       settings
+        float8      lat                  "coarse, rounded to 2dp"
+        float8      lng                  "coarse, rounded to 2dp"
+        timestamptz location_updated_at
+    }
+    genres {
+        text    slug       PK "stored and matched on"
+        text    label      "shown to the user"
+        int     sort_order
+        boolean is_active
     }
     tracks {
         uuid   id                PK
@@ -132,10 +142,14 @@ the onboarding answers, the Sprint 3 settings blob, and the Google name/avatar
 and by nobody else.
 
 Since Sprint 2 it also holds the user's coarse home location — `lat`, `lng`
-(city centroid, rounded to 2dp on write), `city`, and `location_updated_at`.
-Set it with `update_my_location()`. There is no continuous tracking: the value
-changes only when the user asks it to, and a submission takes a *snapshot* of it
-at send time so old records don't move when the sender changes city.
+(a city centroid, rounded to 2dp on write) and `location_updated_at`. Set it
+with `update_my_location(p_lat, p_lng)`. There is no continuous tracking: the
+value changes only when the user asks it to, and a submission takes a *snapshot*
+of it at send time so old records don't move when the sender relocates.
+
+Only coordinates are stored — there is no place-name column. A UI that wants to
+show "Melbourne" rather than numbers must reverse-geocode on the client, which
+needs network. Offline, show the distance or nothing.
 
 ### `genres`
 The controlled vocabulary for `submissions.genres` — `slug` (stored/matched),
@@ -195,7 +209,7 @@ passed **by name**, so anything with a default can be omitted.
 | `get_room(p_limit?)` | `room_card[]` | Replays the current room. Call this on app start instead of re-matching. |
 | `get_shelf(p_limit?)` | `room_card[]` | Saved records, newest save first. |
 | `submit_song(...)` | `uuid` | Upserts the track and creates the submission in one call. Required: `p_provider`, `p_provider_track_id`, `p_title`, `p_artist`, `p_message`, `p_mood`. Pass `p_attach_location = true` to snapshot the sender's saved location onto the record. **Does not accept coordinates** — see below. |
-| `update_my_location(p_lat?, p_lng?, p_city?)` | `void` | Sets the caller's coarse home location (onboarding / settings). Call with no arguments to clear it. |
+| `update_my_location(p_lat?, p_lng?)` | `void` | Sets the caller's coarse home location (onboarding / settings). Call with no arguments to clear it. |
 | `add_reaction(p_submission_id, p_kind)` | `integer` | New total reaction count. Reacting twice updates in place. Fails if the record is not in your room. |
 | `get_reactions(p_submission_id)` | `{kind, total}[]` | Submitter only. Counts per kind, no identities, no timestamps. |
 | `get_my_submissions(p_limit?)` | rows | "Records I've sent", with reaction totals. |

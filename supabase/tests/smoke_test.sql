@@ -212,7 +212,7 @@ begin
   -- CHECK 11 — update_my_location() stores a COARSE location
   -- A precise coordinate must never reach disk, even if the client sends one.
   -- ---------------------------------------------------------------------
-  perform public.update_my_location(-37.7987654, 144.9612345, 'Melbourne');
+  perform public.update_my_location(-37.7987654, 144.9612345);
 
   select p.lat, p.lng into v_lat, v_lng
   from public.profiles p where p.id = v_b;
@@ -277,7 +277,7 @@ begin
 
   select count(*)::integer into v_cnt
   from public.profiles
-  where id = v_b and lat is null and lng is null and city is null;
+  where id = v_b and lat is null and lng is null;
 
   if v_cnt <> 1 then
     raise exception 'CHECK 14 FAILED: update_my_location() with no arguments did not clear the location';
