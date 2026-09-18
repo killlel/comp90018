@@ -30,6 +30,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +46,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.vinyl.data.GoogleAuthRepository
 import com.example.vinyl.data.MoodOptions
 import com.example.vinyl.data.MoodTag
@@ -56,6 +58,8 @@ import com.example.vinyl.ui.daily.ArrivedTodayUiState
 import com.example.vinyl.ui.daily.MoodQuestionnaireScreen
 import com.example.vinyl.ui.daily.UnopenedRecordScreen
 import com.example.vinyl.ui.daily.UnopenedRecordUiState
+import com.example.vinyl.ui.location.LocationGateScreen
+import com.example.vinyl.ui.location.LocationViewModel
 import com.example.vinyl.ui.received.ReceivedCardScreen
 import com.example.vinyl.ui.received.ReceivedCardUiState
 import com.example.vinyl.ui.theme.VinylPalette
@@ -77,7 +81,7 @@ class MainActivity : ComponentActivity() {
                 val sessionStatus by Supabase.client.auth.sessionStatus.collectAsState()
 
                 if (sessionStatus is SessionStatus.Authenticated || bypassAuthForTesting) {
-                    VinylApp()
+                    LocationGate { VinylApp() }
                 } else {
                     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                         AuthScreen(
@@ -106,6 +110,42 @@ private sealed class ReceiveFlowStep {
     object ArrivedToday : ReceiveFlowStep()
     data class Unopened(val option: ArrivedRecordOption) : ReceiveFlowStep()
     data class Opened(val option: ArrivedRecordOption) : ReceiveFlowStep()
+}
+
+/**
+ * Shows the location gate once per launch when the signed-in user has no stored location, then
+ * hands over to the app.
+ *
+ * Temporary home. The app has no onboarding flow yet — `profiles.onboarding_completed` exists in
+ * the schema but nothing on the client sets it — so the location ask lives here on its own. When
+ * onboarding is built, fold LocationGateScreen into it as a step and delete this wrapper.
+ */
+@Composable
+private fun LocationGate(content: @Composable () -> Unit) {
+    val locationViewModel: LocationViewModel = viewModel()
+    val locationState by locationViewModel.uiState.collectAsState()
+
+    var dismissed by rememberSaveable { mutableStateOf(false) }
+
+    // isLoading also goes true while the gate is resolving a fix, so latch the first completed
+    // profile read instead — otherwise the gate would blink out mid-request.
+    var profileLoaded by remember { mutableStateOf(false) }
+    LaunchedEffect(locationState.isLoading) {
+        if (!locationState.isLoading) profileLoaded = true
+    }
+
+    when {
+        // Blank rather than a spinner: the read is usually a few hundred ms, and a spinner that
+        // fast reads as a flicker.
+        !profileLoaded -> Box(Modifier.fillMaxSize().background(VinylPalette.Background))
+
+        !dismissed && !locationState.hasLocation -> LocationGateScreen(
+            onDone = { dismissed = true },
+            viewModel = locationViewModel,
+        )
+
+        else -> content()
+    }
 }
 
 @Composable

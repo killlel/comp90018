@@ -3,7 +3,20 @@
     xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Sprint 2 (GPS): coarse is what the feature actually needs, since we only ever keep the
+         city centroid. Fine is requested alongside it so the system dialog offers the precise
+         option; the app works fine if the user grants approximate only. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+    <!-- Declared explicitly as optional: a location permission otherwise implies a required
+         hardware feature, which would hide the app from devices without GPS. -->
+    <uses-feature
+        android:name="android.hardware.location"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.location.gps"
+        android:required="false" />
 
     <application
         android:allowBackup="true"
