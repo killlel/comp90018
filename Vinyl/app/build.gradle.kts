@@ -80,6 +80,9 @@ dependencies {
     implementation(libs.supabase.postgrest)
     implementation(libs.supabase.auth)
 
+    // Location (Sprint 2): FusedLocationProviderClient
+    implementation(libs.play.services.location)
+
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play.services.auth)
     implementation(libs.google.id)
