@@ -131,6 +131,21 @@ the onboarding answers, the Sprint 3 settings blob, and the Google name/avatar
 **for the owner's own settings screen only**. Readable and writable by its owner
 and by nobody else.
 
+Since Sprint 2 it also holds the user's coarse home location — `lat`, `lng`
+(city centroid, rounded to 2dp on write), `city`, and `location_updated_at`.
+Set it with `update_my_location()`. There is no continuous tracking: the value
+changes only when the user asks it to, and a submission takes a *snapshot* of it
+at send time so old records don't move when the sender changes city.
+
+### `genres`
+The controlled vocabulary for `submissions.genres` — `slug` (stored/matched),
+`label` (displayed), `sort_order`, `is_active`. **Read this instead of
+hardcoding a genre list**; adding one is an `INSERT`, not a migration plus an
+app release. Readable by any signed-in user, writable by nobody through the API.
+
+Note this governs the genres a *user picks*. It does not apply to
+`tracks.genres`, which is raw iTunes metadata and stays unvalidated.
+
 ### `tracks`
 Song metadata cached from the music API, deduplicated on
 `(provider, provider_track_id)`. Readable by any signed-in user (it is public
@@ -179,7 +194,8 @@ passed **by name**, so anything with a default can be omitted.
 | `request_recommendations(p_mood, p_context?, p_limit?)` | `room_card[]` | Runs the matchmaker and persists the result. Never returns your own songs or ones you have already seen. An empty pool returns zero rows — that is a normal state, not an error. |
 | `get_room(p_limit?)` | `room_card[]` | Replays the current room. Call this on app start instead of re-matching. |
 | `get_shelf(p_limit?)` | `room_card[]` | Saved records, newest save first. |
-| `submit_song(...)` | `uuid` | Upserts the track and creates the submission in one call. Required: `p_provider`, `p_provider_track_id`, `p_title`, `p_artist`, `p_message`, `p_mood`. |
+| `submit_song(...)` | `uuid` | Upserts the track and creates the submission in one call. Required: `p_provider`, `p_provider_track_id`, `p_title`, `p_artist`, `p_message`, `p_mood`. Pass `p_attach_location = true` to snapshot the sender's saved location onto the record. **Does not accept coordinates** — see below. |
+| `update_my_location(p_lat?, p_lng?, p_city?)` | `void` | Sets the caller's coarse home location (onboarding / settings). Call with no arguments to clear it. |
 | `add_reaction(p_submission_id, p_kind)` | `integer` | New total reaction count. Reacting twice updates in place. Fails if the record is not in your room. |
 | `get_reactions(p_submission_id)` | `{kind, total}[]` | Submitter only. Counts per kind, no identities, no timestamps. |
 | `get_my_submissions(p_limit?)` | rows | "Records I've sent", with reaction totals. |
@@ -322,6 +338,11 @@ of `20260904000003_functions.sql`.
   migration backfills accounts that already signed in — including yours. Nothing
   to add on the auth side. `profiles.settings` (jsonb) is where the Sprint 3
   settings screen should live.
+- **Natalie — breaking change (Sprint 2):** `submit_song()` no longer accepts
+  `p_lat` / `p_lng`. In `SubmissionRepository.kt`, drop those two `put(...)`
+  lines and send `put("p_attach_location", attachLocation)` instead. The server
+  copies the location from the sender's profile, so the client never handles
+  coordinates. `WriteCardViewModel` already tracks `state.attachLocation`.
 - **Natalie:** submission is one call, `submit_song()`. Validate a non-empty
   message and a selected song client-side for a good error message; the database
   rejects both anyway, so nothing bad gets stored if a check is missed.

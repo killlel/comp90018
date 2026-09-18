@@ -33,6 +33,8 @@ declare
   v_cnt      integer;
   v_total    integer;
   v_leaked   integer;
+  v_lat      double precision;
+  v_lng      double precision;
 begin
   -- ---------------------------------------------------------------------
   -- Setup (as the migration role — RLS is bypassed here on purpose)
@@ -207,7 +209,23 @@ begin
   raise notice 'CHECK 10 ok — submitter sees % anonymous reaction(s)', v_total;
 
   -- ---------------------------------------------------------------------
-  -- CHECK 11 — submitting a song end to end
+  -- CHECK 11 — update_my_location() stores a COARSE location
+  -- A precise coordinate must never reach disk, even if the client sends one.
+  -- ---------------------------------------------------------------------
+  perform public.update_my_location(-37.7987654, 144.9612345, 'Melbourne');
+
+  select p.lat, p.lng into v_lat, v_lng
+  from public.profiles p where p.id = v_b;
+
+  if v_lat <> -37.80 or v_lng <> 144.96 then
+    raise exception 'CHECK 11 FAILED: profile location stored as %,% — expected 2dp rounding', v_lat, v_lng;
+  end if;
+  raise notice 'CHECK 11 ok — update_my_location() rounded %,% to %,%',
+    -37.7987654, 144.9612345, v_lat, v_lng;
+
+  -- ---------------------------------------------------------------------
+  -- CHECK 12 — submit_song() snapshots location from the sender's PROFILE
+  -- The client never sends coordinates, so it cannot misreport them.
   -- ---------------------------------------------------------------------
   select public.submit_song(
     p_provider          => 'manual',
@@ -217,8 +235,8 @@ begin
     p_message           => 'Written by the smoke test, rolled back immediately.',
     p_mood              => 'hopeful'::public.mood_tag,
     p_context           => 'studying'::public.context_tag,
-    p_lat               => -37.7987654,
-    p_lng               => 144.9612345
+    p_genres            => array['rock', 'shoegaze'],
+    p_attach_location   => true
   ) into v_sub;
 
   select count(*)::integer into v_cnt
@@ -226,26 +244,90 @@ begin
   where id = v_sub and lat = -37.80 and lng = 144.96;
 
   if v_cnt <> 1 then
-    raise exception 'CHECK 11 FAILED: submit_song() did not store a coarse (2dp) location';
+    raise exception 'CHECK 12 FAILED: submission did not inherit the profile location';
   end if;
-  raise notice 'CHECK 11 ok — submit_song() stored submission % with rounded coordinates', v_sub;
+  raise notice 'CHECK 12 ok — submission % snapshotted the sender profile location', v_sub;
 
   -- ---------------------------------------------------------------------
-  -- CHECK 12 — validation rejects a blank message
+  -- CHECK 13 — opting out leaves the record with no location
+  -- ---------------------------------------------------------------------
+  select public.submit_song(
+    p_provider          => 'manual',
+    p_provider_track_id => 'smoke-test-track-3',
+    p_title             => 'No Location',
+    p_artist            => 'Smoke Test',
+    p_message           => 'Sent without a location.',
+    p_mood              => 'calm'::public.mood_tag,
+    p_attach_location   => false
+  ) into v_sub;
+
+  select count(*)::integer into v_cnt
+  from public.submissions
+  where id = v_sub and lat is null and lng is null;
+
+  if v_cnt <> 1 then
+    raise exception 'CHECK 13 FAILED: location was attached despite p_attach_location => false';
+  end if;
+  raise notice 'CHECK 13 ok — opting out stored no coordinates';
+
+  -- ---------------------------------------------------------------------
+  -- CHECK 14 — clearing location works (user revokes permission)
+  -- ---------------------------------------------------------------------
+  perform public.update_my_location();
+
+  select count(*)::integer into v_cnt
+  from public.profiles
+  where id = v_b and lat is null and lng is null and city is null;
+
+  if v_cnt <> 1 then
+    raise exception 'CHECK 14 FAILED: update_my_location() with no arguments did not clear the location';
+  end if;
+  raise notice 'CHECK 14 ok — location cleared on request';
+
+  -- ---------------------------------------------------------------------
+  -- CHECK 15 — the genre vocabulary is readable and non-empty
+  -- ---------------------------------------------------------------------
+  select count(*)::integer into v_cnt from public.genres where is_active;
+  if v_cnt < 1 then
+    raise exception 'CHECK 15 FAILED: public.genres is empty or unreadable';
+  end if;
+  raise notice 'CHECK 15 ok — % active genres readable by the app', v_cnt;
+
+  -- ---------------------------------------------------------------------
+  -- CHECK 16 — an unknown genre is rejected
   -- ---------------------------------------------------------------------
   begin
     perform public.submit_song(
       p_provider          => 'manual',
-      p_provider_track_id => 'smoke-test-track-2',
+      p_provider_track_id => 'smoke-test-track-4',
+      p_title             => 'Bad Genre',
+      p_artist            => 'Smoke Test',
+      p_message           => 'This should not be stored.',
+      p_mood              => 'happy'::public.mood_tag,
+      p_genres            => array['definitely_not_a_genre']
+    );
+    raise exception 'CHECK 16 FAILED: an unknown genre was accepted';
+  exception
+    when check_violation then
+      raise notice 'CHECK 16 ok — unknown genre rejected';
+  end;
+
+  -- ---------------------------------------------------------------------
+  -- CHECK 17 — validation rejects a blank message
+  -- ---------------------------------------------------------------------
+  begin
+    perform public.submit_song(
+      p_provider          => 'manual',
+      p_provider_track_id => 'smoke-test-track-5',
       p_title             => 'No Message',
       p_artist            => 'Smoke Test',
       p_message           => '   ',
       p_mood              => 'happy'::public.mood_tag
     );
-    raise exception 'CHECK 12 FAILED: an empty message was accepted';
+    raise exception 'CHECK 17 FAILED: an empty message was accepted';
   exception
     when invalid_parameter_value then
-      raise notice 'CHECK 12 ok — empty message rejected';
+      raise notice 'CHECK 17 ok — empty message rejected';
   end;
 
   execute 'reset role';

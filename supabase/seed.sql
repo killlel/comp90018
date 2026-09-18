@@ -63,7 +63,7 @@ begin
     ('seed-11', 'Blinding Lights',       'The Weeknd',         'After Hours',                  '{pop,synthpop}',     'energetic',  'working_out', 'Non-negotiable last-kilometre song.'),
     ('seed-12', 'Titanium',              'David Guetta',       'Nothing but the Beat',         '{edm,pop}',          'energetic',  'working_out', 'For the set you did not think you had in you.'),
     ('seed-13', 'Since U Been Gone',     'Kelly Clarkson',     'Breakaway',                    '{pop,rock}',         'energetic',  'partying',    'Shout the chorus. That is the instruction.'),
-    ('seed-14', 'Yesterday Once More',   'Carpenters',         'Now & Then',                   '{pop,soft rock}',    'nostalgic',  'relaxing',    'My mum played this every Sunday. Now it is yours.'),
+    ('seed-14', 'Yesterday Once More',   'Carpenters',         'Now & Then',                   '{pop,soft_rock}',    'nostalgic',  'relaxing',    'My mum played this every Sunday. Now it is yours.'),
     ('seed-15', 'The Boys of Summer',    'Don Henley',         'Building the Perfect Beast',   '{rock}',             'nostalgic',  'commuting',   'Summer ending music, even in the middle of winter.'),
     ('seed-16', 'Landslide',             'Fleetwood Mac',      'Fleetwood Mac',                '{rock,folk}',        'nostalgic',  'late_night',  'Hits differently depending on how old you are.'),
     ('seed-17', 'Idioteque',             'Radiohead',          'Kid A',                        '{electronic}',       'anxious',    'studying',    'Anxiety, but with a beat you can work to.'),
