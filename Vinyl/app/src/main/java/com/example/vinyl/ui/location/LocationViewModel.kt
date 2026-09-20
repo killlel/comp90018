@@ -41,6 +41,10 @@ data class LocationUiState(
     val isLoading: Boolean = true,
     val lat: Double? = null,
     val lng: Double? = null,
+    /**
+     * Display only, and not stored anywhere — `profiles` keeps the centroid alone. Set when a
+     * location is captured, or on demand via [LocationViewModel.loadCityLabel].
+     */
     val city: String? = null,
     val status: LocationStatus = LocationStatus.Idle,
 ) {
@@ -79,18 +83,27 @@ class LocationViewModel @JvmOverloads constructor(
             profileRepository.getLocation()
                 .onSuccess { saved ->
                     _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            lat = saved?.lat,
-                            lng = saved?.lng,
-                            city = saved?.city,
-                        )
+                        it.copy(isLoading = false, lat = saved?.lat, lng = saved?.lng)
                     }
                 }
                 .onFailure {
                     // Nothing stored is a normal state, not an error worth surfacing here.
                     _uiState.update { it.copy(isLoading = false) }
                 }
+        }
+    }
+
+    /**
+     * Fills in [LocationUiState.city] for the stored centroid. Costs a geocoder round trip, so
+     * only screens that actually show the city name (Settings) should call it.
+     */
+    fun loadCityLabel() {
+        val state = _uiState.value
+        if (state.city != null || !state.hasLocation) return
+
+        viewModelScope.launch {
+            val label = locationRepository.cityFor(state.lat!!, state.lng!!)
+            if (label != null) _uiState.update { it.copy(city = label) }
         }
     }
 
@@ -117,7 +130,7 @@ class LocationViewModel @JvmOverloads constructor(
     fun clearStatus() = _uiState.update { it.copy(status = LocationStatus.Idle) }
 
     private suspend fun save(result: LocationResult.Success) {
-        profileRepository.saveLocation(result.lat, result.lng, result.city)
+        profileRepository.saveLocation(result.lat, result.lng)
             .onSuccess {
                 _uiState.update {
                     it.copy(

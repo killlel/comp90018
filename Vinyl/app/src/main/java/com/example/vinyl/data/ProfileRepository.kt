@@ -16,12 +16,14 @@ import java.util.TimeZone
  *
  * [lat]/[lng] are a city centroid, never a device fix — see LocationRepository for the contract
  * that guarantees it. `profiles` is owner-only under RLS, so this is never another user's data.
+ *
+ * No city name: by design the centroid is the only thing stored, and a display name is derived
+ * from it when a screen needs one (LocationRepository.cityFor).
  */
 @Serializable
 data class ProfileLocation(
     val lat: Double? = null,
     val lng: Double? = null,
-    val city: String? = null,
 ) {
     val hasLocation: Boolean get() = lat != null && lng != null
 }
@@ -32,7 +34,6 @@ private data class ProfileLocationUpdate(
     val id: String,
     val lat: Double,
     val lng: Double,
-    val city: String,
     @SerialName("location_updated_at") val locationUpdatedAt: String,
 )
 
@@ -47,7 +48,7 @@ open class ProfileRepository(
         val uid = requireUserId()
         supabase.postgrest
             .from(TABLE)
-            .select(Columns.list("lat", "lng", "city")) {
+            .select(Columns.list("lat", "lng")) {
                 filter { eq("id", uid) }
             }
             .decodeSingleOrNull<ProfileLocation>()
@@ -58,12 +59,11 @@ open class ProfileRepository(
      * update against a missing row would silently affect nothing. PostgREST only touches the
      * columns sent here, so display_name and friends survive untouched.
      */
-    open suspend fun saveLocation(lat: Double, lng: Double, city: String): Result<Unit> = runCatching {
+    open suspend fun saveLocation(lat: Double, lng: Double): Result<Unit> = runCatching {
         val row = ProfileLocationUpdate(
             id = requireUserId(),
             lat = lat,
             lng = lng,
-            city = city,
             locationUpdatedAt = nowIso8601(),
         )
         supabase.postgrest.from(TABLE).upsert(row)

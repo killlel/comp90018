@@ -75,6 +75,18 @@ class LocationRepository(private val context: Context) {
         return toCityCentroid(fix.latitude, fix.longitude)
     }
 
+    /**
+     * The city name for a centroid already stored on the profile, for display only.
+     *
+     * Needs no permission — the coordinates are ones we saved ourselves, and they're a city
+     * centre rather than anyone's position. Returns null when offline or unresolvable; a screen
+     * that can't name the city just shows the plainer copy.
+     */
+    suspend fun cityFor(lat: Double, lng: Double): String? {
+        if (!Geocoder.isPresent()) return null
+        return Geocoder(context, Locale.getDefault()).reverse(lat, lng).firstOrNull()?.cityName()
+    }
+
     private fun isGranted(permission: String): Boolean =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
 
