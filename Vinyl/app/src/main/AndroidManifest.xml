@@ -27,16 +27,33 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Vinyl">
+        <!-- singleTask: the OAuth callback below must be delivered to the *running* activity via
+             onNewIntent. Without it Android starts a second MainActivity and the Compose state,
+             including the auth gate, restarts from scratch. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.Vinyl"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Return leg of the browser sign-in fallback, used when the device has no Google
+                 account for Credential Manager to offer. Must match scheme/host in SupabaseClient. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:host="auth-callback"
+                    android:scheme="com.example.vinyl" />
             </intent-filter>
         </activity>
     </application>

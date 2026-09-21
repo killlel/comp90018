@@ -1,6 +1,8 @@
 package com.example.vinyl
 
+import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -48,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.vinyl.data.GoogleAuthRepository
+import com.example.vinyl.data.GoogleSignInOutcome
 import com.example.vinyl.data.MoodOptions
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.data.Supabase
@@ -66,12 +69,24 @@ import com.example.vinyl.ui.theme.VinylPalette
 import com.example.vinyl.ui.theme.VinylTheme
 import com.example.vinyl.ui.write.WriteCardScreen
 import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.handleDeeplinks
 import io.github.jan.supabase.auth.status.SessionStatus
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+
+    // Set when the auth callback comes back carrying an error instead of a code. Held here rather
+    // than in AuthScreen because the callback arrives at the activity, not at the composition.
+    private var authCallbackError by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Cold-start leg of the browser sign-in fallback: the app was killed while the user was in
+        // the browser, so the callback arrives as the launch intent. handleDeeplinks() ignores
+        // anything that isn't com.example.vinyl://auth-callback, so this is safe on a normal launch.
+        handleAuthDeeplink(intent)
+
         enableEdgeToEdge()
         setContent {
             VinylTheme {
@@ -86,12 +101,54 @@ class MainActivity : ComponentActivity() {
                     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                         AuthScreen(
                             modifier = Modifier.padding(innerPadding),
+                            callbackError = authCallbackError,
+                            onClearCallbackError = { authCallbackError = null },
                             onSkipForTesting = { bypassAuthForTesting = true },
                         )
                     }
                 }
             }
         }
+    }
+
+    // Warm leg, and the common one: MainActivity is launchMode=singleTask, so the callback is
+    // delivered to the running instance instead of starting a second one.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAuthDeeplink(intent)
+    }
+
+    // Exchanges the PKCE code in the callback for a session. On success the session lands in
+    // Supabase's sessionStatus flow, which the gate in setContent is already collecting, so the
+    // app switches itself out of AuthScreen with no further wiring.
+    private fun handleAuthDeeplink(intent: Intent) {
+        val data = intent.data ?: return
+        val config = Supabase.client.auth.config
+        if (data.scheme != config.scheme || data.host != config.host) return
+
+        // handleDeeplinks() drops an error-carrying callback silently, which reads as "nothing
+        // happened" on screen. Read the error params ourselves before handing the intent over.
+        val error = data.getQueryParameter("error_description")
+            ?: data.getQueryParameter("error")
+        if (error != null) {
+            Log.e(TAG, "Auth callback returned an error: $error")
+            authCallbackError = error
+            return
+        }
+
+        authCallbackError = null
+        Supabase.client.handleDeeplinks(
+            intent = intent,
+            onError = {
+                Log.e(TAG, "Auth deeplink exchange failed", it)
+                authCallbackError = it.message ?: "Couldn't finish signing in."
+            },
+        )
+    }
+
+    private companion object {
+        const val TAG = "MainActivity"
     }
 }
 
@@ -376,6 +433,8 @@ private fun PlaceholderTab(label: String) {
 @Composable
 private fun AuthScreen(
     modifier: Modifier = Modifier,
+    callbackError: String? = null,
+    onClearCallbackError: () -> Unit = {},
     onSkipForTesting: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -384,6 +443,17 @@ private fun AuthScreen(
     val sessionStatus by Supabase.client.auth.sessionStatus.collectAsState()
     var isSigningIn by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    // Offered after a Credential Manager failure the user might still get past in a browser,
+    // e.g. a misconfigured client ID or a flaky Play Services.
+    var showBrowserFallback by remember { mutableStateOf(false) }
+
+    // Returns as soon as the Custom Tab opens; the session arrives later through the
+    // auth-callback deeplink, which flips sessionStatus and dismisses this screen.
+    val startBrowserSignIn: suspend () -> Unit = {
+        googleAuthRepository.signInWithBrowser()
+            .onFailure { errorMessage = it.message ?: "Couldn't open the browser." }
+        Unit
+    }
 
     Column(
         modifier = modifier.fillMaxSize(),
@@ -404,15 +474,39 @@ private fun AuthScreen(
                     Button(onClick = {
                         scope.launch {
                             isSigningIn = true
-                            errorMessage = googleAuthRepository.signIn()
-                                .exceptionOrNull()?.message
+                            errorMessage = null
+                            showBrowserFallback = false
+                            onClearCallbackError()
+                            when (val outcome = googleAuthRepository.signIn()) {
+                                GoogleSignInOutcome.Success,
+                                GoogleSignInOutcome.Cancelled -> Unit
+                                // The device has no Google account for the bottom sheet to offer,
+                                // and the user can't fix that from in here, so don't make them tap
+                                // a second button: go straight to the browser.
+                                GoogleSignInOutcome.NoDeviceAccount -> startBrowserSignIn()
+                                is GoogleSignInOutcome.Failed -> {
+                                    errorMessage = outcome.message
+                                    showBrowserFallback = true
+                                }
+                            }
                             isSigningIn = false
                         }
                     }) {
                         Text("Sign in with Google")
                     }
+
+                    // Also offered after a failed callback: the browser round-trip is the only
+                    // thing the user can retry from here.
+                    if (showBrowserFallback || callbackError != null) {
+                        TextButton(onClick = {
+                            onClearCallbackError()
+                            scope.launch { startBrowserSignIn() }
+                        }) {
+                            Text("Sign in with a browser instead")
+                        }
+                    }
                 }
-                errorMessage?.let { Text(it) }
+                (errorMessage ?: callbackError)?.let { Text(it) }
 
                 // TESTING ONLY — bypasses sign-in entirely. Remove before submitting/shipping.
                 TextButton(onClick = onSkipForTesting) {
