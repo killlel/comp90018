@@ -63,6 +63,7 @@ erDiagram
     profiles       ||--o{  reactions       : sends
     submissions    ||--o{  reactions       : receives
     genres         }o..o{  submissions     : "validated against (trigger, not FK)"
+    genres         }o..o{  profiles        : "validated against (trigger, not FK)"
 
     auth_users {
         uuid id PK "managed by Supabase Auth"
@@ -72,8 +73,7 @@ erDiagram
         text        display_name         "private to owner"
         text        avatar_url           "private to owner"
         boolean     onboarding_completed
-        enum        default_mood
-        enum        default_context
+        text_       favorite_genres      "null=unanswered, {}=everything"
         jsonb       settings
         float8      lat                  "coarse, rounded to 2dp"
         float8      lng                  "coarse, rounded to 2dp"
@@ -137,9 +137,27 @@ erDiagram
 
 ### `profiles`
 One row per account, created automatically by a trigger on `auth.users`. Holds
-the onboarding answers, the Sprint 3 settings blob, and the Google name/avatar
-**for the owner's own settings screen only**. Readable and writable by its owner
-and by nobody else.
+whether onboarding is done, the free-form `settings` blob, and the Google
+name/avatar **for the owner's own settings screen only**. Readable and writable
+by its owner and by nobody else.
+
+There are no `default_mood` / `default_context` columns. Mood is asked fresh
+each day — that question *is* the ritual — and context is intended to come from
+the accelerometer rather than a remembered preference.
+
+`favorite_genres` is the one lasting taste preference, set at onboarding. It
+holds slugs from `genres` and carries three states in a single nullable column:
+
+| Value | Means |
+| --- | --- |
+| `null` | hasn't answered yet |
+| `'{}'` | answered "I listen to everything" |
+| `'{jazz,soul}'` | answered with specific genres |
+
+A trigger rejects any slug not in `genres`, exactly as it does for
+`submissions.genres` — so `'K-pop'` fails and `'k_pop'` succeeds. Both `null`
+and `'{}'` mean "no genre filter" when matching; the difference matters only for
+what the profile screen displays.
 
 Since Sprint 2 it also holds the user's coarse home location — `lat`, `lng`
 (a city centroid, rounded to 2dp on write) and `location_updated_at`. Set it

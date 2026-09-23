@@ -330,6 +330,44 @@ begin
       raise notice 'CHECK 17 ok — empty message rejected';
   end;
 
+  -- ---------------------------------------------------------------------
+  -- CHECK 18 — favorite_genres accepts the three legal states
+  -- ---------------------------------------------------------------------
+  update public.profiles set favorite_genres = array['jazz','soul'] where id = v_b;
+  update public.profiles set favorite_genres = '{}'                  where id = v_b;
+  update public.profiles set favorite_genres = null                  where id = v_b;
+
+  select count(*)::integer into v_cnt
+  from public.profiles where id = v_b and favorite_genres is null;
+
+  if v_cnt <> 1 then
+    raise exception 'CHECK 18 FAILED: favorite_genres did not round-trip its three states';
+  end if;
+  raise notice 'CHECK 18 ok — favorite_genres accepts null, {} and a slug list';
+
+  -- ---------------------------------------------------------------------
+  -- CHECK 19 — a display label is rejected, so the column cannot drift
+  --            from the vocabulary the matchmaker reads
+  -- ---------------------------------------------------------------------
+  begin
+    update public.profiles set favorite_genres = array['K-pop'] where id = v_b;
+    raise exception 'CHECK 19 FAILED: a display label was accepted as a genre slug';
+  exception
+    when check_violation then
+      raise notice 'CHECK 19 ok — display label rejected, slugs only';
+  end;
+
+  -- ---------------------------------------------------------------------
+  -- CHECK 20 — another user's taste is not readable
+  -- ---------------------------------------------------------------------
+  select count(*)::integer into v_cnt
+  from public.profiles where id <> v_b;
+
+  if v_cnt <> 0 then
+    raise exception 'CHECK 20 FAILED: % other profile(s) readable — taste is not private', v_cnt;
+  end if;
+  raise notice 'CHECK 20 ok — favorite_genres stays private to its owner';
+
   execute 'reset role';
   raise notice '=== ALL CHECKS PASSED ===';
 end $$;
