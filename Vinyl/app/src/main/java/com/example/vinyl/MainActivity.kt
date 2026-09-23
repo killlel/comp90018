@@ -83,6 +83,7 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.handleDeeplinks
 import io.github.jan.supabase.auth.status.SessionStatus
 import kotlinx.coroutines.launch
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 class MainActivity : ComponentActivity() {
 
@@ -229,32 +230,41 @@ private fun OnboardingGate(useStubData: Boolean = false, content: @Composable ()
     }
 }
 
-private fun LocationGate(content: @Composable () -> Unit) {
-    val locationViewModel: LocationViewModel = viewModel()
-    val locationState by locationViewModel.uiState.collectAsState()
-
-    // Decided once, from the first completed profile read, and never again this launch. Deciding
-    // it live from hasLocation meant that removing a location in Settings threw the user onto
-    // this gate mid-session — straight after they'd said they didn't want one. Device testing
-    // caught that. Null = the first read hasn't finished yet.
-    var showGate by rememberSaveable { mutableStateOf<Boolean?>(null) }
-    LaunchedEffect(locationState.isLoading) {
-        if (!locationState.isLoading && showGate == null) showGate = !locationState.hasLocation
-    }
-
-    when (showGate) {
-        // Blank rather than a spinner: the read is usually a few hundred ms, and a spinner that
-        // fast reads as a flicker.
-        null -> Box(Modifier.fillMaxSize().background(VinylPalette.Background))
-
-        true -> LocationGateScreen(
-            onDone = { showGate = false },
-            viewModel = locationViewModel,
-        )
-
-        false -> content()
-    }
-}
+/**
+ * Shows the location gate once per launch when the signed-in user has no stored location, then
+ * hands over to the app.
+ *
+ * Temporary home. The app has no onboarding flow yet — `profiles.onboarding_completed` exists in
+ * the schema but nothing on the client sets it — so the location ask lives here on its own. When
+ * onboarding is built, fold LocationGateScreen into it as a step and delete this wrapper.
+ */
+//@Composable
+//private fun LocationGate(content: @Composable () -> Unit) {
+//    val locationViewModel: LocationViewModel = viewModel()
+//    val locationState by locationViewModel.uiState.collectAsState()
+//
+//    // Decided once, from the first completed profile read, and never again this launch. Deciding
+//    // it live from hasLocation meant that removing a location in Settings threw the user onto
+//    // this gate mid-session — straight after they'd said they didn't want one. Device testing
+//    // caught that. Null = the first read hasn't finished yet.
+//    var showGate by rememberSaveable { mutableStateOf<Boolean?>(null) }
+//    LaunchedEffect(locationState.isLoading) {
+//        if (!locationState.isLoading && showGate == null) showGate = !locationState.hasLocation
+//    }
+//
+//    when (showGate) {
+//        // Blank rather than a spinner: the read is usually a few hundred ms, and a spinner that
+//        // fast reads as a flicker.
+//        null -> Box(Modifier.fillMaxSize().background(VinylPalette.Background))
+//
+//        true -> LocationGateScreen(
+//            onDone = { showGate = false },
+//            viewModel = locationViewModel,
+//        )
+//
+//        false -> content()
+//    }
+//}
 
 @Composable
 private fun VinylApp() {
@@ -266,7 +276,7 @@ private fun VinylApp() {
 
     val roomViewModel: RoomViewModel = viewModel()
 
-    // Same activity-scoped instance the gate and the settings screen use.
+    // Activity-scoped, so it's the same instance the onboarding pager and settings screen use
     val locationViewModel: LocationViewModel = viewModel()
     val locationState by locationViewModel.uiState.collectAsState()
 
