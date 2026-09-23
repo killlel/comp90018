@@ -85,7 +85,14 @@ class WriteCardViewModel(
             ).onSuccess { id ->
                 _uiState.update { WriteCardUiState(submittedId = id) } // reset for next letter
             }.onFailure { e ->
-                _uiState.update { it.copy(isSubmitting = false, submissionError = e.message) }
+                // Not e.message: it includes the backend URL, which would land on screen.
+                Log.e("WriteCardVM", "submit failed", e)
+                _uiState.update {
+                    it.copy(
+                        isSubmitting = false,
+                        submissionError = "Couldn't send your record. Check your connection, then try again.",
+                    )
+                }
             }
         }
     }

@@ -1,10 +1,9 @@
 package com.example.vinyl.ui.location
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,13 +18,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -48,39 +42,25 @@ import com.example.vinyl.ui.theme.VinylTheme
  * attach a location to a letter, and can't be shown a distance, until they set one in Settings.
  */
 @Composable
-fun LocationGateScreen(
-    onDone: () -> Unit,
-    modifier: Modifier = Modifier,
-    viewModel: LocationViewModel = viewModel(),
-) {
+fun LocationGateScreen(onDone: () -> Unit, modifier: Modifier = Modifier, viewModel: LocationViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsState()
-    val context = LocalContext.current
-
-    // Survives rotation so a denial doesn't look like a fresh first ask after turning the phone.
-    var hasAsked by rememberSaveable { mutableStateOf(false) }
-
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions(),
-    ) {
-        // Ignore the result map and re-read the real permission state: granting coarse only is a
-        // perfectly good outcome, and captureAndSave() already reports denial as a status.
-        hasAsked = true
-        viewModel.captureAndSave()
-    }
+    val permission = rememberLocationPermissionRequest(
+        hasPermission = viewModel::hasPermission,
+        onAnswered = viewModel::captureAndSave,
+    )
 
     LaunchedEffect(state.status) {
         if (state.status is LocationStatus.Saved) onDone()
     }
 
-    val permanentlyDenied = remember(state.status, hasAsked) {
-        state.status is LocationStatus.PermissionDenied && context.isLocationPermanentlyDenied(hasAsked)
-    }
+    // Only the denial branch cares; any other status means the dialog isn't the problem.
+    val permanentlyDenied = permission.permanentlyDenied && state.status is LocationStatus.PermissionDenied
 
     LocationGateContent(
         state = state,
         permanentlyDenied = permanentlyDenied,
         onPrimary = {
-            if (permanentlyDenied) context.openAppSettings() else launcher.launch(LOCATION_PERMISSIONS)
+            permission.request()
         },
         onSkip = onDone,
         modifier = modifier,
@@ -115,7 +95,7 @@ private fun LocationGateContent(
         Text(
             text = "Letters travel better with a sense of distance. " +
                 "Vinyl shows the person you write to roughly how far away you are — " +
-                "\"12 km away\", never where you actually are.",
+                "\"200+ km away\", never where you actually are.",
             color = VinylPalette.TextMuted,
             fontSize = 15.sp,
             textAlign = TextAlign.Center,
@@ -143,11 +123,11 @@ private fun LocationGateContent(
             )
         }
 
+        // One gap above whichever of spinner or buttons is showing, so they sit in the same place.
+        Spacer(modifier = Modifier.height(32.dp))
+
         if (state.isLoading) {
-            CircularProgressIndicator(
-                color = VinylPalette.TealAccent,
-                modifier = Modifier.padding(top = 32.dp),
-            )
+            CircularProgressIndicator(color = VinylPalette.TealAccent)
         } else {
             Button(
                 onClick = onPrimary,
@@ -191,11 +171,11 @@ private fun statusMessage(status: LocationStatus, permanentlyDenied: Boolean): S
     LocationStatus.Unavailable ->
         "Couldn't get a location. Check that location is switched on, then try again."
 
-    LocationStatus.GeocodeFailed ->
-        "Couldn't work out your city. Check your connection, then try again."
+    LocationStatus.CityUnknown ->
+        "Couldn't work out your city. Try again in a moment."
 
-    is LocationStatus.SaveFailed ->
-        "Couldn't save your location. ${status.message ?: "Try again in a moment."}"
+    LocationStatus.SaveFailed ->
+        "Couldn't save your location. Check your connection, then try again."
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF0D0D0D)

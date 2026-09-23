@@ -2,6 +2,7 @@ package com.example.vinyl
 
 import android.content.Intent
 import android.os.Bundle
+import androidx.activity.compose.BackHandler
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -227,7 +228,7 @@ private fun VinylApp() {
     val locationState by locationViewModel.uiState.collectAsState()
 
     // Resolves the city name for the stored centroid once it's loaded. No-op when it's already
-    // known or nothing is stored, so this costs a geocoder call at most once per launch.
+    // known or nothing is stored, so the city list is searched at most once per launch.
     LaunchedEffect(locationState.hasLocation) { locationViewModel.loadCityLabel() }
     var dailyMood by remember { mutableStateOf<MoodTag?>(null) }
     var dailyGenres by remember { mutableStateOf(setOf<String>()) }
@@ -294,6 +295,11 @@ private fun VinylApp() {
 
     // Settings sits above the bottom bar like the receive flow, with the location detail
     // layered over it so backing out lands on the settings list rather than the app.
+    // These are overlays, not navigation destinations, so the system back gesture doesn't know
+    // about them — without these it closes the whole app. Mutually exclusive, detail first.
+    BackHandler(enabled = showLocationSettings) { showLocationSettings = false }
+    BackHandler(enabled = showSettings && !showLocationSettings) { showSettings = false }
+
     if (showSettings) {
         SettingsScreen(
             locationValue = settingsLocationValue(locationState),
@@ -489,7 +495,7 @@ private fun HomeTab(onOpenReceive: () -> Unit, onOpenSettings: () -> Unit) {
 /** Secondary line under "Location" on the settings list. */
 private fun settingsLocationValue(state: LocationUiState): String? = when {
     !state.hasLocation -> null
-    // Centroid stored but the name hasn't resolved — offline, usually.
+    // Brief: the name resolves from the bundled city list just after the profile loads.
     state.city == null -> "Saved"
     else -> state.city
 }

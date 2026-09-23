@@ -4,15 +4,15 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
 
 /**
  * The location fields of the signed-in user's own profile row.
@@ -24,10 +24,7 @@ import java.util.TimeZone
  * from it when a screen needs one (LocationRepository.cityFor).
  */
 @Serializable
-data class ProfileLocation(
-    val lat: Double? = null,
-    val lng: Double? = null,
-) {
+data class ProfileLocation(val lat: Double? = null, val lng: Double? = null) {
     val hasLocation: Boolean get() = lat != null && lng != null
 }
 
@@ -40,9 +37,7 @@ private data class ProfileLocationUpdate(
     @SerialName("location_updated_at") val locationUpdatedAt: String,
 )
 
-open class ProfileRepository(
-    private val supabase: SupabaseClient = Supabase.client,
-) {
+open class ProfileRepository(private val supabase: SupabaseClient = Supabase.client) {
     /**
      * The current user's stored location, or null if there's no profile row yet.
      * A signed-out caller is a failure, not an empty result — nothing should be asking.
@@ -86,9 +81,8 @@ open class ProfileRepository(
         supabase.postgrest.from(TABLE).update(nulls) { filter { eq("id", uid) } }
     }.map { }
 
-    private fun requireUserId(): String =
-        supabase.auth.currentUserOrNull()?.id
-            ?: error("No signed-in user; profile location is unavailable")
+    private fun requireUserId(): String = supabase.auth.currentUserOrNull()?.id
+        ?: error("No signed-in user; profile location is unavailable")
 
     private companion object {
         const val TABLE = "profiles"
@@ -97,9 +91,8 @@ open class ProfileRepository(
          * timestamptz as ISO-8601 UTC. SimpleDateFormat rather than java.time because minSdk is
          * 24 and core library desugaring isn't enabled on this module.
          */
-        fun nowIso8601(): String =
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
-                .apply { timeZone = TimeZone.getTimeZone("UTC") }
-                .format(Date())
+        fun nowIso8601(): String = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+            .apply { timeZone = TimeZone.getTimeZone("UTC") }
+            .format(Date())
     }
 }

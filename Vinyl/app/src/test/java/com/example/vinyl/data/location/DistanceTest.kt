@@ -39,25 +39,35 @@ class DistanceTest {
     }
 
     @Test
-    fun `sub-kilometre reads as less than one`() {
-        assertEquals("< 1 km", Distance.formatDistance(0.0))
-        assertEquals("< 1 km", Distance.formatDistance(0.4))
-        assertEquals("< 1 km", Distance.formatDistance(0.999))
+    fun `close range is banded under 20, 50 and 100`() {
+        assertEquals("< 20 km", Distance.formatDistance(0.0))
+        assertEquals("< 20 km", Distance.formatDistance(19.99))
+        assertEquals("< 50 km", Distance.formatDistance(20.0))
+        assertEquals("< 50 km", Distance.formatDistance(49.99))
+        assertEquals("< 100 km", Distance.formatDistance(50.0))
+        assertEquals("< 100 km", Distance.formatDistance(99.99))
     }
 
     @Test
-    fun `whole kilometres are rounded and grouped`() {
-        assertEquals("1 km", Distance.formatDistance(1.0))
-        assertEquals("12 km", Distance.formatDistance(12.4))
-        assertEquals("13 km", Distance.formatDistance(12.5))
-        assertEquals("713 km", Distance.formatDistance(713.2))
-        assertEquals("1,340 km", Distance.formatDistance(1340.0))
+    fun `hundred to two hundred fills the gap as 100 plus`() {
+        assertEquals("100+ km", Distance.formatDistance(100.0))
+        assertEquals("100+ km", Distance.formatDistance(199.99))
     }
 
     @Test
-    fun `far distances are banded`() {
-        assertEquals("3,000+ km", Distance.formatDistance(3000.0))
-        assertEquals("3,000+ km", Distance.formatDistance(12000.0))
+    fun `longer range is banded by floor`() {
+        assertEquals("200+ km", Distance.formatDistance(200.0))
+        assertEquals("200+ km", Distance.formatDistance(999.99))
+        assertEquals("1000+ km", Distance.formatDistance(1000.0))
+        assertEquals("1000+ km", Distance.formatDistance(1999.99))
+        assertEquals("2000+ km", Distance.formatDistance(2000.0))
+        assertEquals("2000+ km", Distance.formatDistance(2999.99))
+    }
+
+    @Test
+    fun `far distances top out at 3000 plus`() {
+        assertEquals("3000+ km", Distance.formatDistance(3000.0))
+        assertEquals("3000+ km", Distance.formatDistance(20015.0))
     }
 
     @Test
@@ -68,6 +78,6 @@ class DistanceTest {
     @Test
     fun `label helper short-circuits on a missing end`() {
         assertNull(Distance.labelOrNull(null, null, sydneyLat, sydneyLng))
-        assertEquals("713 km", Distance.labelOrNull(melbourneLat, melbourneLng, sydneyLat, sydneyLng))
+        assertEquals("200+ km", Distance.labelOrNull(melbourneLat, melbourneLng, sydneyLat, sydneyLng))
     }
 }

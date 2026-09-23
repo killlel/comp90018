@@ -1,7 +1,5 @@
 package com.example.vinyl.ui.location
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -13,7 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -25,13 +23,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -54,30 +47,23 @@ fun LocationSettingsScreen(
     viewModel: LocationViewModel = viewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
-    val context = LocalContext.current
+    val permission = rememberLocationPermissionRequest(
+        hasPermission = viewModel::hasPermission,
+        onAnswered = viewModel::captureAndSave,
+    )
 
-    var hasAsked by rememberSaveable { mutableStateOf(false) }
-
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions(),
-    ) {
-        hasAsked = true
-        viewModel.captureAndSave()
-    }
-
-    // Only costs a geocoder round trip when there's a centroid and no name for it yet.
+    // No-op once the name is known, so re-entering the screen costs nothing.
     LaunchedEffect(state.hasLocation) { viewModel.loadCityLabel() }
 
-    val permanentlyDenied = remember(state.status, hasAsked) {
-        state.status is LocationStatus.PermissionDenied && context.isLocationPermanentlyDenied(hasAsked)
-    }
+    // Only the denial branch cares; any other status means the dialog isn't the problem.
+    val permanentlyDenied = permission.permanentlyDenied && state.status is LocationStatus.PermissionDenied
 
     LocationSettingsContent(
         state = state,
         permanentlyDenied = permanentlyDenied,
         onBack = onBack,
         onUpdate = {
-            if (permanentlyDenied) context.openAppSettings() else launcher.launch(LOCATION_PERMISSIONS)
+            permission.request()
         },
         onRemove = viewModel::clearLocation,
         modifier = modifier,
@@ -107,7 +93,7 @@ private fun LocationSettingsContent(
         ) {
             IconButton(onClick = onBack) {
                 Icon(
-                    Icons.Filled.ArrowBack,
+                    Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
                     tint = VinylPalette.TextPrimary,
                 )
@@ -140,7 +126,7 @@ private fun LocationSettingsContent(
 
             Text(
                 text = "Letters you send can carry roughly how far away you are — " +
-                    "\"12 km away\", never where you actually are. We save your city, " +
+                    "\"200+ km away\", never where you actually are. We save your city, " +
                     "not your position.",
                 color = VinylPalette.TextMuted,
                 fontSize = 14.sp,
@@ -166,9 +152,9 @@ private fun LocationSettingsContent(
                 Button(
                     onClick = onUpdate,
                     modifier = Modifier
+                        .padding(top = 8.dp)
                         .fillMaxWidth()
-                        .height(52.dp)
-                        .padding(top = 8.dp),
+                        .height(52.dp),
                     shape = RoundedCornerShape(50),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = VinylPalette.TealAccent,
@@ -195,7 +181,7 @@ private fun LocationSettingsContent(
 private fun currentLocationLabel(state: LocationUiState): String = when {
     !state.hasLocation -> "Not set"
     state.city != null -> state.city
-    // Centroid stored but the name couldn't be resolved — offline, usually.
+    // Brief: the name resolves from the bundled city list just after the profile loads.
     else -> "Saved"
 }
 
@@ -222,11 +208,11 @@ private fun statusMessage(status: LocationStatus, permanentlyDenied: Boolean): S
     LocationStatus.Unavailable ->
         "Couldn't get a location. Check that location is switched on, then try again."
 
-    LocationStatus.GeocodeFailed ->
-        "Couldn't work out your city. Check your connection, then try again."
+    LocationStatus.CityUnknown ->
+        "Couldn't work out your city. Try again in a moment."
 
-    is LocationStatus.SaveFailed ->
-        "Couldn't save. ${status.message ?: "Try again in a moment."}"
+    LocationStatus.SaveFailed ->
+        "Couldn't save your location. Check your connection, then try again."
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF0D0D0D)

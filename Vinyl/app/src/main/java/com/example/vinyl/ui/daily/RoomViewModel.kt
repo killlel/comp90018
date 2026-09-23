@@ -18,9 +18,7 @@ data class RoomUiState(
 )
 
 /** Loads the letters behind the Arrived Today picker. */
-class RoomViewModel(
-    private val repository: RoomRepository = RoomRepository(),
-) : ViewModel() {
+class RoomViewModel(private val repository: RoomRepository = RoomRepository()) : ViewModel() {
 
     private val _uiState = MutableStateFlow(RoomUiState())
     val uiState: StateFlow<RoomUiState> = _uiState.asStateFlow()

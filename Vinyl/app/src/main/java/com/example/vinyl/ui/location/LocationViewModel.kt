@@ -1,6 +1,7 @@
 package com.example.vinyl.ui.location
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.vinyl.data.ProfileRepository
@@ -31,11 +32,15 @@ sealed interface LocationStatus {
     /** GPS off, airplane mode, or the fix timed out. Retrying is reasonable. */
     object Unavailable : LocationStatus
 
-    /** Got a fix but couldn't name a city — usually offline. Retrying is reasonable. */
-    object GeocodeFailed : LocationStatus
+    /** Got a fix but couldn't match it to a city. Retrying is reasonable. */
+    object CityUnknown : LocationStatus
 
-    /** The centroid resolved but Supabase rejected the write. */
-    data class SaveFailed(val message: String?) : LocationStatus
+    /**
+     * The centroid resolved but the write didn't land. Carries no message on purpose: the
+     * underlying error includes the backend URL and query string, which device testing showed
+     * ending up on screen. The detail goes to the log instead.
+     */
+    object SaveFailed : LocationStatus
 }
 
 data class LocationUiState(
@@ -97,8 +102,8 @@ class LocationViewModel @JvmOverloads constructor(
     }
 
     /**
-     * Fills in [LocationUiState.city] for the stored centroid. Costs a geocoder round trip, so
-     * only screens that actually show the city name (Settings) should call it.
+     * Fills in [LocationUiState.city] for the stored centroid, from the bundled city list. The
+     * first call loads that list (~100 ms), so it's done on demand rather than at startup.
      */
     fun loadCityLabel() {
         val state = _uiState.value
@@ -124,7 +129,7 @@ class LocationViewModel @JvmOverloads constructor(
                 is LocationResult.Success -> save(result)
                 LocationResult.PermissionDenied -> finish(LocationStatus.PermissionDenied)
                 LocationResult.LocationUnavailable -> finish(LocationStatus.Unavailable)
-                LocationResult.GeocodeFailed -> finish(LocationStatus.GeocodeFailed)
+                LocationResult.CityUnknown -> finish(LocationStatus.CityUnknown)
             }
         }
     }
@@ -148,7 +153,7 @@ class LocationViewModel @JvmOverloads constructor(
                         )
                     }
                 }
-                .onFailure { e -> finish(LocationStatus.SaveFailed(e.message)) }
+                .onFailure { e -> saveFailed(e) }
         }
     }
 
@@ -168,9 +173,17 @@ class LocationViewModel @JvmOverloads constructor(
                     )
                 }
             }
-            .onFailure { e -> finish(LocationStatus.SaveFailed(e.message)) }
+            .onFailure { e -> saveFailed(e) }
     }
 
-    private fun finish(status: LocationStatus) =
-        _uiState.update { it.copy(isLoading = false, status = status) }
+    private fun saveFailed(e: Throwable) {
+        Log.w(TAG, "profile location write failed", e)
+        finish(LocationStatus.SaveFailed)
+    }
+
+    private fun finish(status: LocationStatus) = _uiState.update { it.copy(isLoading = false, status = status) }
+
+    private companion object {
+        const val TAG = "LocationViewModel"
+    }
 }

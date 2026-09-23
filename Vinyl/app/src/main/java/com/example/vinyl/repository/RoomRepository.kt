@@ -49,9 +49,7 @@ data class RoomCard(
  * The recipient side of the letter flow. Wraps the Sprint 1 RPCs, which are all
  * `security definer` and scope everything to `auth.uid()` server-side.
  */
-open class RoomRepository(
-    private val supabase: SupabaseClient = Supabase.client,
-) {
+open class RoomRepository(private val supabase: SupabaseClient = Supabase.client) {
     /** Picks new letters for this mood and records them as delivered. */
     open suspend fun requestRecommendations(
         mood: MoodTag,
