@@ -67,7 +67,7 @@ class WriteCardViewModel(
 
     fun onAttachLocationToggled(attach: Boolean) = _uiState.update { it.copy(attachLocation = attach) }
 
-    fun submit(lat: Double? = null, lng: Double? = null) {
+    fun submit() {
         val state = _uiState.value
         val track = state.selectedTrack ?: return
 
@@ -80,8 +80,7 @@ class WriteCardViewModel(
                 // context is the recipient's listening moment, not something the sender sets
                 context = null,
                 submissionGenres = state.selectedGenres.toList(),
-                lat = if (state.attachLocation) lat else null,
-                lng = if (state.attachLocation) lng else null,
+                attachLocation = state.attachLocation,
             ).onSuccess { id ->
                 _uiState.update { WriteCardUiState(submittedId = id) } // reset for next letter
             }.onFailure { e ->

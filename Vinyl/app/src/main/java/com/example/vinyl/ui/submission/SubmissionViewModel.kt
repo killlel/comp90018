@@ -64,7 +64,7 @@ class SubmissionViewModel(
     fun onMoodChange(mood: MoodTag) = _uiState.update { it.copy(mood = mood) }
     fun onContextChange(context: ContextTag?) = _uiState.update { it.copy(context = context) }
 
-    fun submit(lat: Double? = null, lng: Double? = null) {
+    fun submit(attachLocation: Boolean = false) {
         val state = _uiState.value
         val track = state.selectedTrack
         val mood = state.mood
@@ -81,8 +81,7 @@ class SubmissionViewModel(
                 message = state.message,
                 mood = mood,
                 context = state.context,
-                lat = lat,
-                lng = lng,
+                attachLocation = attachLocation,
             ).onSuccess { id ->
                 _uiState.update { it.copy(isSubmitting = false, submittedId = id) }
             }.onFailure { e ->

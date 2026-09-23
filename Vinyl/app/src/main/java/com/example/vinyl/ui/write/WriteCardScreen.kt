@@ -183,7 +183,7 @@ fun WriteCardScreen(
             onSend = {
                 sendSnapshot = state
                 sendAnimationDone = false
-                viewModel.submit(lat = locationState.lat, lng = locationState.lng)
+                viewModel.submit()
             },
         )
     }

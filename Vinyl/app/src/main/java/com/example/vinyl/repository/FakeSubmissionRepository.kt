@@ -14,7 +14,7 @@ import kotlinx.coroutines.delay
 class FakeSubmissionRepository : SubmissionRepository() {
     override suspend fun submitSong(
         track: Track, message: String, mood: MoodTag?, context: ContextTag?,
-        submissionGenres: List<String>, lat: Double?, lng: Double?,
+        submissionGenres: List<String>, attachLocation: Boolean,
     ): Result<String> {
         delay(500) // simulate network latency so the send animation still has something to wait on
         return Result.success("fake-submission-id")

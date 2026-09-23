@@ -190,26 +190,26 @@ private fun LocationGate(content: @Composable () -> Unit) {
     val locationViewModel: LocationViewModel = viewModel()
     val locationState by locationViewModel.uiState.collectAsState()
 
-    var dismissed by rememberSaveable { mutableStateOf(false) }
-
-    // isLoading also goes true while the gate is resolving a fix, so latch the first completed
-    // profile read instead — otherwise the gate would blink out mid-request.
-    var profileLoaded by remember { mutableStateOf(false) }
+    // Decided once, from the first completed profile read, and never again this launch. Deciding
+    // it live from hasLocation meant that removing a location in Settings threw the user onto
+    // this gate mid-session — straight after they'd said they didn't want one. Device testing
+    // caught that. Null = the first read hasn't finished yet.
+    var showGate by rememberSaveable { mutableStateOf<Boolean?>(null) }
     LaunchedEffect(locationState.isLoading) {
-        if (!locationState.isLoading) profileLoaded = true
+        if (!locationState.isLoading && showGate == null) showGate = !locationState.hasLocation
     }
 
-    when {
+    when (showGate) {
         // Blank rather than a spinner: the read is usually a few hundred ms, and a spinner that
         // fast reads as a flicker.
-        !profileLoaded -> Box(Modifier.fillMaxSize().background(VinylPalette.Background))
+        null -> Box(Modifier.fillMaxSize().background(VinylPalette.Background))
 
-        !dismissed && !locationState.hasLocation -> LocationGateScreen(
-            onDone = { dismissed = true },
+        true -> LocationGateScreen(
+            onDone = { showGate = false },
             viewModel = locationViewModel,
         )
 
-        else -> content()
+        false -> content()
     }
 }
 

@@ -27,8 +27,7 @@ open class SubmissionRepository(
         mood: MoodTag?,
         context: ContextTag? = null,
         submissionGenres: List<String> = emptyList(),
-        lat: Double? = null,
-        lng: Double? = null,
+        attachLocation: Boolean = false,
     ): Result<String> = runCatching {
         val params = buildJsonObject {
             put("p_provider", "itunes")
@@ -47,8 +46,9 @@ open class SubmissionRepository(
             context?.let { put("p_context", it.wireValue) } ?: put("p_context", JsonNull)
             put("p_genres", JsonArray(submissionGenres.map { JsonPrimitive(it) }))
 
-            lat?.let { put("p_lat", it) } ?: put("p_lat", JsonNull)
-            lng?.let { put("p_lng", it) } ?: put("p_lng", JsonNull)
+            // No coordinates: the server copies the sender's saved location from their profile, so
+            // the client can't misreport where a letter came from (DesignDecision.md §8).
+            put("p_attach_location", attachLocation)
         }
 
         // submit_song() returns a bare uuid
