@@ -46,11 +46,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.vinyl.data.GoogleAuthRepository
 import com.example.vinyl.data.MoodOptions
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.data.Supabase
+import com.example.vinyl.data.onboarding.FakeOnboardingRepository
+import com.example.vinyl.data.onboarding.OnboardingRepository
 import com.example.vinyl.ui.collection.CollectionScreen
 import com.example.vinyl.ui.daily.ArrivedRecordOption
 import com.example.vinyl.ui.daily.ArrivedTodayScreen
@@ -58,8 +59,8 @@ import com.example.vinyl.ui.daily.ArrivedTodayUiState
 import com.example.vinyl.ui.daily.MoodQuestionnaireScreen
 import com.example.vinyl.ui.daily.UnopenedRecordScreen
 import com.example.vinyl.ui.daily.UnopenedRecordUiState
-import com.example.vinyl.ui.location.LocationGateScreen
-import com.example.vinyl.ui.location.LocationViewModel
+import com.example.vinyl.ui.onboarding.OnboardingPagerScreen
+import com.example.vinyl.ui.onboarding.OnboardingViewModel
 import com.example.vinyl.ui.received.ReceivedCardScreen
 import com.example.vinyl.ui.received.ReceivedCardUiState
 import com.example.vinyl.ui.theme.VinylPalette
@@ -81,7 +82,7 @@ class MainActivity : ComponentActivity() {
                 val sessionStatus by Supabase.client.auth.sessionStatus.collectAsState()
 
                 if (sessionStatus is SessionStatus.Authenticated || bypassAuthForTesting) {
-                    LocationGate { VinylApp() }
+                    OnboardingGate(useStubData = bypassAuthForTesting) { VinylApp() }
                 } else {
                     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                         AuthScreen(
@@ -113,38 +114,51 @@ private sealed class ReceiveFlowStep {
 }
 
 /**
- * Shows the location gate once per launch when the signed-in user has no stored location, then
- * hands over to the app.
+ * Runs the four-step onboarding flow once per account (`profiles.onboarding_completed`), then
+ * hands over to the app. Replaces the old `LocationGate` wrapper — the location ask is now page 3
+ * of [OnboardingPagerScreen] instead of living here on its own, per that screen's original
+ * docstring.
  *
- * Temporary home. The app has no onboarding flow yet — `profiles.onboarding_completed` exists in
- * the schema but nothing on the client sets it — so the location ask lives here on its own. When
- * onboarding is built, fold LocationGateScreen into it as a step and delete this wrapper.
+ * Reads the flag once on entry rather than through [com.example.vinyl.ui.onboarding.OnboardingViewModel],
+ * since that view model's state doesn't carry `onboarding_completed` — it only tracks the fields
+ * onboarding itself edits.
+ *
+ * [useStubData] — TESTING ONLY: when true (wired to the same `bypassAuthForTesting` switch as the
+ * sign-in skip), the whole gate runs on [FakeOnboardingRepository] instead of checking Supabase,
+ * since there's no real signed-in user to look up in that mode. Remove this parameter, and the
+ * branch that uses it, before shipping.
  */
 @Composable
-private fun LocationGate(content: @Composable () -> Unit) {
-    val locationViewModel: LocationViewModel = viewModel()
-    val locationState by locationViewModel.uiState.collectAsState()
-
-    var dismissed by rememberSaveable { mutableStateOf(false) }
-
-    // isLoading also goes true while the gate is resolving a fix, so latch the first completed
-    // profile read instead — otherwise the gate would blink out mid-request.
-    var profileLoaded by remember { mutableStateOf(false) }
-    LaunchedEffect(locationState.isLoading) {
-        if (!locationState.isLoading) profileLoaded = true
+private fun OnboardingGate(useStubData: Boolean = false, content: @Composable () -> Unit) {
+    if (useStubData) {
+        var stubCompleted by remember { mutableStateOf(false) }
+        if (stubCompleted) {
+            content()
+        } else {
+            OnboardingPagerScreen(
+                onOnboardingComplete = { stubCompleted = true },
+                viewModel = remember { OnboardingViewModel(repository = FakeOnboardingRepository()) },
+            )
+        }
+        return
     }
 
-    when {
+    // null = still resolving, so the gate can't yet say which way to go.
+    var onboardingCompleted by remember { mutableStateOf<Boolean?>(null) }
+
+    LaunchedEffect(Unit) {
+        onboardingCompleted = OnboardingRepository().getMyProfile()
+            .getOrNull()
+            ?.onboardingCompleted
+            ?: false
+    }
+
+    when (onboardingCompleted) {
         // Blank rather than a spinner: the read is usually a few hundred ms, and a spinner that
         // fast reads as a flicker.
-        !profileLoaded -> Box(Modifier.fillMaxSize().background(VinylPalette.Background))
-
-        !dismissed && !locationState.hasLocation -> LocationGateScreen(
-            onDone = { dismissed = true },
-            viewModel = locationViewModel,
-        )
-
-        else -> content()
+        null -> Box(Modifier.fillMaxSize().background(VinylPalette.Background))
+        false -> OnboardingPagerScreen(onOnboardingComplete = { onboardingCompleted = true })
+        true -> content()
     }
 }
 
@@ -416,7 +430,7 @@ private fun AuthScreen(
 
                 // TESTING ONLY — bypasses sign-in entirely. Remove before submitting/shipping.
                 TextButton(onClick = onSkipForTesting) {
-                    Text("Skip sign-in (testing)", color = VinylPalette.Background)
+                    Text("Skip sign-in (testing)", color = VinylPalette.TealAccent)
                 }
             }
         }

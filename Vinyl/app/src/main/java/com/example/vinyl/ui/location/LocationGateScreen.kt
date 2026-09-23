@@ -9,10 +9,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -103,6 +107,7 @@ private fun LocationGateContent(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+
         Text(
             text = "Where are you\nlistening from?",
             color = VinylPalette.TextPrimary,
@@ -110,18 +115,28 @@ private fun LocationGateContent(
             fontWeight = FontWeight.Medium,
             textAlign = TextAlign.Center,
             lineHeight = 36.sp,
+            modifier = Modifier.padding(bottom = 24.dp)
         )
 
-        Text(
-            text = "Letters travel better with a sense of distance. " +
-                "Vinyl shows the person you write to roughly how far away you are — " +
-                "\"12 km away\", never where you actually are.",
-            color = VinylPalette.TextMuted,
-            fontSize = 15.sp,
-            textAlign = TextAlign.Center,
-            lineHeight = 22.sp,
-            modifier = Modifier.padding(top = 20.dp),
+        Icon(
+            imageVector = Icons.Filled.LocationOn,
+            contentDescription = null,
+            tint = VinylPalette.TealAccent,
+            modifier = Modifier
+                .padding(bottom = 24.dp)
+                .size(96.dp),
         )
+
+//        Text(
+//            text = "Letters travel better with a sense of distance. " +
+//                    "Vinyl shows the person you write to roughly how far away you are — " +
+//                    "\"12 km away\", never where you actually are.",
+//            color = VinylPalette.TextMuted,
+//            fontSize = 15.sp,
+//            textAlign = TextAlign.Center,
+//            lineHeight = 22.sp,
+//            modifier = Modifier.padding(top = 20.dp),
+//        )
 
         Text(
             text = "We save your city, not your position. You can change or remove it any time in Settings.",
@@ -129,7 +144,7 @@ private fun LocationGateContent(
             fontSize = 13.sp,
             textAlign = TextAlign.Center,
             lineHeight = 19.sp,
-            modifier = Modifier.padding(top = 14.dp),
+            modifier = Modifier.padding(top = 14.dp, bottom = 8.dp),
         )
 
         statusMessage(state.status, permanentlyDenied)?.let { message ->
@@ -153,7 +168,8 @@ private fun LocationGateContent(
                 onClick = onPrimary,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp),
+                    .height(60.dp)
+                    .padding(top = 10.dp),
                 shape = RoundedCornerShape(50),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = VinylPalette.TealAccent,
