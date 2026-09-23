@@ -179,7 +179,7 @@ private fun LocationGateContent(
  * Settings screen can phrase the same statuses differently.
  */
 private fun statusMessage(status: LocationStatus, permanentlyDenied: Boolean): String? = when (status) {
-    LocationStatus.Idle, LocationStatus.Saved -> null
+    LocationStatus.Idle, LocationStatus.Saved, LocationStatus.Cleared -> null
 
     LocationStatus.PermissionDenied ->
         if (permanentlyDenied) {

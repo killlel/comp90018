@@ -16,11 +16,13 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -59,9 +61,14 @@ import com.example.vinyl.ui.daily.ArrivedRecordOption
 import com.example.vinyl.ui.daily.ArrivedTodayScreen
 import com.example.vinyl.ui.daily.ArrivedTodayUiState
 import com.example.vinyl.ui.daily.MoodQuestionnaireScreen
+import com.example.vinyl.ui.daily.RoomViewModel
 import com.example.vinyl.ui.daily.UnopenedRecordScreen
 import com.example.vinyl.ui.daily.UnopenedRecordUiState
+import com.example.vinyl.ui.daily.toArrivedOption
 import com.example.vinyl.ui.location.LocationGateScreen
+import com.example.vinyl.ui.location.LocationSettingsScreen
+import com.example.vinyl.ui.location.LocationUiState
+import com.example.vinyl.ui.settings.SettingsScreen
 import com.example.vinyl.ui.location.LocationViewModel
 import com.example.vinyl.ui.received.ReceivedCardScreen
 import com.example.vinyl.ui.received.ReceivedCardUiState
@@ -210,6 +217,18 @@ private fun VinylApp() {
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.Home) }
 
     var receiveFlowStep by remember { mutableStateOf<ReceiveFlowStep?>(null) }
+    var showSettings by rememberSaveable { mutableStateOf(false) }
+    var showLocationSettings by rememberSaveable { mutableStateOf(false) }
+
+    val roomViewModel: RoomViewModel = viewModel()
+
+    // Same activity-scoped instance the gate and the settings screen use.
+    val locationViewModel: LocationViewModel = viewModel()
+    val locationState by locationViewModel.uiState.collectAsState()
+
+    // Resolves the city name for the stored centroid once it's loaded. No-op when it's already
+    // known or nothing is stored, so this costs a geocoder call at most once per launch.
+    LaunchedEffect(locationState.hasLocation) { locationViewModel.loadCityLabel() }
     var dailyMood by remember { mutableStateOf<MoodTag?>(null) }
     var dailyGenres by remember { mutableStateOf(setOf<String>()) }
 
@@ -266,10 +285,25 @@ private fun VinylApp() {
                         dailyGenres = emptySet()
                         receiveFlowStep = ReceiveFlowStep.Questionnaire
                     },
+                    onOpenSettings = { showSettings = true },
                 )
                 AppTab.Create -> WriteCardScreen()
             }
         }
+    }
+
+    // Settings sits above the bottom bar like the receive flow, with the location detail
+    // layered over it so backing out lands on the settings list rather than the app.
+    if (showSettings) {
+        SettingsScreen(
+            locationValue = settingsLocationValue(locationState),
+            onOpenLocation = { showLocationSettings = true },
+            onBack = { showSettings = false },
+        )
+    }
+
+    if (showLocationSettings) {
+        LocationSettingsScreen(onBack = { showLocationSettings = false })
     }
 
     // The whole receive flow sits on top of everything (including the bottom bar) while active,
@@ -286,8 +320,17 @@ private fun VinylApp() {
                     onGenreToggled = { genre ->
                         dailyGenres = if (genre in dailyGenres) dailyGenres - genre else dailyGenres + genre
                     },
-                    onSubmit = { receiveFlowStep = ReceiveFlowStep.ArrivedToday },
-                    onLetCrateDecide = { receiveFlowStep = ReceiveFlowStep.ArrivedToday },
+                    // Load here rather than on entering Arrived Today: Unopened's back button
+                    // returns there, and request_recommendations records new matches on every
+                    // call — loading on entry would deal a fresh hand each time.
+                    onSubmit = {
+                        roomViewModel.load(dailyMood)
+                        receiveFlowStep = ReceiveFlowStep.ArrivedToday
+                    },
+                    onLetCrateDecide = {
+                        roomViewModel.load(mood = null)
+                        receiveFlowStep = ReceiveFlowStep.ArrivedToday
+                    },
                     onBack = { receiveFlowStep = null },
                 )
             }
@@ -295,12 +338,36 @@ private fun VinylApp() {
 
         ReceiveFlowStep.ArrivedToday -> {
             val moodLabel = MoodOptions.all.firstOrNull { it.tag == dailyMood }?.title ?: "Surprise"
+            val roomState by roomViewModel.uiState.collectAsState()
+
             BottomSheetContainer(onDismiss = { receiveFlowStep = null }) {
-                ArrivedTodayScreen(
-                    state = sampleArrivedToday(moodLabel = moodLabel, genreLabel = dailyGenres.firstOrNull()),
-                    onSelect = { option -> receiveFlowStep = ReceiveFlowStep.Unopened(option) },
-                    onNotNow = { receiveFlowStep = null },
-                )
+                if (roomState.isLoading) {
+                    Box(
+                        modifier = Modifier.fillMaxSize().background(VinylPalette.SheetSurface),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(color = VinylPalette.TealAccent)
+                    }
+                } else {
+                    ArrivedTodayScreen(
+                        state = ArrivedTodayUiState(
+                            moodLabel = moodLabel,
+                            // No genre label: the RPCs match on mood only, so showing the chosen
+                            // genre would imply a filter that never ran.
+                            fallbackNote = when {
+                                roomState.error != null ->
+                                    "Couldn't reach the crate. Check your connection and try again."
+                                roomState.cards.isEmpty() -> "Nothing in the crate yet. Check back later."
+                                else -> null
+                            },
+                            options = roomState.cards.map {
+                                it.toArrivedOption(readerLat = locationState.lat, readerLng = locationState.lng)
+                            },
+                        ),
+                        onSelect = { option -> receiveFlowStep = ReceiveFlowStep.Unopened(option) },
+                        onNotNow = { receiveFlowStep = null },
+                    )
+                }
             }
         }
 
@@ -310,6 +377,7 @@ private fun VinylApp() {
                     distanceLabel = step.option.distanceLabel,
                     moodLabel = step.option.moodLabel,
                     sentTimeLabel = "Just now",
+                    distanceNote = step.option.distanceNote,
                 ),
                 onOpen = { receiveFlowStep = ReceiveFlowStep.Opened(step.option) },
                 onBack = { receiveFlowStep = ReceiveFlowStep.ArrivedToday },
@@ -323,10 +391,10 @@ private fun VinylApp() {
                         trackName = step.option.trackName,
                         artistName = step.option.artistName,
                         artworkUrl = step.option.artworkUrl,
-                        mood = null, // ArrivedRecordOption's mood is the daily check-in mood, a
-                        // different vocabulary from MoodTag — nothing to map it to yet
+                        mood = step.option.mood,
                         message = step.option.messagePreview,
                         senderDistanceLabel = step.option.distanceLabel,
+                        senderDistanceNote = step.option.distanceNote,
                         sentTimeLabel = "Just now",
                     ),
                     onClose = { receiveFlowStep = null },
@@ -376,7 +444,7 @@ private fun BottomSheetContainer(
 }
 
 @Composable
-private fun HomeTab(onOpenReceive: () -> Unit) {
+private fun HomeTab(onOpenReceive: () -> Unit, onOpenSettings: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -399,24 +467,33 @@ private fun HomeTab(onOpenReceive: () -> Unit) {
             ) {
                 Text("Open receive", fontWeight = FontWeight.Medium)
             }
+
+            TextButton(onClick = onOpenSettings) {
+                Icon(
+                    imageVector = Icons.Filled.Settings,
+                    contentDescription = null,
+                    tint = VinylPalette.TextMuted,
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(
+                    text = "Settings",
+                    color = VinylPalette.TextMuted,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(start = 6.dp),
+                )
+            }
         }
     }
 }
 
-// Temporary sample data — swap for a real fetched ArrivedTodayUiState once there's a query/RPC
-// that pulls three matching records from the crate.
-private fun sampleArrivedToday(moodLabel: String, genreLabel: String?): ArrivedTodayUiState {
-    return ArrivedTodayUiState(
-        moodLabel = moodLabel,
-        genreLabel = genreLabel,
-        fallbackNote = genreLabel?.let { "No $it in today's crate — closest three instead" },
-        options = listOf(
-            ArrivedRecordOption("1", "Slow Rain, Rooftop", "Marin Ochre", "I played this the night I moved out…", moodLabel, "2.4 km"),
-            ArrivedRecordOption("2", "Kitchen Light, 2am", "Sora Lin", "My mother never turned the hall lamp off…", moodLabel, "5.1 km"),
-            ArrivedRecordOption("3", "Long Way From Cebu", "Teo Marasigan", "Third winter here and it still surprises me…", moodLabel, "18 km"),
-        ),
-    )
+/** Secondary line under "Location" on the settings list. */
+private fun settingsLocationValue(state: LocationUiState): String? = when {
+    !state.hasLocation -> null
+    // Centroid stored but the name hasn't resolved — offline, usually.
+    state.city == null -> "Saved"
+    else -> state.city
 }
+
 
 @Composable
 private fun PlaceholderTab(label: String) {

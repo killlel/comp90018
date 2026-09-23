@@ -6,6 +6,9 @@ import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -67,6 +70,20 @@ open class ProfileRepository(
             locationUpdatedAt = nowIso8601(),
         )
         supabase.postgrest.from(TABLE).upsert(row)
+    }.map { }
+
+    /**
+     * Wipes the stored location. Built with an explicit JSON null rather than a typed row so the
+     * columns are definitely cleared rather than omitted from the payload.
+     */
+    open suspend fun clearLocation(): Result<Unit> = runCatching {
+        val uid = requireUserId()
+        val nulls = buildJsonObject {
+            put("lat", JsonNull)
+            put("lng", JsonNull)
+            put("location_updated_at", JsonNull)
+        }
+        supabase.postgrest.from(TABLE).update(nulls) { filter { eq("id", uid) } }
     }.map { }
 
     private fun requireUserId(): String =

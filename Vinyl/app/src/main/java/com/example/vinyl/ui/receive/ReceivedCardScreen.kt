@@ -44,6 +44,8 @@ data class ReceivedCardUiState(
     val mood: MoodTag? = null,
     val message: String,
     val senderDistanceLabel: String? = null,
+    /** Why [senderDistanceLabel] is missing; shown under a "N/A" distance block. */
+    val senderDistanceNote: String? = null,
     val senderWeatherLabel: String? = null,
     val sentTimeLabel: String,
     val isKept: Boolean = false,
@@ -148,7 +150,8 @@ fun ReceivedCardScreen(
             )
         }
 
-        if (state.senderDistanceLabel != null || state.senderWeatherLabel != null) {
+        val showDistance = state.senderDistanceLabel != null || state.senderDistanceNote != null
+        if (showDistance || state.senderWeatherLabel != null) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     text = "CAME WITH THE RECORD",
@@ -160,13 +163,20 @@ fun ReceivedCardScreen(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                 ) {
-                    state.senderDistanceLabel?.let {
-                        ReceivedInfoBlock(label = "DISTANCE", value = it, modifier = Modifier.weight(1f).fillMaxHeight())
+                    if (showDistance) {
+                        ReceivedInfoBlock(
+                            label = "DISTANCE",
+                            value = state.senderDistanceLabel ?: "N/A",
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                        )
                     }
                     state.senderWeatherLabel?.let {
                         ReceivedInfoBlock(label = "THEIR SKY", value = it, modifier = Modifier.weight(1f).fillMaxHeight())
                     }
                     ReceivedInfoBlock(label = "SENT", value = state.sentTimeLabel, modifier = Modifier.weight(1f).fillMaxHeight())
+                }
+                state.senderDistanceNote?.let { note ->
+                    Text(text = note, color = VinylPalette.TextMuted, fontSize = 12.sp, lineHeight = 17.sp)
                 }
             }
         }

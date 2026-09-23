@@ -22,6 +22,9 @@ sealed interface LocationStatus {
 
     object Saved : LocationStatus
 
+    /** The stored location was removed at the user's request. */
+    object Cleared : LocationStatus
+
     /** The user said no. Settings turns this into the deep-link-to-app-settings path. */
     object PermissionDenied : LocationStatus
 
@@ -123,6 +126,29 @@ class LocationViewModel @JvmOverloads constructor(
                 LocationResult.LocationUnavailable -> finish(LocationStatus.Unavailable)
                 LocationResult.GeocodeFailed -> finish(LocationStatus.GeocodeFailed)
             }
+        }
+    }
+
+    /**
+     * Removes the stored location. The app keeps working without one — letters just can't carry
+     * a location, and distances can't be shown, until a new one is set.
+     */
+    fun clearLocation() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, status = LocationStatus.Idle) }
+            profileRepository.clearLocation()
+                .onSuccess {
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            lat = null,
+                            lng = null,
+                            city = null,
+                            status = LocationStatus.Cleared,
+                        )
+                    }
+                }
+                .onFailure { e -> finish(LocationStatus.SaveFailed(e.message)) }
         }
     }
 

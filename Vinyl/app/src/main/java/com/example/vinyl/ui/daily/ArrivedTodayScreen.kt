@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.vinyl.data.MoodTag
 import com.example.vinyl.ui.theme.VinylPalette
 
 data class ArrivedRecordOption(
@@ -31,8 +32,12 @@ data class ArrivedRecordOption(
     val artistName: String,
     val messagePreview: String,
     val moodLabel: String,
-    val distanceLabel: String,
-    val artworkUrl: String? = null, // TODO: not wired to real data yet
+    /** Null when either end has no location — see [distanceNote] for why. */
+    val distanceLabel: String?,
+    val artworkUrl: String? = null,
+    /** Why [distanceLabel] is missing, for the screens with room to say so. */
+    val distanceNote: String? = null,
+    val mood: MoodTag? = null,
 )
 
 data class ArrivedTodayUiState(
@@ -140,7 +145,7 @@ private fun ArrivedRecordCard(option: ArrivedRecordOption, onClick: () -> Unit) 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(VinylPalette.TealAccent))
                 Text(
-                    text = "${option.moodLabel.uppercase()} · ${option.distanceLabel}",
+                    text = "${option.moodLabel.uppercase()} · ${option.distanceLabel ?: "N/A"}",
                     color = VinylPalette.TextMuted,
                     fontSize = 10.sp,
                     letterSpacing = 0.5.sp,

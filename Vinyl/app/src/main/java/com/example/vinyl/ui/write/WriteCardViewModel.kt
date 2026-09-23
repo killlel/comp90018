@@ -6,12 +6,13 @@ import android.util.Log
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.data.Track
 import com.example.vinyl.repository.SubmissionRepository
-import com.example.vinyl.repository.FakeSubmissionRepository
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 class WriteCardViewModel(
-    private val repository: SubmissionRepository = FakeSubmissionRepository()
+    // Real submissions now — swap in FakeSubmissionRepository() here to send without touching
+    // Supabase while working on the UI.
+    private val repository: SubmissionRepository = SubmissionRepository()
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(WriteCardUiState())
