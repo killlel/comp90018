@@ -46,6 +46,7 @@ import com.example.vinyl.data.MoodOptions
 import com.example.vinyl.data.Track
 import com.example.vinyl.network.AudioPreviewController
 import com.example.vinyl.network.rememberAudioPreviewController
+import com.example.vinyl.ui.location.LocationViewModel
 import com.example.vinyl.ui.theme.VinylPalette
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.draw.drawBehind
@@ -53,10 +54,18 @@ import androidx.compose.ui.draw.drawBehind
 @Composable
 fun WriteCardScreen(
     viewModel: WriteCardViewModel = viewModel(),
+    locationViewModel: LocationViewModel = viewModel(),
     onSent: (String) -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsState()
+    val locationState by locationViewModel.uiState.collectAsState()
     val audioController = rememberAudioPreviewController()
+
+    // A letter can only carry what the profile already holds. Forcing the toggle off (rather than
+    // just disabling the switch) keeps the card preview honest about what's being sent.
+    LaunchedEffect(locationState.hasLocation) {
+        if (!locationState.hasLocation) viewModel.onAttachLocationToggled(false)
+    }
 
     // Frozen copy of the card's data for the send animation to render from —
     // the ViewModel resets its state as soon as the network call succeeds,
@@ -154,7 +163,7 @@ fun WriteCardScreen(
                 item { MoodGrid(state, viewModel) }
                 item { GenreChips(state, viewModel) }
                 item { EnvelopeStylePicker(state, viewModel) }
-                item { LocationToggle(state, viewModel) }
+                item { LocationToggle(state, viewModel, locationState.hasLocation) }
                 item { Spacer(modifier = Modifier.height(80.dp)) }
             }
         }
@@ -174,7 +183,7 @@ fun WriteCardScreen(
             onSend = {
                 sendSnapshot = state
                 sendAnimationDone = false
-                viewModel.submit(/* lat, lng from your GPS layer once wired */)
+                viewModel.submit()
             },
         )
     }
@@ -506,21 +515,42 @@ private fun EnvelopeStylePicker(state: WriteCardUiState, viewModel: WriteCardVie
 }
 
 @Composable
-private fun LocationToggle(state: WriteCardUiState, viewModel: WriteCardViewModel) {
+private fun LocationToggle(
+    state: WriteCardUiState,
+    viewModel: WriteCardViewModel,
+    hasLocation: Boolean,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Attach my location", color = VinylPalette.TextPrimary, fontSize = 14.sp)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Attach my location",
+                color = if (hasLocation) VinylPalette.TextPrimary else VinylPalette.TextMuted,
+                fontSize = 14.sp,
+            )
+            if (!hasLocation) {
+                Text(
+                    text = "Set your location in Settings to attach it",
+                    color = VinylPalette.TextMuted,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+        }
         Switch(
             checked = state.attachLocation,
             onCheckedChange = viewModel::onAttachLocationToggled,
+            enabled = hasLocation,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = VinylPalette.TealAccent,
                 checkedTrackColor = VinylPalette.TealAccent.copy(alpha = 0.4f),
                 uncheckedThumbColor = Color.Black,
                 uncheckedTrackColor = Color.Black.copy(alpha = 0.3f),
+                disabledUncheckedThumbColor = Color.Black.copy(alpha = 0.5f),
+                disabledUncheckedTrackColor = Color.Black.copy(alpha = 0.2f),
             ),
         )
     }
