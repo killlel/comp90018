@@ -6,12 +6,13 @@ import android.util.Log
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.data.Track
 import com.example.vinyl.repository.SubmissionRepository
-import com.example.vinyl.repository.FakeSubmissionRepository
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 class WriteCardViewModel(
-    private val repository: SubmissionRepository = FakeSubmissionRepository()
+    // Real submissions now — swap in FakeSubmissionRepository() here to send without touching
+    // Supabase while working on the UI.
+    private val repository: SubmissionRepository = SubmissionRepository()
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(WriteCardUiState())
@@ -66,7 +67,7 @@ class WriteCardViewModel(
 
     fun onAttachLocationToggled(attach: Boolean) = _uiState.update { it.copy(attachLocation = attach) }
 
-    fun submit(lat: Double? = null, lng: Double? = null) {
+    fun submit() {
         val state = _uiState.value
         val track = state.selectedTrack ?: return
 
@@ -79,12 +80,18 @@ class WriteCardViewModel(
                 // context is the recipient's listening moment, not something the sender sets
                 context = null,
                 submissionGenres = state.selectedGenres.toList(),
-                lat = if (state.attachLocation) lat else null,
-                lng = if (state.attachLocation) lng else null,
+                attachLocation = state.attachLocation,
             ).onSuccess { id ->
                 _uiState.update { WriteCardUiState(submittedId = id) } // reset for next letter
             }.onFailure { e ->
-                _uiState.update { it.copy(isSubmitting = false, submissionError = e.message) }
+                // Not e.message: it includes the backend URL, which would land on screen.
+                Log.e("WriteCardVM", "submit failed", e)
+                _uiState.update {
+                    it.copy(
+                        isSubmitting = false,
+                        submissionError = "Couldn't send your record. Check your connection, then try again.",
+                    )
+                }
             }
         }
     }

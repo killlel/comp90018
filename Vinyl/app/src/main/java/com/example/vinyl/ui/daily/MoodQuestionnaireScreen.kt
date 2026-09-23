@@ -80,7 +80,9 @@ fun MoodQuestionnaireScreen(
                 lineHeight = 32.sp,
             )
             Text(
-                text = "Three records get pulled from the crate to match. Your answer stays on this phone.",
+                // Used to add "Your answer stays on this phone." — true while this flow ran on sample
+                // data, false since it calls request_recommendations, which stores the mood.
+                text = "Three records get pulled from the crate to match.",
                 color = VinylPalette.TextMuted,
                 fontSize = 13.sp,
                 lineHeight = 18.sp,

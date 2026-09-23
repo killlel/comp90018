@@ -25,9 +25,11 @@ import androidx.compose.ui.unit.sp
 import com.example.vinyl.ui.theme.VinylPalette
 
 data class UnopenedRecordUiState(
-    val distanceLabel: String,
+    /** Null when either end has no location — see [distanceNote] for why. */
+    val distanceLabel: String?,
     val moodLabel: String,
     val sentTimeLabel: String,
+    val distanceNote: String? = null,
 )
 
 /**
@@ -107,7 +109,9 @@ fun UnopenedRecordScreen(
         Spacer(modifier = Modifier.height(28.dp))
 
         Text(
-            text = "Someone ${state.distanceLabel} away\nsent you a record",
+            text = state.distanceLabel
+                ?.let { "Someone $it away\nsent you a record" }
+                ?: "Someone\nsent you a record",
             color = VinylPalette.TextPrimary,
             fontSize = 22.sp,
             fontWeight = FontWeight.SemiBold,
@@ -115,6 +119,19 @@ fun UnopenedRecordScreen(
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
         )
+
+        state.distanceNote?.let { note ->
+            Text(
+                text = "Distance N/A · $note",
+                color = VinylPalette.TextMuted,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp),
+            )
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
