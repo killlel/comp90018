@@ -64,17 +64,20 @@ erDiagram
     submissions    ||--o{  reactions       : receives
     genres         }o..o{  submissions     : "validated against (trigger, not FK)"
     genres         }o..o{  profiles        : "validated against (trigger, not FK)"
+    usernames      ||--o{  profiles        : "chosen alias"
+    avatars        ||--o{  profiles        : "chosen picture"
 
     auth_users {
         uuid id PK "managed by Supabase Auth"
     }
     profiles {
         uuid        id                   PK,FK
-        text        display_name         "private to owner"
-        text        avatar_url           "private to owner"
+        text        display_name         "Google name, private to owner"
+        text        avatar_url           "Google picture, private to owner"
+        text        username_slug        FK "chosen alias"
+        text        avatar_slug          FK "chosen picture"
         boolean     onboarding_completed
         text_       favorite_genres      "null=unanswered, {}=everything"
-        jsonb       settings
         float8      lat                  "coarse, rounded to 2dp"
         float8      lng                  "coarse, rounded to 2dp"
         timestamptz location_updated_at
@@ -82,6 +85,18 @@ erDiagram
     genres {
         text    slug       PK "stored and matched on"
         text    label      "shown to the user"
+        int     sort_order
+        boolean is_active
+    }
+    usernames {
+        text    slug       PK
+        text    label      "shown to the user"
+        int     sort_order
+        boolean is_active
+    }
+    avatars {
+        text    slug       PK
+        text    url        "remote image"
         int     sort_order
         boolean is_active
     }
@@ -137,9 +152,14 @@ erDiagram
 
 ### `profiles`
 One row per account, created automatically by a trigger on `auth.users`. Holds
-whether onboarding is done, the free-form `settings` blob, and the Google
-name/avatar **for the owner's own settings screen only**. Readable and writable
-by its owner and by nobody else.
+the user's chosen alias and picture, their location and genre taste, and the
+Google name/avatar **for the owner's own settings screen only**. Readable and
+writable by its owner and by nobody else.
+
+Every preference here is a **real, typed column**. There is deliberately no
+free-form `settings` blob: a jsonb bag gives a preference no type, no default
+and no `NOT NULL`, and a string key anyone can misspell. If something new needs
+storing, add a column — migrations are cheap.
 
 There are no `default_mood` / `default_context` columns. Mood is asked fresh
 each day — that question *is* the ritual — and context is intended to come from
@@ -168,6 +188,26 @@ of it at send time so old records don't move when the sender relocates.
 Only coordinates are stored — there is no place-name column. A UI that wants to
 show "Melbourne" rather than numbers must reverse-geocode on the client, which
 needs network. Offline, show the distance or nothing.
+
+### `usernames` and `avatars`
+The sets a user picks from at onboarding. `usernames` is `slug` + `label`;
+`avatars` is `slug` + `url`, pointing at remote storage. Both carry
+`sort_order` and `is_active`. Readable by any signed-in user, writable by
+nobody through the API.
+
+`profiles.username_slug` and `profiles.avatar_slug` hold the choices, with
+**real foreign keys** — a single value can have one, unlike the `text[]` genre
+columns. Both are nullable: a user who skips onboarding has neither.
+
+Aliases are **not unique** — two users may hold the same one. They are
+display-only and never attached to a record a recipient sees.
+
+Retiring an entry (`is_active = false`) hides it from the picker but does not
+invalidate profiles already using it, which is why the foreign key checks
+existence rather than activeness. The app filters the picker itself.
+
+Note these are separate from `display_name` / `avatar_url`, which hold the
+Google identity and stay private to their owner.
 
 ### `genres`
 The controlled vocabulary for `submissions.genres` — `slug` (stored/matched),
@@ -368,8 +408,8 @@ of `20260904000003_functions.sql`.
 
 - **Scott:** the `on_auth_user_created` trigger creates the profile row, and the
   migration backfills accounts that already signed in — including yours. Nothing
-  to add on the auth side. `profiles.settings` (jsonb) is where the Sprint 3
-  settings screen should live.
+  to add on the auth side. The settings screen reads and writes `profiles`
+  directly; each preference is its own typed column.
 - **Natalie — breaking change (Sprint 2):** `submit_song()` no longer accepts
   `p_lat` / `p_lng`. In `SubmissionRepository.kt`, drop those two `put(...)`
   lines and send `put("p_attach_location", attachLocation)` instead. The server
