@@ -7,7 +7,7 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -56,11 +56,7 @@ open class RoomRepository(private val supabase: SupabaseClient = Supabase.client
         context: ContextTag? = null,
         limit: Int = DEFAULT_LIMIT,
     ): Result<List<RoomCard>> = runCatching {
-        val params = buildJsonObject {
-            put("p_mood", mood.wireValue)
-            context?.let { put("p_context", it.wireValue) } ?: put("p_context", JsonNull)
-            put("p_limit", limit)
-        }
+        val params = requestRecommendationsParams(mood, context, limit)
         supabase.postgrest.rpc("request_recommendations", params).decodeList<RoomCard>()
     }
 
@@ -75,3 +71,11 @@ open class RoomRepository(private val supabase: SupabaseClient = Supabase.client
         const val DEFAULT_LIMIT = 3
     }
 }
+
+/** The named arguments for the `request_recommendations` RPC; see [submitSongParams]. */
+internal fun requestRecommendationsParams(mood: MoodTag, context: ContextTag?, limit: Int): JsonObject =
+    buildJsonObject {
+        put("p_mood", mood.wireValue)
+        put("p_context", context?.wireValue)
+        put("p_limit", limit)
+    }

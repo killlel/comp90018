@@ -438,7 +438,7 @@ private fun VinylApp() {
                 state = UnopenedRecordUiState(
                     distanceLabel = step.option.distanceLabel,
                     moodLabel = step.option.moodLabel,
-                    sentTimeLabel = "Just now",
+                    sentTimeLabel = step.option.sentTimeLabel,
                     distanceNote = step.option.distanceNote,
                 ),
                 onOpen = { receiveFlowStep = ReceiveFlowStep.Opened(step.option) },
@@ -457,7 +457,7 @@ private fun VinylApp() {
                         message = step.option.messagePreview,
                         senderDistanceLabel = step.option.distanceLabel,
                         senderDistanceNote = step.option.distanceNote,
-                        sentTimeLabel = "Just now",
+                        sentTimeLabel = step.option.sentTimeLabel,
                     ),
                     onClose = { receiveFlowStep = null },
                 )
