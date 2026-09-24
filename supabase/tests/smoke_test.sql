@@ -368,6 +368,52 @@ begin
   end if;
   raise notice 'CHECK 20 ok — favorite_genres stays private to its owner';
 
+  -- ---------------------------------------------------------------------
+  -- CHECK 21 — the username pool is readable and non-empty
+  -- ---------------------------------------------------------------------
+  select count(*)::integer into v_cnt from public.usernames where is_active;
+  if v_cnt < 1 then
+    raise exception 'CHECK 21 FAILED: public.usernames is empty or unreadable';
+  end if;
+  raise notice 'CHECK 21 ok — % aliases available to pick from', v_cnt;
+
+  -- ---------------------------------------------------------------------
+  -- CHECK 22 — picking a valid alias works
+  -- ---------------------------------------------------------------------
+  update public.profiles
+     set username_slug = (select slug from public.usernames order by sort_order limit 1)
+   where id = v_b;
+
+  select count(*)::integer into v_cnt
+  from public.profiles where id = v_b and username_slug is not null;
+
+  if v_cnt <> 1 then
+    raise exception 'CHECK 22 FAILED: a valid username_slug was not stored';
+  end if;
+  raise notice 'CHECK 22 ok — alias stored on the profile';
+
+  -- ---------------------------------------------------------------------
+  -- CHECK 23 — an unknown alias is rejected by the foreign key
+  -- ---------------------------------------------------------------------
+  begin
+    update public.profiles set username_slug = 'not_a_real_alias' where id = v_b;
+    raise exception 'CHECK 23 FAILED: an unknown username_slug was accepted';
+  exception
+    when foreign_key_violation then
+      raise notice 'CHECK 23 ok — unknown alias rejected by the foreign key';
+  end;
+
+  -- ---------------------------------------------------------------------
+  -- CHECK 24 — an unknown avatar is rejected too
+  -- ---------------------------------------------------------------------
+  begin
+    update public.profiles set avatar_slug = 'not_a_real_avatar' where id = v_b;
+    raise exception 'CHECK 24 FAILED: an unknown avatar_slug was accepted';
+  exception
+    when foreign_key_violation then
+      raise notice 'CHECK 24 ok — unknown avatar rejected by the foreign key';
+  end;
+
   execute 'reset role';
   raise notice '=== ALL CHECKS PASSED ===';
 end $$;
