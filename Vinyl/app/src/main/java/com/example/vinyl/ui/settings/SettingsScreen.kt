@@ -29,9 +29,9 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.outlined.BrightnessAuto
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Notifications
@@ -73,7 +73,13 @@ private val AccentColors = listOf(
     Color(0xFF8FA8FF),
 )
 
-private enum class SettingsPage { List, Account, Preferences, About, Help }
+private enum class SettingsPage { List, Account, Preferences, Appearance, About, Help }
+
+private fun themeLabel(mode: Int) = when (mode) {
+    0 -> "System"
+    1 -> "Day"
+    else -> "Night"
+}
 
 @Composable
 fun SettingsScreen(
@@ -85,7 +91,7 @@ fun SettingsScreen(
 ) {
     var page by rememberSaveable { mutableStateOf(SettingsPage.List) }
     var notificationsEnabled by rememberSaveable { mutableStateOf(true) }
-    var themeMode by rememberSaveable { mutableStateOf(2) } // 0 system, 1 day, 2 night
+    var themeMode by rememberSaveable { mutableStateOf(2) }
     var accentIndex by rememberSaveable { mutableStateOf(0) }
     var selectedGenres by rememberSaveable { mutableStateOf(setOf("Indie", "Electronic")) }
     var showDeleteConfirm by rememberSaveable { mutableStateOf(false) }
@@ -107,6 +113,7 @@ fun SettingsScreen(
                 SettingsPage.List -> "Settings"
                 SettingsPage.Account -> "Profile"
                 SettingsPage.Preferences -> "Music Preferences"
+                SettingsPage.Appearance -> "Appearance"
                 SettingsPage.About -> "About"
                 SettingsPage.Help -> "Help & Support"
             },
@@ -119,12 +126,10 @@ fun SettingsScreen(
                 locationValue = locationValue,
                 notificationsEnabled = notificationsEnabled,
                 onNotificationsChange = { notificationsEnabled = it },
-                themeMode = themeMode,
-                onThemeModeChange = { themeMode = it },
-                accentIndex = accentIndex,
-                onAccentChange = { accentIndex = it },
+                themeLabel = themeLabel(themeMode),
                 onOpenProfile = { page = SettingsPage.Account },
                 onOpenPreferences = { page = SettingsPage.Preferences },
+                onOpenAppearance = { page = SettingsPage.Appearance },
                 onOpenLocation = onOpenLocation,
                 onOpenAbout = { page = SettingsPage.About },
                 onOpenHelp = { page = SettingsPage.Help },
@@ -134,6 +139,12 @@ fun SettingsScreen(
             SettingsPage.Preferences -> PreferencesPage(selectedGenres) { genre ->
                 selectedGenres = if (genre in selectedGenres) selectedGenres - genre else selectedGenres + genre
             }
+            SettingsPage.Appearance -> AppearancePage(
+                themeMode = themeMode,
+                onThemeModeChange = { themeMode = it },
+                accentIndex = accentIndex,
+                onAccentChange = { accentIndex = it },
+            )
             SettingsPage.About -> AboutPage()
             SettingsPage.Help -> HelpPage()
         }
@@ -190,28 +201,25 @@ private fun SettingsHome(
     locationValue: String?,
     notificationsEnabled: Boolean,
     onNotificationsChange: (Boolean) -> Unit,
-    themeMode: Int,
-    onThemeModeChange: (Int) -> Unit,
-    accentIndex: Int,
-    onAccentChange: (Int) -> Unit,
+    themeLabel: String,
     onOpenProfile: () -> Unit,
     onOpenPreferences: () -> Unit,
+    onOpenAppearance: () -> Unit,
     onOpenLocation: () -> Unit,
     onOpenAbout: () -> Unit,
     onOpenHelp: () -> Unit,
     onSignOut: () -> Unit,
 ) {
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = PagePad).padding(bottom = 32.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = PagePad).padding(bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         ProfileHeader(displayName, handle, onOpenProfile)
         SettingsGroup {
             IconNavRow(Icons.Outlined.MusicNote, "Music Preferences", onClick = onOpenPreferences)
             GroupDivider()
-            ThemeModeRow(themeMode, onThemeModeChange)
-            GroupDivider()
-            AccentRow(accentIndex, onAccentChange)
+            IconNavRow(Icons.Outlined.DarkMode, "Appearance", subtitle = themeLabel, onClick = onOpenAppearance)
         }
         SettingsGroup {
             IconNavRow(Icons.Outlined.LocationOn, "Location", locationValue ?: "Not set", onClick = onOpenLocation)
@@ -319,50 +327,57 @@ private fun SwitchRow(icon: ImageVector, title: String, checked: Boolean, onChec
 }
 
 @Composable
-private fun ThemeModeRow(selected: Int, onSelect: (Int) -> Unit) {
+private fun AppearancePage(
+    themeMode: Int,
+    onThemeModeChange: (Int) -> Unit,
+    accentIndex: Int,
+    onAccentChange: (Int) -> Unit,
+) {
     val options = listOf(
         Triple(0, Icons.Outlined.BrightnessAuto, "System"),
         Triple(1, Icons.Outlined.LightMode, "Day"),
         Triple(2, Icons.Outlined.DarkMode, "Night"),
     )
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp).padding(top = 20.dp, bottom = 32.dp),
     ) {
-        options.forEach { (id, icon, label) ->
-            val on = selected == id
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(if (on) Color(0xFF2A2A2A) else Color(0xFF161616))
-                    .border(
-                        width = if (on) 1.dp else 0.dp,
-                        color = VinylPalette.TealAccent,
-                        shape = RoundedCornerShape(16.dp),
-                    )
-                    .clickable { onSelect(id) }
-                    .padding(vertical = 12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Icon(icon, null, tint = if (on) VinylPalette.TealAccent else VinylPalette.TextMuted, modifier = Modifier.size(22.dp))
-                Spacer(Modifier.height(6.dp))
-                Text(label, color = if (on) VinylPalette.TextPrimary else VinylPalette.TextMuted, fontSize = 12.sp)
+        Text("Theme", color = VinylPalette.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+        Spacer(Modifier.height(14.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            options.forEach { (id, icon, label) ->
+                val on = themeMode == id
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(108.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(if (on) Color(0xFF242424) else Color(0xFF141414))
+                        .border(
+                            width = 1.dp,
+                            color = if (on) VinylPalette.TealAccent else Color(0xFF2E2E2E),
+                            shape = RoundedCornerShape(16.dp),
+                        )
+                        .clickable { onThemeModeChange(id) }
+                        .padding(vertical = 18.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Icon(icon, null, tint = if (on) VinylPalette.TealAccent else Color(0xFF7A7A7A), modifier = Modifier.size(26.dp))
+                    Spacer(Modifier.height(10.dp))
+                    Text(label, color = if (on) VinylPalette.TextPrimary else Color(0xFF8A8A8A), fontSize = 12.sp)
+                }
             }
         }
-    }
-}
-
-@Composable
-private fun AccentRow(selected: Int, onSelect: (Int) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("Accent", color = VinylPalette.TextPrimary, fontSize = 16.sp, modifier = Modifier.weight(1f))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Spacer(Modifier.height(32.dp))
+        Text("Accent", color = VinylPalette.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+        Spacer(Modifier.height(14.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             AccentColors.forEachIndexed { i, color ->
                 Box(
-                    Modifier.size(22.dp).clip(CircleShape).background(color)
-                        .border(if (selected == i) 2.dp else 0.dp, VinylPalette.TextPrimary, CircleShape)
-                        .clickable { onSelect(i) },
+                    Modifier.size(28.dp).clip(CircleShape).background(color)
+                        .border(if (accentIndex == i) 2.dp else 0.dp, VinylPalette.TextPrimary, CircleShape)
+                        .clickable { onAccentChange(i) },
                 )
             }
         }
@@ -401,16 +416,22 @@ private fun AccountPage(displayName: String, handle: String, onDelete: () -> Uni
     }
 }
 
-private val PreviewGenres = listOf("Indie", "Electronic", "Ambient", "Hip Hop", "R&B", "Jazz", "Rock", "Pop")
+private val PreviewGenres = listOf(
+    "Pop", "Rock", "Hip Hop", "R&B", "Electronic", "Indie",
+    "Jazz", "Classical", "Folk", "Metal", "Country", "Ambient",
+)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PreferencesPage(selected: Set<String>, onToggle: (String) -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(top = 8.dp, bottom = 32.dp)) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp).padding(top = 8.dp, bottom = 32.dp),
+    ) {
         Text("Default genres", color = VinylPalette.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Pick a few styles you like. We’ll use these when we look for letters for you. How you feel today is asked separately, each day, before three records arrive.",
+            "Select the genres you want to hear more of. You can change these anytime.",
             color = VinylPalette.TextMuted,
             fontSize = 14.sp,
             lineHeight = 20.sp,
@@ -447,7 +468,8 @@ private fun AboutPage() {
 @Composable
 private fun HelpPage() {
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = PagePad).padding(bottom = 24.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp).padding(top = 12.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         InfoCard(
@@ -464,7 +486,7 @@ private fun HelpPage() {
         )
         InfoCard(
             "Need more help?",
-            "If something in the app doesn’t look right, talk to your course team. Vinyl is a class project, and we’d rather fix it than leave you stuck.",
+            "For account or delivery issues, email support@vinyl.app. We typically reply within one business day.",
         )
     }
 }
