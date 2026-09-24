@@ -410,14 +410,20 @@ of `20260904000003_functions.sql`.
   migration backfills accounts that already signed in — including yours. Nothing
   to add on the auth side. The settings screen reads and writes `profiles`
   directly; each preference is its own typed column.
-- **Natalie — breaking change (Sprint 2):** `submit_song()` no longer accepts
-  `p_lat` / `p_lng`. In `SubmissionRepository.kt`, drop those two `put(...)`
-  lines and send `put("p_attach_location", attachLocation)` instead. The server
-  copies the location from the sender's profile, so the client never handles
-  coordinates. `WriteCardViewModel` already tracks `state.attachLocation`.
+- **Natalie — still outstanding:** `GenreOptions.all` sends display labels
+  (`"K-pop"`), but the database only accepts slugs (`k_pop`) and rejects the
+  rest with `23514`. Any submission with a genre selected currently fails. Read
+  `public.genres` (`slug` + `label`) instead of hardcoding the list — that also
+  picks up Rock, Indie, Metal and Hip-Hop, which the hardcoded list is missing.
+  The same list is needed for the onboarding taste question, so one fix covers
+  both.
 - **Natalie:** submission is one call, `submit_song()`. Validate a non-empty
   message and a selected song client-side for a good error message; the database
   rejects both anyway, so nothing bad gets stored if a check is missed.
+- **Ivan:** `get_shelf()` returns the same `room_card[]` shape as `get_room()`
+  and has been live since Sprint 1, but `RoomRepository` never wired it up. The
+  Collection tab and "Recently collected" on Home both still run on
+  `FakeVinylRepository`.
 - **Raina:** `room_card` is the exact payload a vinyl card renders from.
   `context`, `track_album`, `artwork_url`, `preview_url`, `lat` and `lng` are all
   nullable — cards need to look right without them.

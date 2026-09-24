@@ -290,6 +290,14 @@ Not decisions — just things that are true right now and will surprise you.
   term yet, so both this column and the daily genre chips are write-only.
 - **Reactions are promised in the UI** ("Reactions stay anonymous") but no code
   calls `add_reaction` or `get_reactions`.
+- **The shelf is entirely fake.** `get_shelf()` has existed since Sprint 1, but
+  `RoomRepository` has no `getShelf()` and `CollectionViewModel` defaults to
+  `FakeVinylRepository` — so the Collection tab shows fabricated records. One
+  repository method fixes both that tab and "Recently collected" on Home.
+- **`public.avatars` is empty.** Seeded deliberately empty so placeholder URLs
+  couldn't make the feature look finished while every icon 404s. The picker has
+  nothing to show until someone uploads images to Supabase Storage and adds one
+  row per icon.
 - **`GenreOptions.all` is hardcoded** and missing Rock, Indie, Metal and
   Hip-Hop. Replace it with a read from `public.genres`.
 - **The location ask is a standalone gate** after sign-in, not step 3 of
