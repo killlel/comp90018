@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +35,7 @@ fun SettingsScreen(
     locationValue: String?,
     onOpenLocation: () -> Unit,
     onBack: () -> Unit,
+    onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -64,6 +66,10 @@ fun SettingsScreen(
             value = locationValue ?: "Not set",
             onClick = onOpenLocation,
         )
+
+        TextButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) {
+            Text("Sign out", color = VinylPalette.TextMuted, fontSize = 14.sp)
+        }
     }
 }
 
@@ -98,6 +104,6 @@ private fun SettingsRow(label: String, value: String, onClick: () -> Unit) {
 @Composable
 private fun SettingsScreenPreview() {
     VinylTheme {
-        SettingsScreen(locationValue = "Melbourne", onOpenLocation = {}, onBack = {})
+        SettingsScreen(locationValue = "Melbourne", onOpenLocation = {}, onSignOut = {}, onBack = {})
     }
 }

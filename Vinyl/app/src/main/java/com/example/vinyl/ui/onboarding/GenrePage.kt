@@ -30,15 +30,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.vinyl.data.onboarding.GenreOption
 import com.example.vinyl.ui.theme.VinylPalette
 
 /**
- * Page 2. Genre options come from the existing `GenreOptions.all` constant (see
- * [OnboardingViewModel]) — the same vocabulary used elsewhere for tagging, so no extra fetch.
+ * Page 2. Genre options are read from the `genres` table (see [OnboardingViewModel]); the screen
+ * shows each option's label but selects and saves its slug, because the database rejects labels.
  *
- * "Listen to everything" and picking individual genres are mutually exclusive — choosing one
+ * "Listen to everything" and picking individual genres are mutually exclusive - choosing one
  * clears the other, both in the UI and in what gets saved (see
- * [com.example.vinyl.data.onboarding.OnboardingRepository.setGenres]).
+ * [com.example.vinyl.data.onboarding.OnboardingRepository.setFavoriteGenres]).
  *
  * Thin wrapper around [GenreContent] — same split as `LocationGateScreen`/`LocationGateContent` —
  * so the content composable can be previewed with plain state instead of a real [OnboardingViewModel].
@@ -142,7 +143,7 @@ private fun GenreContent(
 /** Two-column grid of tall pill buttons, filling the space between the heading and the button. */
 @Composable
 private fun GenreGrid(
-    genres: List<String>,
+    genres: List<GenreOption>,
     selected: Set<String>,
     enabled: Boolean,
     onToggle: (String) -> Unit,
@@ -154,12 +155,12 @@ private fun GenreGrid(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = modifier,
     ) {
-        items(genres) { genre ->
+        items(genres, key = { it.slug }) { genre ->
             GenrePill(
-                label = genre,
-                selected = genre in selected,
+                label = genre.label,
+                selected = genre.slug in selected,
                 dimmed = !enabled,
-                onClick = { if (enabled) onToggle(genre) },
+                onClick = { if (enabled) onToggle(genre.slug) },
             )
         }
     }
@@ -207,7 +208,15 @@ private fun GenreContentPreview() {
     GenreContent(
         state = OnboardingUiState(
             isLoadingProfile = false,
-            selectedGenres = setOf("Jazz", "Soul"),
+            genreOptions = listOf(
+                GenreOption("pop", "Pop"),
+                GenreOption("jazz", "Jazz"),
+                GenreOption("soul", "Soul"),
+                GenreOption("k_pop", "K-pop"),
+                GenreOption("rnb", "R&B"),
+                GenreOption("folk", "Folk"),
+            ),
+            selectedGenres = setOf("jazz", "soul"),
         ),
         onToggleGenre = {},
         onSetListenToEverything = {},

@@ -2,22 +2,18 @@ package com.example.vinyl.ui.location
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -30,6 +26,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.vinyl.ui.onboarding.OnboardingActionArea
+import com.example.vinyl.ui.onboarding.OnboardingButtonHeight
+import com.example.vinyl.ui.onboarding.OnboardingPrimaryButton
+import com.example.vinyl.ui.onboarding.OnboardingSecondaryButton
 import com.example.vinyl.ui.theme.VinylPalette
 import com.example.vinyl.ui.theme.VinylTheme
 
@@ -84,28 +84,37 @@ private fun LocationGateContent(
             .fillMaxSize()
             .background(VinylPalette.Background)
             .padding(horizontal = 32.dp),
-        verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-
-        Text(
-            text = "Where are you\nlistening from?",
-            color = VinylPalette.TextPrimary,
-            fontSize = 28.sp,
-            fontWeight = FontWeight.Medium,
-            textAlign = TextAlign.Center,
-            lineHeight = 36.sp,
-            modifier = Modifier.padding(bottom = 24.dp)
-        )
-
-        Icon(
-            imageVector = Icons.Filled.LocationOn,
-            contentDescription = null,
-            tint = VinylPalette.TealAccent,
+        // Everything above the buttons, centred in the space they leave - so the text sits higher
+        // than when it was centred together with them.
+        Column(
             modifier = Modifier
-                .padding(bottom = 24.dp)
-                .size(96.dp),
-        )
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+
+            Text(
+                text = "Where are you\nlistening from?",
+                color = VinylPalette.TextPrimary,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+                lineHeight = 36.sp,
+                modifier = Modifier.padding(bottom = 24.dp)
+            )
+
+            Icon(
+                imageVector = Icons.Filled.LocationOn,
+                contentDescription = null,
+                tint = VinylPalette.TealAccent,
+                modifier = Modifier
+                    .padding(bottom = 24.dp)
+                    .size(96.dp),
+            )
 //        Text(
 //            text = "Letters travel better with a sense of distance. " +
 //                    "Vinyl shows the person you write to roughly how far away you are — " +
@@ -117,53 +126,45 @@ private fun LocationGateContent(
 //            modifier = Modifier.padding(top = 20.dp),
 //        )
 
-        Text(
-            text = "We save your city, not your position. You can change or remove it any time in Settings.",
-            color = VinylPalette.TextMuted,
-            fontSize = 13.sp,
-            textAlign = TextAlign.Center,
-            lineHeight = 19.sp,
-            modifier = Modifier.padding(top = 14.dp, bottom = 8.dp),
-        )
-
-        statusMessage(state.status, permanentlyDenied)?.let { message ->
             Text(
-                text = message,
-                color = VinylPalette.TealAccent,
+                text = "We save your city, not your position. You can change or remove it any time in Settings.",
+                color = VinylPalette.TextMuted,
                 fontSize = 13.sp,
                 textAlign = TextAlign.Center,
                 lineHeight = 19.sp,
-                modifier = Modifier.padding(top = 24.dp),
+                modifier = Modifier.padding(top = 14.dp, bottom = 8.dp),
             )
-        }
 
-        // One gap above whichever of spinner or buttons is showing, so they sit in the same place.
-        Spacer(modifier = Modifier.height(32.dp))
-
-        if (state.isLoading) {
-            CircularProgressIndicator(color = VinylPalette.TealAccent)
-        } else {
-            Button(
-                onClick = onPrimary,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(60.dp)
-                    .padding(top = 10.dp),
-                shape = RoundedCornerShape(50),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = VinylPalette.TealAccent,
-                    contentColor = VinylPalette.Background,
-                ),
-            ) {
+            statusMessage(state.status, permanentlyDenied)?.let { message ->
                 Text(
-                    text = if (permanentlyDenied) "Open app settings" else "Share my city",
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 15.sp,
+                    text = message,
+                    color = VinylPalette.TealAccent,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 19.sp,
+                    modifier = Modifier.padding(top = 24.dp),
                 )
             }
+        }
 
-            TextButton(onClick = onSkip, modifier = Modifier.padding(top = 4.dp)) {
-                Text("Not now", color = VinylPalette.TextMuted, fontSize = 14.sp)
+        // Same block as the notification page, so the buttons sit at the same height on both.
+        OnboardingActionArea {
+            if (state.isLoading) {
+                // Same height as the button it replaces, so nothing below or above shifts.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(OnboardingButtonHeight),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(color = VinylPalette.TealAccent)
+                }
+            } else {
+                OnboardingPrimaryButton(
+                    text = if (permanentlyDenied) "Open app settings" else "Share my city",
+                    onClick = onPrimary,
+                )
+                OnboardingSecondaryButton(text = "Not now", onClick = onSkip)
             }
         }
     }

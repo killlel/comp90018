@@ -8,118 +8,145 @@ import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * One selectable option in the fixed profile-picture set (`avatar_options`).
+ * One selectable profile picture, from the `avatars` table.
  *
- * Unlike genres, this has no client-side constant yet (see [OnboardingRepository]), so it's read
- * from Supabase the same way `submit_song()` reads `tracks` — a small table rather than a
- * hardcoded list, since the real icon set isn't decided yet.
+ * [slug] is what gets saved on the profile (`profiles.avatar_slug`); [url] is a remote image the
+ * screen renders. The table is seeded empty on purpose, so this list is empty until someone
+ * inserts rows - see DATABASE.md.
  */
 @Serializable
 data class AvatarOption(
     val slug: String,
-    @SerialName("asset_name") val assetName: String,
-    @SerialName("sort_order") val sortOrder: Int = 0,
-)
-
-/** The onboarding-relevant slice of the caller's own `profiles` row. */
-@Serializable
-data class OnboardingProfile(
-    @SerialName("display_name") val displayName: String,
-    @SerialName("avatar_id") val avatarId: String? = null,
-    val genres: List<String> = emptyList(),
-    @SerialName("genres_all") val genresAll: Boolean = false,
-    @SerialName("notifications_enabled") val notificationsEnabled: Boolean = true,
-    @SerialName("onboarding_completed") val onboardingCompleted: Boolean = false,
+    val url: String,
+    @SerialName("sort_order") val sortOrder: Int = 100,
 )
 
 /**
- * Backs the four onboarding pages. Kept separate from [com.example.vinyl.data.ProfileRepository]
- * rather than extending it: these fields go through dedicated RPCs (`set_profile_avatar`,
- * `set_profile_genres`, `set_notification_preference`) rather than a direct table write, and none
- * of them overlap with what ProfileRepository already owns (location).
+ * One selectable genre, from the `genres` table. [slug] (`k_pop`) is stored and matched on;
+ * [label] (`K-pop`) is what the user sees. The database rejects a label, so always send slugs.
+ */
+@Serializable
+data class GenreOption(
+    val slug: String,
+    val label: String,
+    @SerialName("sort_order") val sortOrder: Int = 100,
+)
+
+/**
+ * The onboarding-relevant slice of the caller's own `profiles` row.
  *
- * Genres are NOT read from here — the picker uses the existing `GenreOptions.all` constant in
- * `MoodOptions.kt`, so there's no `getGenreOptions()`. Only the save side is a repository concern.
+ * [username] is the server-generated alias ("Happy Giraffe").
+ *
+ * [favoriteGenres] keeps the column's three states: null = not answered yet, empty = "I listen to
+ * everything", otherwise the chosen slugs.
+ */
+@Serializable
+data class OnboardingProfile(
+    val username: String,
+    @SerialName("avatar_slug") val avatarSlug: String? = null,
+    @SerialName("favorite_genres") val favoriteGenres: List<String>? = null,
+    @SerialName("onboarding_completed") val onboardingCompleted: Boolean = false,
+) {
+    val listensToEverything: Boolean get() = favoriteGenres?.isEmpty() == true
+}
+
+/**
+ * Backs the onboarding pages. Kept separate from [com.example.vinyl.data.ProfileRepository], which
+ * owns location.
+ *
+ * Reads and writes go straight to `profiles` - RLS confines them to the caller's own row - except
+ * the username, which only the database writes: it is generated on signup and re-rolled through
+ * the `reroll_username()` RPC. See DATABASE.md.
  */
 open class OnboardingRepository(
     private val supabase: SupabaseClient = Supabase.client,
 ) {
 
-    /** The signed-in user's display name, avatar, genre picks and onboarding progress so far. */
+    /** The signed-in user's username, picture, genre answer and onboarding progress so far. */
     open suspend fun getMyProfile(): Result<OnboardingProfile> = runCatching {
         val uid = requireUserId()
         supabase.postgrest
-            .from(TABLE)
+            .from(PROFILES)
             .select(
-                Columns.list(
-                    "display_name",
-                    "avatar_id",
-                    "genres",
-                    "genres_all",
-                    "notifications_enabled",
-                    "onboarding_completed",
-                ),
+                Columns.list("username", "avatar_slug", "favorite_genres", "onboarding_completed"),
             ) { filter { eq("id", uid) } }
             .decodeSingle<OnboardingProfile>()
     }
 
-    /** The fixed set of selectable profile-picture icons, in display order. */
+    /** The pictures on offer, in display order. Retired ones (`is_active = false`) are hidden. */
     open suspend fun getAvatarOptions(): Result<List<AvatarOption>> = runCatching {
         supabase.postgrest
-            .from("avatar_options")
-            .select(Columns.list("slug", "asset_name", "sort_order")) {
+            .from("avatars")
+            .select(Columns.list("slug", "url", "sort_order")) {
                 filter { eq("is_active", true) }
                 order("sort_order", Order.ASCENDING)
             }
             .decodeList<AvatarOption>()
     }
 
-    /** Page 1: sets the chosen icon. The username itself is server-assigned; never sent here. */
-    open suspend fun setAvatar(avatarId: String): Result<Unit> = runCatching {
-        supabase.postgrest.rpc(
-            "set_profile_avatar",
-            buildJsonObject { put("p_avatar_id", avatarId) },
-        )
-    }.map { }
+    /** The genres on offer, in display order, read from the database rather than hardcoded. */
+    open suspend fun getGenreOptions(): Result<List<GenreOption>> = runCatching {
+        supabase.postgrest
+            .from("genres")
+            .select(Columns.list("slug", "label", "sort_order")) {
+                filter { eq("is_active", true) }
+                order("sort_order", Order.ASCENDING)
+            }
+            .decodeList<GenreOption>()
+    }
 
     /**
-     * Page 2: saves the genre picks (values from `GenreOptions.all`). [listenToEverything] = true
-     * means "accept all" — the server stores an empty selection plus the flag, so genres added to
-     * that constant later still show up as "everything" for someone who chose it before.
+     * "Try another name": the database picks a fresh unique username, saves it and returns it.
+     * Only works while onboarding is unfinished - afterwards it fails, by design.
      */
-    open suspend fun setGenres(genres: List<String>, listenToEverything: Boolean): Result<Unit> =
-        runCatching {
-            supabase.postgrest.rpc(
-                "set_profile_genres",
-                buildJsonObject {
-                    put("p_genres", buildJsonArray { genres.forEach { add(it) } })
-                    put("p_all", listenToEverything)
-                },
-            )
-        }.map { }
+    open suspend fun rerollUsername(): Result<String> = runCatching {
+        supabase.postgrest.rpc("reroll_username").decodeAs<String>()
+    }
+
+    /** Page 1: saves the chosen picture. Pass a slug from [getAvatarOptions]. */
+    open suspend fun setAvatar(avatarSlug: String): Result<Unit> =
+        updateMyProfile(buildJsonObject { put("avatar_slug", avatarSlug) })
 
     /**
-     * Page 4, and the last onboarding step — also flips `onboarding_completed` server-side, so
-     * there's no separate "finish onboarding" call.
+     * Page 2: saves the genre answer as slugs from [getGenreOptions].
+     *
+     * An EMPTY list is stored as "I listen to everything" - it is a real answer, not "nothing
+     * chosen". To leave the question unanswered, do not call this at all.
      */
-    open suspend fun setNotificationPreference(enabled: Boolean): Result<Unit> = runCatching {
-        supabase.postgrest.rpc(
-            "set_notification_preference",
-            buildJsonObject { put("p_enabled", enabled) },
+    open suspend fun setFavoriteGenres(slugs: List<String>): Result<Unit> =
+        updateMyProfile(
+            buildJsonObject { put("favorite_genres", buildJsonArray { slugs.forEach { add(it) } }) },
         )
-    }.map { }
+
+    /**
+     * Last step: marks onboarding done. The database only lets this flip from false to true.
+     *
+     * The notification choice is deliberately NOT saved here - the schema has nowhere to put it
+     * yet. When it gets a real column, save it in this same update.
+     */
+    open suspend fun completeOnboarding(): Result<Unit> =
+        updateMyProfile(buildJsonObject { put("onboarding_completed", true) })
+
+    private suspend fun updateMyProfile(fields: JsonObject): Result<Unit> = runCatching {
+        val uid = requireUserId()
+        supabase.postgrest
+            .from(PROFILES)
+            .update(fields) { filter { eq("id", uid) } }
+        Unit
+    }
 
     private fun requireUserId(): String =
         supabase.auth.currentUserOrNull()?.id
             ?: error("No signed-in user; onboarding is unavailable")
 
     private companion object {
-        const val TABLE = "profiles"
+        const val PROFILES = "profiles"
     }
 }

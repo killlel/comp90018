@@ -286,6 +286,8 @@ private fun VinylApp() {
     var dailyMood by remember { mutableStateOf<MoodTag?>(null) }
     var dailyGenres by remember { mutableStateOf(setOf<String>()) }
 
+    val scope = rememberCoroutineScope()
+
     Scaffold(
         containerColor = VinylPalette.Background,
         bottomBar = {
@@ -357,6 +359,7 @@ private fun VinylApp() {
         SettingsScreen(
             locationValue = settingsLocationValue(locationState),
             onOpenLocation = { showLocationSettings = true },
+            onSignOut = { scope.launch { runCatching { Supabase.client.auth.signOut() } } },
             onBack = { showSettings = false },
         )
     }
