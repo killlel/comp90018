@@ -33,9 +33,12 @@ data class UnopenedRecordUiState(
 )
 
 /**
- * The sealed "you've got a record" reveal — the record itself isn't shown playing here (that
- * lives on the home screen per how this app is structured); this is just the pre-open moment.
- * Shake-to-open is represented visually only — no accelerometer/sensor code is wired up.
+ * The sealed "you've got a record" reveal —  this is just the pre-open moment.
+ *
+ * Shake-to-open is real: [DetectShakeGesture] listens to the accelerometer for as long as this
+ * screen is visible and calls [onOpen], the same callback the button uses. See ShakeDetector.kt
+ * and ShakeAlgorithm.kt for the detection itself - deliberately not implemented here, so this
+ * composable stays about layout, not sensor logic.
  */
 @Composable
 fun UnopenedRecordScreen(
@@ -43,6 +46,8 @@ fun UnopenedRecordScreen(
     onOpen: () -> Unit,
     onBack: () -> Unit = {},
 ) {
+    DetectShakeGesture(onShake = onOpen)
+
     Column(
         modifier = Modifier
             .fillMaxSize()

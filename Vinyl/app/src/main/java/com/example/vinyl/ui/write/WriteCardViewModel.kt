@@ -19,8 +19,10 @@ class WriteCardViewModel(
     val uiState: StateFlow<WriteCardUiState> = _uiState.asStateFlow()
 
     private val queryFlow = MutableStateFlow("")
+    private var loadingGenres = false
 
     init {
+        loadGenresIfNeeded()
         viewModelScope.launch {
             queryFlow
                 .debounce(400)
@@ -44,6 +46,22 @@ class WriteCardViewModel(
         }
     }
 
+    /**
+     * Reads the genre vocabulary from the database. Safe to call again: it does nothing once the
+     * genres are loaded, so the screen can call it on entry to retry after being offline. A
+     * failure is not shown - genre is optional, so the section is simply hidden.
+     */
+    fun loadGenresIfNeeded() {
+        if (loadingGenres || _uiState.value.genreOptions.isNotEmpty()) return
+        loadingGenres = true
+        viewModelScope.launch {
+            repository.getGenreOptions()
+                .onSuccess { options -> _uiState.update { it.copy(genreOptions = options) } }
+                .onFailure { e -> Log.w("WriteCardVM", "couldn't load genres", e) }
+            loadingGenres = false
+        }
+    }
+
     fun onQueryChange(newQuery: String) {
         _uiState.update { it.copy(query = newQuery) }
         queryFlow.value = newQuery
@@ -60,8 +78,9 @@ class WriteCardViewModel(
 
     fun onMoodSelected(mood: MoodTag) = _uiState.update { it.copy(mood = mood) }
 
-    fun onGenreToggled(genre: String) = _uiState.update {
-        val updated = if (genre in it.selectedGenres) it.selectedGenres - genre else it.selectedGenres + genre
+    /** [genreSlug] is a slug from `genres` (`k_pop`), not a label. */
+    fun onGenreToggled(genreSlug: String) = _uiState.update {
+        val updated = if (genreSlug in it.selectedGenres) it.selectedGenres - genreSlug else it.selectedGenres + genreSlug
         it.copy(selectedGenres = updated)
     }
 
@@ -70,6 +89,11 @@ class WriteCardViewModel(
     fun submit() {
         val state = _uiState.value
         val track = state.selectedTrack ?: return
+        // The button is disabled until this holds; this is the backstop if it is ever bypassed.
+        if (!state.canSubmit) {
+            _uiState.update { it.copy(submissionError = state.sendHint) }
+            return
+        }
 
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmitting = true, submissionError = null) }
@@ -82,7 +106,8 @@ class WriteCardViewModel(
                 submissionGenres = state.selectedGenres.toList(),
                 attachLocation = state.attachLocation,
             ).onSuccess { id ->
-                _uiState.update { WriteCardUiState(submittedId = id) } // reset for next letter
+                // Reset for the next letter, but keep the genres we already loaded.
+                _uiState.update { WriteCardUiState(submittedId = id, genreOptions = it.genreOptions) }
             }.onFailure { e ->
                 // Not e.message: it includes the backend URL, which would land on screen.
                 Log.e("WriteCardVM", "submit failed", e)

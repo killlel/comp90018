@@ -51,12 +51,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.vinyl.data.GoogleAuthRepository
 import com.example.vinyl.data.GoogleSignInOutcome
 import com.example.vinyl.data.MoodOptions
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.data.Supabase
+import com.example.vinyl.data.onboarding.FakeOnboardingRepository
+import com.example.vinyl.data.onboarding.OnboardingRepository
 import com.example.vinyl.ui.collection.CollectionScreen
 import com.example.vinyl.ui.daily.ArrivedRecordOption
 import com.example.vinyl.ui.daily.ArrivedTodayScreen
@@ -65,6 +66,8 @@ import com.example.vinyl.ui.daily.MoodQuestionnaireScreen
 import com.example.vinyl.ui.daily.RoomViewModel
 import com.example.vinyl.ui.daily.UnopenedRecordScreen
 import com.example.vinyl.ui.daily.UnopenedRecordUiState
+import com.example.vinyl.ui.onboarding.OnboardingPagerScreen
+import com.example.vinyl.ui.onboarding.OnboardingViewModel
 import com.example.vinyl.ui.daily.toArrivedOption
 import com.example.vinyl.ui.location.LocationGateScreen
 import com.example.vinyl.ui.location.LocationSettingsScreen
@@ -80,6 +83,7 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.handleDeeplinks
 import io.github.jan.supabase.auth.status.SessionStatus
 import kotlinx.coroutines.launch
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 class MainActivity : ComponentActivity() {
 
@@ -104,7 +108,7 @@ class MainActivity : ComponentActivity() {
                 val sessionStatus by Supabase.client.auth.sessionStatus.collectAsState()
 
                 if (sessionStatus is SessionStatus.Authenticated || bypassAuthForTesting) {
-                    LocationGate { VinylApp() }
+                    OnboardingGate(useStubData = bypassAuthForTesting) { VinylApp() }
                 } else {
                     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                         AuthScreen(
@@ -178,6 +182,55 @@ private sealed class ReceiveFlowStep {
 }
 
 /**
+ * Runs the four-step onboarding flow once per account (`profiles.onboarding_completed`), then
+ * hands over to the app. Replaces the old `LocationGate` wrapper — the location ask is now page 3
+ * of [OnboardingPagerScreen] instead of living here on its own, per that screen's original
+ * docstring.
+ *
+ * Reads the flag once on entry rather than through [com.example.vinyl.ui.onboarding.OnboardingViewModel],
+ * since that view model's state doesn't carry `onboarding_completed` — it only tracks the fields
+ * onboarding itself edits.
+ *
+ * [useStubData] — TESTING ONLY: when true (wired to the same `bypassAuthForTesting` switch as the
+ * sign-in skip), the whole gate runs on [FakeOnboardingRepository] instead of checking Supabase,
+ * since there's no real signed-in user to look up in that mode. Remove this parameter, and the
+ * branch that uses it, before shipping.
+ */
+@Composable
+private fun OnboardingGate(useStubData: Boolean = false, content: @Composable () -> Unit) {
+    if (useStubData) {
+        var stubCompleted by remember { mutableStateOf(false) }
+        if (stubCompleted) {
+            content()
+        } else {
+            OnboardingPagerScreen(
+                onOnboardingComplete = { stubCompleted = true },
+                viewModel = remember { OnboardingViewModel(repository = FakeOnboardingRepository()) },
+            )
+        }
+        return
+    }
+
+    // null = still resolving, so the gate can't yet say which way to go.
+    var onboardingCompleted by remember { mutableStateOf<Boolean?>(null) }
+
+    LaunchedEffect(Unit) {
+        onboardingCompleted = OnboardingRepository().getMyProfile()
+            .getOrNull()
+            ?.onboardingCompleted
+            ?: false
+    }
+
+    when (onboardingCompleted) {
+        // Blank rather than a spinner: the read is usually a few hundred ms, and a spinner that
+        // fast reads as a flicker.
+        null -> Box(Modifier.fillMaxSize().background(VinylPalette.Background))
+        false -> OnboardingPagerScreen(onOnboardingComplete = { onboardingCompleted = true })
+        true -> content()
+    }
+}
+
+/**
  * Shows the location gate once per launch when the signed-in user has no stored location, then
  * hands over to the app.
  *
@@ -185,33 +238,33 @@ private sealed class ReceiveFlowStep {
  * the schema but nothing on the client sets it — so the location ask lives here on its own. When
  * onboarding is built, fold LocationGateScreen into it as a step and delete this wrapper.
  */
-@Composable
-private fun LocationGate(content: @Composable () -> Unit) {
-    val locationViewModel: LocationViewModel = viewModel()
-    val locationState by locationViewModel.uiState.collectAsState()
-
-    // Decided once, from the first completed profile read, and never again this launch. Deciding
-    // it live from hasLocation meant that removing a location in Settings threw the user onto
-    // this gate mid-session — straight after they'd said they didn't want one. Device testing
-    // caught that. Null = the first read hasn't finished yet.
-    var showGate by rememberSaveable { mutableStateOf<Boolean?>(null) }
-    LaunchedEffect(locationState.isLoading) {
-        if (!locationState.isLoading && showGate == null) showGate = !locationState.hasLocation
-    }
-
-    when (showGate) {
-        // Blank rather than a spinner: the read is usually a few hundred ms, and a spinner that
-        // fast reads as a flicker.
-        null -> Box(Modifier.fillMaxSize().background(VinylPalette.Background))
-
-        true -> LocationGateScreen(
-            onDone = { showGate = false },
-            viewModel = locationViewModel,
-        )
-
-        false -> content()
-    }
-}
+//@Composable
+//private fun LocationGate(content: @Composable () -> Unit) {
+//    val locationViewModel: LocationViewModel = viewModel()
+//    val locationState by locationViewModel.uiState.collectAsState()
+//
+//    // Decided once, from the first completed profile read, and never again this launch. Deciding
+//    // it live from hasLocation meant that removing a location in Settings threw the user onto
+//    // this gate mid-session — straight after they'd said they didn't want one. Device testing
+//    // caught that. Null = the first read hasn't finished yet.
+//    var showGate by rememberSaveable { mutableStateOf<Boolean?>(null) }
+//    LaunchedEffect(locationState.isLoading) {
+//        if (!locationState.isLoading && showGate == null) showGate = !locationState.hasLocation
+//    }
+//
+//    when (showGate) {
+//        // Blank rather than a spinner: the read is usually a few hundred ms, and a spinner that
+//        // fast reads as a flicker.
+//        null -> Box(Modifier.fillMaxSize().background(VinylPalette.Background))
+//
+//        true -> LocationGateScreen(
+//            onDone = { showGate = false },
+//            viewModel = locationViewModel,
+//        )
+//
+//        false -> content()
+//    }
+//}
 
 @Composable
 private fun VinylApp() {
@@ -223,7 +276,7 @@ private fun VinylApp() {
 
     val roomViewModel: RoomViewModel = viewModel()
 
-    // Same activity-scoped instance the gate and the settings screen use.
+    // Activity-scoped, so it's the same instance the onboarding pager and settings screen use
     val locationViewModel: LocationViewModel = viewModel()
     val locationState by locationViewModel.uiState.collectAsState()
 
@@ -232,6 +285,8 @@ private fun VinylApp() {
     LaunchedEffect(locationState.hasLocation) { locationViewModel.loadCityLabel() }
     var dailyMood by remember { mutableStateOf<MoodTag?>(null) }
     var dailyGenres by remember { mutableStateOf(setOf<String>()) }
+
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         containerColor = VinylPalette.Background,
@@ -304,6 +359,7 @@ private fun VinylApp() {
         SettingsScreen(
             locationValue = settingsLocationValue(locationState),
             onOpenLocation = { showLocationSettings = true },
+            onSignOut = { scope.launch { runCatching { Supabase.client.auth.signOut() } } },
             onBack = { showSettings = false },
         )
     }
@@ -382,7 +438,7 @@ private fun VinylApp() {
                 state = UnopenedRecordUiState(
                     distanceLabel = step.option.distanceLabel,
                     moodLabel = step.option.moodLabel,
-                    sentTimeLabel = "Just now",
+                    sentTimeLabel = step.option.sentTimeLabel,
                     distanceNote = step.option.distanceNote,
                 ),
                 onOpen = { receiveFlowStep = ReceiveFlowStep.Opened(step.option) },
@@ -401,7 +457,7 @@ private fun VinylApp() {
                         message = step.option.messagePreview,
                         senderDistanceLabel = step.option.distanceLabel,
                         senderDistanceNote = step.option.distanceNote,
-                        sentTimeLabel = "Just now",
+                        sentTimeLabel = step.option.sentTimeLabel,
                     ),
                     onClose = { receiveFlowStep = null },
                 )
@@ -593,7 +649,7 @@ private fun AuthScreen(
 
                 // TESTING ONLY — bypasses sign-in entirely. Remove before submitting/shipping.
                 TextButton(onClick = onSkipForTesting) {
-                    Text("Skip sign-in (testing)", color = VinylPalette.Background)
+                    Text("Skip sign-in (testing)", color = VinylPalette.TealAccent)
                 }
             }
         }

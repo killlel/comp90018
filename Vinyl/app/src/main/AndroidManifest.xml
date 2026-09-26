@@ -8,7 +8,7 @@
          option; the app works fine if the user grants approximate only. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Declared explicitly as optional: a location permission otherwise implies a required
          hardware feature, which would hide the app from devices without GPS. -->
     <uses-feature
