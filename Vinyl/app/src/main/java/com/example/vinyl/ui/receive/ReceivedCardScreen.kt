@@ -183,6 +183,19 @@ fun ReceivedCardScreen(
 
         Spacer(modifier = Modifier.weight(1f))
 
+        // Not wired to anything yet - same style as the row below it.
+        OutlinedButton(
+            onClick = {},
+            modifier = Modifier.fillMaxWidth().height(80.dp),
+            shape = RoundedCornerShape(30),
+            border = BorderStroke(1.5.dp, VinylPalette.Cream),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = VinylPalette.Cream),
+        ) {
+            Text("Play this record", fontWeight = FontWeight.SemiBold)
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
         Row(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,

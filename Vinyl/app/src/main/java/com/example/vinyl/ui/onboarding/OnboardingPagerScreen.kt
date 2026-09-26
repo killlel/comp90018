@@ -5,17 +5,24 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,6 +61,13 @@ fun OnboardingPagerScreen(
         }
     }
 
+    // No page before 0, so this is only ever called while a back button is actually showing.
+    fun retreat() {
+        if (pagerState.currentPage > 0) {
+            scope.launch { pagerState.animateScrollToPage(pagerState.currentPage - 1) }
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -61,7 +75,32 @@ fun OnboardingPagerScreen(
             .windowInsetsPadding(WindowInsets.safeDrawing)
             .padding(top = 10.dp),
     ) {
-        OnboardingHeader()
+        // Back button at the left (replacing the logo's old spot on every page except the
+        // first, which has nothing to go back to), logo at the right. SpaceBetween pushes them
+        // to opposite ends regardless of which one is showing.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            if (pagerState.currentPage > 0) {
+                IconButton(onClick = ::retreat) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = VinylPalette.TealAccent,
+                    )
+                }
+            } else {
+                // Reserves the same width AND height as the button above (not just width), so
+                // the row itself is the same height on every page and the logo doesn't shift
+                // vertically just because page 1 has no button to match.
+                Spacer(Modifier.size(48.dp))
+            }
+            OnboardingHeader()
+        }
 
         StepIndicator(
             currentPage = pagerState.currentPage,
