@@ -4,9 +4,6 @@
     android:viewportWidth="128"
     android:viewportHeight="128">
   <path
-      android:pathData="M0,0h128v128h-128z"
-      android:fillColor="#ffffff"/>
-  <path
       android:pathData="M33.54,30L35.36,49.85L26.1,64.15V81.44L48.22,101.93L48.45,94.67L60.87,97.46L34.68,72.26L33.54,62.44L38.29,53.69L48.9,49L63.8,63.93L79.16,49L92.02,56.46L94.74,66.5L91.58,75.46L66.96,97.46L79.39,94.67L80.29,101.5L101.74,81.44V64.15L92.49,49.85L94.29,30.22L80.74,40.67H47.32L33.54,30Z"
       android:fillColor="#000000"/>
   <path

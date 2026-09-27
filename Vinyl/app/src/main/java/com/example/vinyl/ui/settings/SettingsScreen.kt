@@ -73,7 +73,7 @@ private val AccentColors = listOf(
     Color(0xFF8FA8FF),
 )
 
-private enum class SettingsPage { List, Account, Preferences, Appearance, About, Help }
+private enum class SettingsPage { List, Account, IconMaker, Preferences, Appearance, About, Help }
 
 private fun themeLabel(mode: Int) = when (mode) {
     0 -> "System"
@@ -96,9 +96,18 @@ fun SettingsScreen(
     var selectedGenres by rememberSaveable { mutableStateOf(setOf("Indie", "Electronic")) }
     var showDeleteConfirm by rememberSaveable { mutableStateOf(false) }
     var signedOutNote by rememberSaveable { mutableStateOf(false) }
+    var avatarIcon by rememberSaveable { mutableStateOf(0) }
+    var avatarGradient by rememberSaveable { mutableStateOf(0) }
 
     val onPageBack = {
-        if (page == SettingsPage.List) onBack() else page = SettingsPage.List
+        page = when (page) {
+            SettingsPage.List -> {
+                onBack()
+                page
+            }
+            SettingsPage.IconMaker -> SettingsPage.Account
+            else -> SettingsPage.List
+        }
     }
     BackHandler(onBack = onPageBack)
 
@@ -112,6 +121,7 @@ fun SettingsScreen(
             title = when (page) {
                 SettingsPage.List -> "Settings"
                 SettingsPage.Account -> "Profile"
+                SettingsPage.IconMaker -> "Icon"
                 SettingsPage.Preferences -> "Music Preferences"
                 SettingsPage.Appearance -> "Appearance"
                 SettingsPage.About -> "About"
@@ -123,6 +133,8 @@ fun SettingsScreen(
             SettingsPage.List -> SettingsHome(
                 displayName = displayName,
                 handle = handle,
+                iconIndex = avatarIcon,
+                gradientIndex = avatarGradient,
                 locationValue = locationValue,
                 notificationsEnabled = notificationsEnabled,
                 onNotificationsChange = { notificationsEnabled = it },
@@ -135,7 +147,20 @@ fun SettingsScreen(
                 onOpenHelp = { page = SettingsPage.Help },
                 onSignOut = { signedOutNote = true },
             )
-            SettingsPage.Account -> AccountPage(displayName, handle) { showDeleteConfirm = true }
+            SettingsPage.Account -> AccountPage(
+                displayName = displayName,
+                handle = handle,
+                iconIndex = avatarIcon,
+                gradientIndex = avatarGradient,
+                onEditIcon = { page = SettingsPage.IconMaker },
+                onDelete = { showDeleteConfirm = true },
+            )
+            SettingsPage.IconMaker -> AvatarMakerBody(
+                iconIndex = avatarIcon,
+                gradientIndex = avatarGradient,
+                onIconChange = { avatarIcon = it },
+                onGradientChange = { avatarGradient = it },
+            )
             SettingsPage.Preferences -> PreferencesPage(selectedGenres) { genre ->
                 selectedGenres = if (genre in selectedGenres) selectedGenres - genre else selectedGenres + genre
             }
@@ -198,6 +223,8 @@ private fun SettingsTopBar(title: String, onBack: () -> Unit) {
 private fun SettingsHome(
     displayName: String,
     handle: String,
+    iconIndex: Int,
+    gradientIndex: Int,
     locationValue: String?,
     notificationsEnabled: Boolean,
     onNotificationsChange: (Boolean) -> Unit,
@@ -215,7 +242,7 @@ private fun SettingsHome(
             .padding(horizontal = PagePad).padding(bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        ProfileHeader(displayName, handle, onOpenProfile)
+        ProfileHeader(displayName, handle, iconIndex, gradientIndex, onOpenProfile)
         SettingsGroup {
             IconNavRow(Icons.Outlined.MusicNote, "Music Preferences", onClick = onOpenPreferences)
             GroupDivider()
@@ -244,13 +271,19 @@ private fun SettingsHome(
 }
 
 @Composable
-private fun ProfileHeader(displayName: String, handle: String, onClick: () -> Unit) {
+private fun ProfileHeader(
+    displayName: String,
+    handle: String,
+    iconIndex: Int,
+    gradientIndex: Int,
+    onClick: () -> Unit,
+) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(GroupRadius)).clickable(onClick = onClick)
             .padding(vertical = 8.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        VinylAvatar()
+        AvatarPreview(iconIndex, gradientIndex, size = 64.dp)
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
             Text(displayName, color = VinylPalette.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium)
@@ -385,15 +418,28 @@ private fun AppearancePage(
 }
 
 @Composable
-private fun AccountPage(displayName: String, handle: String, onDelete: () -> Unit) {
+private fun AccountPage(
+    displayName: String,
+    handle: String,
+    iconIndex: Int,
+    gradientIndex: Int,
+    onEditIcon: () -> Unit,
+    onDelete: () -> Unit,
+) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = PagePad),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.height(12.dp))
-        VinylAvatar()
+        AvatarPreview(iconIndex, gradientIndex, size = 88.dp, onClick = onEditIcon)
         Spacer(Modifier.height(12.dp))
-        Text("Edit", color = VinylPalette.TealAccent, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.clickable { })
+        Text(
+            "Edit",
+            color = VinylPalette.TealAccent,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.clickable(onClick = onEditIcon),
+        )
         Spacer(Modifier.height(16.dp))
         Text(displayName, color = VinylPalette.TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Medium)
         Text(handle, color = VinylPalette.TextMuted, fontSize = 14.sp)
