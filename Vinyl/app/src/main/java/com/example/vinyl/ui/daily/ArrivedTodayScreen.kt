@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -23,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.ui.theme.VinylPalette
 
@@ -38,6 +40,10 @@ data class ArrivedRecordOption(
     /** Why [distanceLabel] is missing, for the screens with room to say so. */
     val distanceNote: String? = null,
     val mood: MoodTag? = null,
+    /** The record's own id. Reacting and keeping act on this, not on [id] (the delivery's id). */
+    val submissionId: String? = null,
+    /** How long ago the sender sent it, for example "Just now", "3 hr. ago" or "Yesterday". */
+    val sentTimeLabel: String = "Recently",
 )
 
 data class ArrivedTodayUiState(
@@ -125,7 +131,6 @@ private fun ArrivedRecordCard(option: ArrivedRecordOption, onClick: () -> Unit) 
             .padding(14.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // TODO: swap for AsyncImage once artworkUrl is populated from real data
         Box(
             modifier = Modifier
                 .size(56.dp)
@@ -133,13 +138,23 @@ private fun ArrivedRecordCard(option: ArrivedRecordOption, onClick: () -> Unit) 
                 .background(VinylPalette.Background),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                "album\nart",
-                color = VinylPalette.TextMuted,
-                fontSize = 9.sp,
-                textAlign = TextAlign.Center,
-                lineHeight = 11.sp,
-            )
+            if (option.artworkUrl != null) {
+                AsyncImage(
+                    model = option.artworkUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                // Not every song has artwork (or it hasn't been saved with the record).
+                Text(
+                    "album\nart",
+                    color = VinylPalette.TextMuted,
+                    fontSize = 9.sp,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 11.sp,
+                )
+            }
         }
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {

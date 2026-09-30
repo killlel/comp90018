@@ -74,18 +74,24 @@ The anonymity rules are proven by `supabase/tests/smoke_test.sql` (checks 4, 5,
 
 Users **do not** appear under their Google name.
 
-- At onboarding they pick a **username from a list we provide**
-  (`public.usernames`) and a **profile picture from a set we provide**
-  (`public.avatars`).
-- Free-text usernames are not offered — they would let someone identify
-  themselves and defeat the anonymity model.
-- Avatar images are **remote**; `avatars.url` points at Supabase Storage.
-- Aliases are **not unique**. Two users may hold the same one, which is
-  harmless because they are display-only.
-- The choice is stored as a **slug**, never the label or the URL.
+- At onboarding the database **generates a username** for them — an
+  "Adjective Animal" like `Happy Giraffe` or `Sleepy Tiger` — and they pick a
+  **profile picture from a set we provide** (`public.avatars`).
+- Nobody types a username. Free text would let someone identify themselves and
+  defeat the anonymity model.
+- Usernames are **unique**, case-insensitively. Two users never hold the same one.
+- A user can tap **"Try another name"** (`reroll_username()`) while onboarding
+  is unfinished. Once `onboarding_completed` is true the name is **fixed**.
+- The username is stored **exactly as displayed**, as plain text in
+  `profiles.username`. There is no slug/label split: nothing looks it up by key.
+- **Only the database writes it.** The client cannot choose or edit a username;
+  it reads `profiles.username` and shows it.
+- Avatar images are **remote**; `avatars.url` points at Supabase Storage. The
+  avatar choice is stored as a **slug**, never the label or the URL.
 - The Google name and avatar live in `display_name` / `avatar_url`, are private
   to their owner, and are **separate columns** — never reused to hold the
-  chosen alias.
+  chosen username or avatar. The app must never show `display_name` as the
+  user's name.
 
 Profile pictures and usernames are **display-only**. They are shown on the
 user's own profile and settings. They are _not_ attached to a record a
@@ -95,14 +101,15 @@ recipient sees.
 
 ## 4. Onboarding
 
-Runs once, after first sign-in. Gated by `profiles.onboarding_completed`.
+Runs once, after first sign-in. Gated by `profiles.onboarding_completed`, which
+the app can only ever move from `false` to `true`.
 
-| Step                                             | Stores                     |
-| ------------------------------------------------ | -------------------------- |
-| 1. Pick username + profile picture               | `profiles.username_slug` / `avatar_slug` |
-| 2. Favourite genres, or "I listen to everything" | `profiles.favorite_genres` |
-| 3. Location permission                           | `profiles.lat` / `lng`     |
-| 4. Notification permission                       | _(not yet in the schema)_  |
+| Step                                             | Stores                                                     |
+| ------------------------------------------------ | ---------------------------------------------------------- |
+| 1. Username (generated) + profile picture        | `profiles.username` (database-written) / `avatar_slug`     |
+| 2. Favourite genres, or "I listen to everything" | `profiles.favorite_genres`                                 |
+| 3. Location permission                           | `profiles.lat` / `lng`                                     |
+| 4. Notification permission                       | _(not yet in the schema — see §12)_                        |
 
 All four are **skippable**. A user who declines everything still gets a working
 app with weaker matching. Nothing here may block reaching the main screen.
@@ -150,7 +157,9 @@ already been shown.
 | A missing location shows **N/A with a reason**                              | If both sides are missing, the reader's own reason wins — it's the one they can fix                                                                                             |
 | **No** `default_mood` / `default_context`                                   | Mood is daily; context comes from the sensor                                                                                                                                    |
 | Favourite genres are one **nullable `text[]`**                              | Three states in one column, nothing to keep in sync                                                                                                                             |
-| Usernames and avatars are **lookup tables** with real foreign keys          | One value each, so Postgres enforces it outright. Not enums — an icon added or retired would otherwise mean a migration plus an app release                                     |
+| Avatars are a **lookup table** with a real foreign key                      | One value, so Postgres enforces it outright. Not an enum — an icon added or retired would otherwise mean a migration plus an app release                                        |
+| Usernames are **generated by the database**, unique, stored as plain text   | A fixed list would repeat names and cap the user count. Uniqueness needs the database: RLS hides other users' rows, so a client can't check what is taken                        |
+| Username = random adjective + animal, **60 × 60 = 3600** combinations       | After 25 failed picks a 4-digit number is appended (`Happy Giraffe 4821`) so signup never fails on a crowded pool. That starts around 3000 users — widen the lists before then |
 | **No `settings` jsonb.** Every preference is its own typed column           | A jsonb bag has no type, no default, no `NOT NULL`, and a key anyone can misspell. Migrations are cheap; add a column                                                            |
 | **OS permissions are never stored.** Ask Android at runtime                 | The user can revoke a permission in system settings without the app knowing. A copy in the database is a mirror that silently goes stale. For GPS the state already *is* whether `lat` is null |
 
@@ -172,14 +181,25 @@ supabase.postgrest.from("genres")
     .select(Columns.list("slug", "label")) { order("sort_order", Order.ASCENDING) }
 ```
 
-### Usernames and avatars
+### Usernames
 
-Same pattern. Read the set, show the label or image, store the **slug**:
+The database owns them. **Read** `profiles.username` from the user's own row;
+**never send one**. A client `UPDATE` of `username` is rejected with `42501`, and
+a `username` supplied on `INSERT` is overwritten.
+
+"Try another name" is one call and returns the new name:
 
 ```kotlin
-supabase.postgrest.from("usernames")
-    .select(Columns.list("slug", "label")) { order("sort_order", Order.ASCENDING) }
+supabase.postgrest.rpc("reroll_username").decodeAs<String>()
+```
 
+It raises `42501` once `onboarding_completed` is true.
+
+### Avatars
+
+Read the set, show the image, store the **slug**:
+
+```kotlin
 supabase.postgrest.from("avatars")
     .select(Columns.list("slug", "url")) { order("sort_order", Order.ASCENDING) }
 ```
@@ -188,8 +208,8 @@ Filter on `is_active` when building the picker. A retired entry stays valid on
 profiles that already chose it — the foreign key checks that the slug exists,
 not that it is still offered.
 
-`profiles.username_slug` and `avatar_slug` are real foreign keys, so an unknown
-slug is rejected by Postgres with `23503`.
+`profiles.avatar_slug` is a real foreign key, so an unknown slug is rejected by
+Postgres with `23503`.
 
 ### `profiles.favorite_genres` — three states
 
@@ -208,6 +228,7 @@ slug is rejected by Postgres with `23503`.
 | `get_shelf(p_limit?)`                                   | `room_card[]`     |
 | `submit_song(...)`                                      | `uuid`            |
 | `update_my_location(p_lat?, p_lng?)`                    | `void`            |
+| `reroll_username()`                                     | `text`            |
 | `add_reaction(p_submission_id, p_kind)`                 | `integer`         |
 | `get_reactions(p_submission_id)`                        | `{kind, total}[]` |
 | `get_my_submissions(p_limit?)`                          | rows              |
@@ -218,17 +239,22 @@ not coordinates.
 
 Shelving is a plain insert/delete on `shelf_items` — RLS covers it.
 
-Writing to `profiles` is a direct upsert — RLS confines it to your own row. Do
-not add an RPC for it; `update_my_location()` is the one exception and exists
-for the rounding semantics.
+Writing to `profiles` is a direct upsert or update — RLS confines it to your own
+row. Do not add an RPC for it. The exceptions are `update_my_location()`, which
+exists for the rounding semantics, and `reroll_username()`, because the client
+is not allowed to write `username` at all.
+
+Onboarding finishes with a plain update setting `onboarding_completed = true`.
+It only goes `false` → `true`: a client that tries to set it back gets `42501`.
 
 ### Errors
 
 | Code       | Meaning                                                           |
 | ---------- | ----------------------------------------------------------------- |
 | `28000`    | Not signed in                                                     |
-| `42501`    | Signed in, but not allowed — usually correct behaviour, not a bug |
+| `42501`    | Signed in, but not allowed — usually correct behaviour, not a bug. Also what you get for editing `username`, rerolling after onboarding, or reopening onboarding |
 | `23514`    | Bad genre slug                                                    |
+| `23503`    | Unknown avatar slug                                               |
 | `22023`    | Missing message, title or artist                                  |
 | `PGRST202` | Wrong argument names — the client is calling an old signature     |
 
@@ -255,12 +281,12 @@ Unresolved. Do not build past these without agreeing them first.
 
 | Question                                   | Why it matters                                                                                                                                                                                                                                |
 | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Notifications** — local or push?         | Push needs a device-token column and a server to send from. Local needs neither. Decide before building the toggle.                                                                                                                           |
+| **Notifications** — local or push?         | Push needs a device-token table (one user, many devices — not a profile column) and a server to send from. Local needs neither. Records are matched when the user asks, so today there is no server event for "you received a card". Decide before building the toggle. |
 | **Delete account** — how?                  | `auth.users` cascades to everything, but the app cannot delete its own auth user with the publishable key. Needs an edge function with `service_role`, which bypasses all RLS.                                                                |
 | **Distance vs coordinates** in `room_card` | Returning `distance_km` instead of `lat`/`lng` would mean a recipient never holds a sender's position. Changing `room_card` requires dropping and recreating three functions. The client already bands distances, so the UI works either way. |
 | **Where does the genre picker live?**      | The chip component is in the daily questionnaire; onboarding needs the same thing. Shared component, or two copies?                                                                                                                           |
 | **Who writes the avatar images?**          | `public.avatars` is seeded empty on purpose — placeholder URLs would make the feature look done while every icon 404s. Someone uploads the files to Supabase Storage, then one INSERT per icon. Until then the picker has nothing to show. |
-| **Is the Google name/picture still worth storing?** | `display_name` and `avatar_url` hold the Google identity and nothing reads them. Now that users pick an alias and an icon, they may have no purpose left.                                                                        |
+| **Is the Google name/picture still worth storing?** | `display_name` and `avatar_url` hold the Google identity and nothing reads them. Now that users get a generated username and pick an icon, they may have no purpose left.                                                              |
 
 ---
 
@@ -282,6 +308,24 @@ location needs a second pair of eyes.
 
 Not decisions — just things that are true right now and will surprise you.
 
+- **Notifications are not implemented.** Onboarding page 4 asks Android for the
+  notification permission so only that is done. The answer is not stored anywhere
+  (no column, and per §7 OS permissions are never stored), nothing reads it
+  afterwards, there is no Settings toggle, and **nothing sends a notification**
+  — no Firebase, no notification channel, no scheduled reminder. Whether it
+  becomes local or push is still open in §10. `POST_NOTIFICATIONS` must be
+  declared in the manifest, or Android 13+ never shows the dialog.
+- **Avatars only work in the test flow.** "Skip sign-in (testing)" runs
+  onboarding on `FakeOnboardingRepository`, which shows eight numbered
+  placeholder circles. A real Google sign-in reads `public.avatars`, which is
+  **empty**, so the picker shows no icons. (Next is let through when there are
+  none, so testers aren't stuck.) Even once rows exist, `AvatarIcon` is still a
+  placeholder circle and does not load `avatar.url` — it needs an image loader.
+- **"Skip sign-in (testing)" runs on fakes.** It has no Supabase session, so it
+  cannot reach the real `genres`, `avatars` or `profiles`; the fake shows a
+  copy of the 23 genres and made-up names. The skip button and
+  `FakeOnboardingRepository` are testing only and must be removed before
+  shipping.
 - **Genre chips send display labels** (`K-pop`), not slugs. Any letter sent
   with a genre selected is rejected with `23514`.
 - **A letter without a message or mood fails.** `submit_song` requires both,
@@ -294,14 +338,9 @@ Not decisions — just things that are true right now and will surprise you.
   `RoomRepository` has no `getShelf()` and `CollectionViewModel` defaults to
   `FakeVinylRepository` — so the Collection tab shows fabricated records. One
   repository method fixes both that tab and "Recently collected" on Home.
-- **`public.avatars` is empty.** Seeded deliberately empty so placeholder URLs
-  couldn't make the feature look finished while every icon 404s. The picker has
-  nothing to show until someone uploads images to Supabase Storage and adds one
-  row per icon.
 - **`GenreOptions.all` is hardcoded** and missing Rock, Indie, Metal and
-  Hip-Hop. Replace it with a read from `public.genres`.
-- **The location ask is a standalone gate** after sign-in, not step 3 of
-  onboarding (§4). Onboarding isn't built yet.
+  Hip-Hop. Onboarding already reads `public.genres`; any other screen still
+  using the constant needs the same change.
 - **Receive-flow screens quit the app on Back.** They have no `BackHandler`;
   the settings screens do.
 - **`SubmissionViewModel` is unused.** Nothing references it.

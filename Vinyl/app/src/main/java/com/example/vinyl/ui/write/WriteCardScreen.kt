@@ -41,7 +41,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.ContentScale
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.example.vinyl.data.GenreOptions
+import com.example.vinyl.data.onboarding.GenreOption
 import com.example.vinyl.data.MoodOptions
 import com.example.vinyl.data.Track
 import com.example.vinyl.network.AudioPreviewController
@@ -60,6 +60,9 @@ fun WriteCardScreen(
     val state by viewModel.uiState.collectAsState()
     val locationState by locationViewModel.uiState.collectAsState()
     val audioController = rememberAudioPreviewController()
+
+    // Genres come from the database; if they didn't load last time (offline), try again.
+    LaunchedEffect(Unit) { viewModel.loadGenresIfNeeded() }
 
     // A letter can only carry what the profile already holds. Forcing the toggle off (rather than
     // just disabling the switch) keeps the card preview honest about what's being sent.
@@ -312,65 +315,76 @@ private fun SelectedTrackCard(
 
 @Composable
 private fun LetterSection(state: WriteCardUiState, viewModel: WriteCardViewModel) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(VinylPalette.Cream)
-            .padding(16.dp)
-    ) {
-        OutlinedTextField(
-            value = state.message,
-            onValueChange = viewModel::onMessageChange,
-            placeholder = {
-                Column {
-                    Text(
-                        "Share a message…",
-                        color = VinylPalette.Background.copy(alpha = 0.45f),
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        "What does this song mean to you? Where are you right now?\n\n" +
-                                "Your words will travel with the music and maybe reach someone special somewhere in the world.",
-                        color = VinylPalette.Background.copy(alpha = 0.4f),
-                        fontSize = 15.sp,
-                        lineHeight = 22.sp,
-                    )
-                }
-            },
-            textStyle = androidx.compose.ui.text.TextStyle(
-                color = VinylPalette.Background,
-                fontSize = 18.sp,
-                lineHeight = 28.sp,
-            ),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = Color.Transparent,
-                unfocusedContainerColor = Color.Transparent,
-                focusedBorderColor = Color.Transparent,
-                unfocusedBorderColor = Color.Transparent,
-                focusedTextColor = VinylPalette.Background,
-                unfocusedTextColor = VinylPalette.Background,
-                cursorColor = VinylPalette.Background,
-            ),
-            minLines = 10,
-            modifier = Modifier.fillMaxWidth(),
-        )
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("MESSAGE", color = VinylPalette.TextMuted, fontSize = 11.sp, letterSpacing = 1.sp)
+            Text(" *", color = Color(0xFFE08787), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(modifier = Modifier.height(8.dp))
 
-        Text(
-            text = "${state.messageCharsRemaining} characters left",
-            color = if (state.messageCharsRemaining < 20) Color(0xFFE08787) else VinylPalette.Background.copy(alpha = 0.5f),
-            fontSize = 11.sp,
-            modifier = Modifier.align(Alignment.End).padding(top = 6.dp),
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(VinylPalette.Cream)
+                .padding(16.dp)
+        ) {
+            OutlinedTextField(
+                value = state.message,
+                onValueChange = viewModel::onMessageChange,
+                placeholder = {
+                    Column {
+                        Text(
+                            "Share a message…",
+                            color = VinylPalette.Background.copy(alpha = 0.45f),
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            "What does this song mean to you? Where are you right now?\n\n" +
+                                    "Your words will travel with the music and maybe reach someone special somewhere in the world.",
+                            color = VinylPalette.Background.copy(alpha = 0.4f),
+                            fontSize = 15.sp,
+                            lineHeight = 22.sp,
+                        )
+                    }
+                },
+                textStyle = androidx.compose.ui.text.TextStyle(
+                    color = VinylPalette.Background,
+                    fontSize = 18.sp,
+                    lineHeight = 28.sp,
+                ),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedBorderColor = Color.Transparent,
+                    focusedTextColor = VinylPalette.Background,
+                    unfocusedTextColor = VinylPalette.Background,
+                    cursorColor = VinylPalette.Background,
+                ),
+                minLines = 10,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Text(
+                text = "${state.messageCharsRemaining} characters left",
+                color = if (state.messageCharsRemaining < 20) Color(0xFFE08787) else VinylPalette.Background.copy(alpha = 0.5f),
+                fontSize = 11.sp,
+                modifier = Modifier.align(Alignment.End).padding(top = 6.dp),
+            )
+        }
     }
 }
 
 @Composable
 private fun MoodGrid(state: WriteCardUiState, viewModel: WriteCardViewModel) {
     Column {
-        Text("MOOD", color = VinylPalette.TextMuted, fontSize = 11.sp, letterSpacing = 1.sp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("MOOD", color = VinylPalette.TextMuted, fontSize = 11.sp, letterSpacing = 1.sp)
+            Text(" *", color = Color(0xFFE08787), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        }
         Spacer(modifier = Modifier.height(8.dp))
 
         val rows = MoodOptions.all.chunked(2)
@@ -430,25 +444,30 @@ private fun MoodCard(
 
 @Composable
 private fun GenreChips(state: WriteCardUiState, viewModel: WriteCardViewModel) {
+    // Genres are read from the database. If they haven't loaded (offline), hide the section rather
+    // than show empty chips: genre is optional, so the letter can still be sent without one.
+    if (state.genreOptions.isEmpty()) return
+
     Column {
         Text("GENRE · optional", color = VinylPalette.TextMuted, fontSize = 11.sp, letterSpacing = 1.sp)
         Spacer(modifier = Modifier.height(8.dp))
         FlowRowChips(
-            items = GenreOptions.all,
+            items = state.genreOptions,
             selected = state.selectedGenres,
             onToggle = viewModel::onGenreToggled,
         )
     }
 }
 
+/** Chips show each genre's label but select and report its slug, which is what the database stores. */
 @Composable
-private fun FlowRowChips(items: List<String>, selected: Set<String>, onToggle: (String) -> Unit) {
+private fun FlowRowChips(items: List<GenreOption>, selected: Set<String>, onToggle: (String) -> Unit) {
     val rows = remember(items) {
-        val chunks = mutableListOf<MutableList<String>>()
-        var current = mutableListOf<String>()
+        val chunks = mutableListOf<MutableList<GenreOption>>()
+        var current = mutableListOf<GenreOption>()
         var lineLen = 0
         items.forEach { genre ->
-            val approxLen = genre.length + 3
+            val approxLen = genre.label.length + 3
             if (lineLen + approxLen > 30 && current.isNotEmpty()) {
                 chunks.add(current); current = mutableListOf(); lineLen = 0
             }
@@ -465,17 +484,17 @@ private fun FlowRowChips(items: List<String>, selected: Set<String>, onToggle: (
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 row.forEach { genre ->
-                    val isSelected = genre in selected
+                    val isSelected = genre.slug in selected
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(50))
                             .background(if (isSelected) VinylPalette.TealAccent else VinylPalette.PanelDark)
                             .border(1.dp, VinylPalette.TextMuted.copy(alpha = 0.2f), RoundedCornerShape(50))
-                            .clickable(onClick = { onToggle(genre) })
+                            .clickable(onClick = { onToggle(genre.slug) })
                             .padding(horizontal = 14.dp, vertical = 8.dp)
                     ) {
                         Text(
-                            genre,
+                            genre.label,
                             color = if (isSelected) VinylPalette.Background else VinylPalette.TextPrimary,
                             fontSize = 13.sp,
                         )
@@ -682,7 +701,7 @@ private fun CardPreview(state: WriteCardUiState, modifier: Modifier = Modifier) 
                     if (state.selectedGenres.isNotEmpty()) {
                         CardInfoBlock(
                             label = "GENRE",
-                            value = state.selectedGenres.take(3).joinToString(" · "),
+                            value = state.selectedGenreLabels.take(3).joinToString(" · "),
                             textPrimary = cardTextPrimary,
                             textMuted = cardTextMuted,
                             modifier = Modifier.weight(1f).fillMaxHeight(),
