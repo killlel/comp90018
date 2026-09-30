@@ -86,8 +86,8 @@ fun SettingsScreen(
     locationValue: String? = null,
     onOpenLocation: () -> Unit = {},
     onBack: () -> Unit,
-    displayName: String = "Music Explorer",
-    handle: String = "@18402937",
+    onSignOut: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var page by rememberSaveable { mutableStateOf(SettingsPage.List) }
     var notificationsEnabled by rememberSaveable { mutableStateOf(true) }
@@ -203,6 +203,10 @@ fun SettingsScreen(
                 TextButton(onClick = { signedOutNote = false }) { Text("OK", color = VinylPalette.TealAccent) }
             },
         )
+
+        TextButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) {
+            Text("Sign out", color = VinylPalette.TextMuted, fontSize = 14.sp)
+        }
     }
 }
 
@@ -550,6 +554,6 @@ private fun InfoCard(title: String, body: String) {
 @Composable
 private fun SettingsScreenPreview() {
     VinylTheme {
-        SettingsScreen(locationValue = "Melbourne", onOpenLocation = {}, onBack = {})
+        SettingsScreen(locationValue = "Melbourne", onOpenLocation = {}, onSignOut = {}, onBack = {})
     }
 }

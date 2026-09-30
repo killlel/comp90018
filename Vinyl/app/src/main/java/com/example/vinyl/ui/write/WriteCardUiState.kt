@@ -3,6 +3,7 @@ package com.example.vinyl.ui.write
 import androidx.compose.ui.graphics.Color
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.data.Track
+import com.example.vinyl.data.onboarding.GenreOption
 
 enum class EnvelopeMotif { NONE, MOON, HEARTS }
 
@@ -51,6 +52,9 @@ data class WriteCardUiState(
     val selectedTrack: Track? = null,
     val message: String = "",
     val mood: MoodTag? = null,
+    /** Loaded from the `genres` table. Empty until it arrives (or if offline) - genre is optional. */
+    val genreOptions: List<GenreOption> = emptyList(),
+    /** Slugs (`k_pop`), never labels: the database rejects labels. */
     val selectedGenres: Set<String> = emptySet(),
     val attachLocation: Boolean = true,
     val envelopeStyle: EnvelopeStyle = EnvelopeStyle.Rainbow,
@@ -60,6 +64,25 @@ data class WriteCardUiState(
     val submittedId: String? = null,
 ) {
     val messageCharsRemaining: Int get() = 280 - message.length
-    // Song is the only mandatory field — mood and message are optional
-    val canSubmit: Boolean get() = selectedTrack != null
+    /** What to show for [selectedGenres]: labels from [genreOptions], falling back to the slug. */
+    val selectedGenreLabels: List<String>
+        get() = selectedGenres.map { slug -> genreOptions.firstOrNull { it.slug == slug }?.label ?: slug }
+
+    // The database requires all three: submit_song() rejects a missing message (22023) and a
+    // missing mood (23502), and matching depends on the mood. Genre stays optional.
+    val canSubmit: Boolean get() = selectedTrack != null && mood != null && message.isNotBlank()
+
+    /** Null when the letter can be sent; otherwise says what is still missing. */
+    val sendHint: String?
+        get() {
+            val missing = buildList {
+                if (selectedTrack == null) add("a song")
+                if (mood == null) add("a mood")
+                if (message.isBlank()) add("a message")
+            }
+            if (missing.isEmpty()) return null
+            val list = if (missing.size == 1) missing.first()
+            else missing.dropLast(1).joinToString(", ") + " and " + missing.last()
+            return "Still needed to send: $list"
+        }
 }
