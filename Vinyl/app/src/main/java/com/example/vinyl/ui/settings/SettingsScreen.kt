@@ -89,6 +89,10 @@ fun SettingsScreen(
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+
+    val displayName = "UserName"
+    val handle = "@vinyl"
+
     var page by rememberSaveable { mutableStateOf(SettingsPage.List) }
     var notificationsEnabled by rememberSaveable { mutableStateOf(true) }
     var themeMode by rememberSaveable { mutableStateOf(2) }
@@ -96,8 +100,10 @@ fun SettingsScreen(
     var selectedGenres by rememberSaveable { mutableStateOf(setOf("Indie", "Electronic")) }
     var showDeleteConfirm by rememberSaveable { mutableStateOf(false) }
     var signedOutNote by rememberSaveable { mutableStateOf(false) }
-    var avatarIcon by rememberSaveable { mutableStateOf(0) }
-    var avatarGradient by rememberSaveable { mutableStateOf(0) }
+    val avatarAppearance = rememberAvatarAppearance()
+    var avatarIcon by rememberSaveable { mutableStateOf(avatarAppearance.iconIndex) }
+    var avatarGradient by rememberSaveable { mutableStateOf(avatarAppearance.gradientIndex) }
+    var avatarImageUrl by rememberSaveable { mutableStateOf(avatarAppearance.imageUrl) }
 
     val onPageBack = {
         page = when (page) {
@@ -111,68 +117,78 @@ fun SettingsScreen(
     }
     BackHandler(onBack = onPageBack)
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(VinylPalette.Background)
-            .statusBarsPadding(),
-    ) {
-        SettingsTopBar(
-            title = when (page) {
-                SettingsPage.List -> "Settings"
-                SettingsPage.Account -> "Profile"
-                SettingsPage.IconMaker -> "Icon"
-                SettingsPage.Preferences -> "Music Preferences"
-                SettingsPage.Appearance -> "Appearance"
-                SettingsPage.About -> "About"
-                SettingsPage.Help -> "Help & Support"
-            },
-            onBack = onPageBack,
-        )
-        when (page) {
-            SettingsPage.List -> SettingsHome(
-                displayName = displayName,
-                handle = handle,
-                iconIndex = avatarIcon,
-                gradientIndex = avatarGradient,
-                locationValue = locationValue,
-                notificationsEnabled = notificationsEnabled,
-                onNotificationsChange = { notificationsEnabled = it },
-                themeLabel = themeLabel(themeMode),
-                onOpenProfile = { page = SettingsPage.Account },
-                onOpenPreferences = { page = SettingsPage.Preferences },
-                onOpenAppearance = { page = SettingsPage.Appearance },
-                onOpenLocation = onOpenLocation,
-                onOpenAbout = { page = SettingsPage.About },
-                onOpenHelp = { page = SettingsPage.Help },
-                onSignOut = { signedOutNote = true },
+    androidx.compose.runtime.CompositionLocalProvider(LocalAvatarImageUrl provides avatarImageUrl) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(VinylPalette.Background)
+                .statusBarsPadding(),
+        ) {
+            SettingsTopBar(
+                title = when (page) {
+                    SettingsPage.List -> "Settings"
+                    SettingsPage.Account -> "Profile"
+                    SettingsPage.IconMaker -> "Icon"
+                    SettingsPage.Preferences -> "Music Preferences"
+                    SettingsPage.Appearance -> "Appearance"
+                    SettingsPage.About -> "About"
+                    SettingsPage.Help -> "Help & Support"
+                },
+                onBack = onPageBack,
             )
-            SettingsPage.Account -> AccountPage(
-                displayName = displayName,
-                handle = handle,
-                iconIndex = avatarIcon,
-                gradientIndex = avatarGradient,
-                onEditIcon = { page = SettingsPage.IconMaker },
-                onDelete = { showDeleteConfirm = true },
-            )
-            SettingsPage.IconMaker -> AvatarMakerBody(
-                iconIndex = avatarIcon,
-                gradientIndex = avatarGradient,
-                onIconChange = { avatarIcon = it },
-                onGradientChange = { avatarGradient = it },
-            )
-            SettingsPage.Preferences -> PreferencesPage(selectedGenres) { genre ->
-                selectedGenres = if (genre in selectedGenres) selectedGenres - genre else selectedGenres + genre
+            when (page) {
+                SettingsPage.List -> SettingsHome(
+                    displayName = displayName,
+                    handle = handle,
+                    iconIndex = avatarIcon,
+                    gradientIndex = avatarGradient,
+                    locationValue = locationValue,
+                    notificationsEnabled = notificationsEnabled,
+                    onNotificationsChange = { notificationsEnabled = it },
+                    themeLabel = themeLabel(themeMode),
+                    onOpenProfile = { page = SettingsPage.Account },
+                    onOpenPreferences = { page = SettingsPage.Preferences },
+                    onOpenAppearance = { page = SettingsPage.Appearance },
+                    onOpenLocation = onOpenLocation,
+                    onOpenAbout = { page = SettingsPage.About },
+                    onOpenHelp = { page = SettingsPage.Help },
+                    onSignOut = { signedOutNote = true },
+                )
+                SettingsPage.Account -> AccountPage(
+                    displayName = displayName,
+                    handle = handle,
+                    iconIndex = avatarIcon,
+                    gradientIndex = avatarGradient,
+                    onEditIcon = { page = SettingsPage.IconMaker },
+                    onDelete = { showDeleteConfirm = true },
+                )
+                SettingsPage.IconMaker -> AvatarMakerBody(
+                    iconIndex = avatarIcon,
+                    gradientIndex = avatarGradient,
+                    onIconChange = {
+                        avatarIcon = it
+                        avatarImageUrl = null
+                        avatarAppearance.save(avatarIcon, avatarGradient)
+                    },
+                    onGradientChange = {
+                        avatarGradient = it
+                        avatarAppearance.save(avatarIcon, avatarGradient, avatarImageUrl)
+                    },
+                )
+                SettingsPage.Preferences -> PreferencesPage(selectedGenres) { genre ->
+                    selectedGenres = if (genre in selectedGenres) selectedGenres - genre else selectedGenres + genre
+                }
+                SettingsPage.Appearance -> AppearancePage(
+                    themeMode = themeMode,
+                    onThemeModeChange = { themeMode = it },
+                    accentIndex = accentIndex,
+                    onAccentChange = { accentIndex = it },
+                )
+                SettingsPage.About -> AboutPage()
+                SettingsPage.Help -> HelpPage()
             }
-            SettingsPage.Appearance -> AppearancePage(
-                themeMode = themeMode,
-                onThemeModeChange = { themeMode = it },
-                accentIndex = accentIndex,
-                onAccentChange = { accentIndex = it },
-            )
-            SettingsPage.About -> AboutPage()
-            SettingsPage.Help -> HelpPage()
         }
+
     }
 
     if (showDeleteConfirm) {
