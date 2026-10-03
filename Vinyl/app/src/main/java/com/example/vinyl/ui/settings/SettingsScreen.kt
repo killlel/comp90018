@@ -87,6 +87,8 @@ fun SettingsScreen(
     onOpenLocation: () -> Unit = {},
     onBack: () -> Unit,
     onSignOut: () -> Unit,
+    displayName: String = "Music Explorer",
+    handle: String = "@18402937",
     modifier: Modifier = Modifier,
 ) {
     var page by rememberSaveable { mutableStateOf(SettingsPage.List) }
