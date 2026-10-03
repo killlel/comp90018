@@ -3,13 +3,18 @@ package com.example.vinyl.ui.settings
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import coil.compose.AsyncImage
+import com.example.vinyl.data.onboarding.AvatarOption
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -26,7 +31,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.vinyl.R
@@ -65,6 +69,8 @@ fun AvatarPreview(
     selected: Boolean = false,
     showGradient: Boolean = true,
     onClick: (() -> Unit)? = null,
+    imageUrl: String? = LocalAvatarImageUrl.current,
+    label: String = "Profile icon",
 ) {
     val g = AvatarGradients[gradientIndex.coerceIn(AvatarGradients.indices)]
     val icon = AvatarIconIds.getOrNull(iconIndex.coerceIn(AvatarIconIds.indices))
@@ -78,12 +84,17 @@ fun AvatarPreview(
         modifier = Modifier
             .size(size)
             .clip(CircleShape)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .semantics { contentDescription = label }
+            .then(if (onClick != null) Modifier.selectable(selected = selected, role = Role.RadioButton, onClick = onClick) else Modifier)
             .then(bg)
             .border(if (selected) 2.dp else 1.dp, ring, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
-        if (icon != null) {
+        if (imageUrl != null && imageUrl != "placeholder") {
+            AsyncImage(model = imageUrl, contentDescription = null,
+                error = icon?.let { painterResource(it) }, fallback = icon?.let { painterResource(it) },
+                modifier = Modifier.size(size * 0.85f), contentScale = ContentScale.Fit)
+        } else if (icon != null) {
             Image(
                 painter = painterResource(icon),
                 contentDescription = null,
@@ -100,52 +111,58 @@ fun AvatarMakerBody(
     gradientIndex: Int,
     onIconChange: (Int) -> Unit,
     onGradientChange: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    scrollable: Boolean = true,
+    avatarOptions: List<AvatarOption> = emptyList(),
+    horizontalPadding: androidx.compose.ui.unit.Dp = 20.dp,
+    compact: Boolean = false,
 ) {
     Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp)
+        modifier
+            .fillMaxWidth()
+            .then(if (scrollable) Modifier.verticalScroll(rememberScrollState()) else Modifier)
+            .padding(horizontal = horizontalPadding)
             .padding(bottom = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Spacer(Modifier.height(28.dp))
-        AvatarPreview(iconIndex, gradientIndex, size = 148.dp)
-        Spacer(Modifier.height(36.dp))
+        Spacer(Modifier.height(if (compact) 0.dp else 28.dp))
+        AvatarPreview(iconIndex, gradientIndex, size = if (compact) 128.dp else 148.dp,
+            imageUrl = avatarOptions.getOrNull(iconIndex)?.url ?: LocalAvatarImageUrl.current)
+        Spacer(Modifier.height(if (compact) 20.dp else 36.dp))
         Text(
             "Icon",
             color = VinylPalette.TextMuted,
             fontSize = 13.sp,
             modifier = Modifier.fillMaxWidth(),
         )
-        Spacer(Modifier.height(12.dp))
-        IconGrid(iconIndex, gradientIndex, onIconChange)
-        Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(if (compact) 8.dp else 12.dp))
+        IconGrid(iconIndex, gradientIndex, onIconChange, avatarOptions)
+        Spacer(Modifier.height(if (compact) 20.dp else 32.dp))
         Text(
             "Background",
             color = VinylPalette.TextMuted,
             fontSize = 13.sp,
             modifier = Modifier.fillMaxWidth(),
         )
-        Spacer(Modifier.height(12.dp))
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            AvatarGradients.forEachIndexed { i, g ->
-                val on = i == gradientIndex
-                Box(
-                    Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(Brush.verticalGradient(listOf(g.start, g.end)))
-                        .border(
-                            width = if (on) 2.dp else 1.dp,
-                            color = if (on) VinylPalette.TealAccent else Color(0xFF2E2E2E),
-                            shape = CircleShape,
-                        )
-                        .clickable { onGradientChange(i) },
-                )
+        Spacer(Modifier.height(if (compact) 8.dp else 12.dp))
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val columns = if (maxWidth >= 288.dp) 6 else 3
+            val names = listOf("Berry", "Sunshine", "Teal", "Ocean", "Violet", "Slate")
+            Column {
+                AvatarGradients.indices.toList().chunked(columns).forEach { indices ->
+                    Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        indices.forEach { i ->
+                            val g = AvatarGradients[i]
+                            val on = i == gradientIndex
+                            Box(Modifier.size(48.dp).clip(CircleShape)
+                                .background(Brush.verticalGradient(listOf(g.start, g.end)))
+                                .border(if (on) 2.dp else 1.dp,
+                                    if (on) VinylPalette.TealAccent else Color(0xFF2E2E2E), CircleShape)
+                                .semantics { contentDescription = "${names[i]} background" }
+                                .selectable(selected = on, role = Role.RadioButton) { onGradientChange(i) })
+                        }
+                    }
+                }
             }
         }
     }
@@ -156,24 +173,28 @@ private fun IconGrid(
     iconIndex: Int,
     gradientIndex: Int,
     onIconChange: (Int) -> Unit,
+    avatarOptions: List<AvatarOption>,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        listOf(0..3, 4..7).forEach { range ->
+        (0 until (avatarOptions.size.takeIf { it > 0 } ?: AvatarIconIds.size)).toList().chunked(4).forEach { range ->
             Row(
                 Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 range.forEach { i ->
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                         AvatarPreview(
                             iconIndex = i,
                             gradientIndex = gradientIndex,
-                            size = 64.dp,
+                            size = minOf(56.dp, maxWidth),
+                            imageUrl = avatarOptions.getOrNull(i)?.url,
+                            label = "Profile icon ${i + 1}",
                             selected = i == iconIndex,
                             onClick = { onIconChange(i) },
                         )
                     }
                 }
+                repeat(4 - range.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }

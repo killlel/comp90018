@@ -31,7 +31,7 @@ data class OnboardingUiState(
 )
 
 /**
- * Shared across all four onboarding pages so each save-and-advance call updates one source of
+ * Shared across all onboarding pages so each save-and-advance call updates one source of
  * truth, instead of every page re-fetching the profile.
  *
  * Errors are logged and shown as a generic message: the underlying exception carries the backend
@@ -134,14 +134,15 @@ class OnboardingViewModel(
         }
     }
 
-    /** Page 4 -> done. Marks onboarding complete; the notification choice is not stored yet. */
+    /** Ready -> main app. Marks onboarding complete; the notification choice is not stored yet. */
     fun finishOnboarding(onFinished: () -> Unit) = saveStep(onFinished) {
         repository.completeOnboarding()
     }
 
     private fun saveStep(onSaved: () -> Unit, action: suspend () -> Result<Unit>) {
+        if (uiState.value.isSaving) return
+        _uiState.update { it.copy(isSaving = true, errorMessage = null) }
         viewModelScope.launch {
-            _uiState.update { it.copy(isSaving = true, errorMessage = null) }
             val result = action()
             _uiState.update { it.copy(isSaving = false) }
             result.fold(
