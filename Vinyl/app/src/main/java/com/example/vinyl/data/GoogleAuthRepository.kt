@@ -18,6 +18,7 @@ import io.github.jan.supabase.auth.providers.Google
 import io.github.jan.supabase.auth.providers.builtin.IDToken
 import java.security.MessageDigest
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 
 /**
  * Result of the Credential Manager sign-in attempt. [NoDeviceAccount] is separated out because it
@@ -28,7 +29,10 @@ sealed interface GoogleSignInOutcome {
     data object Success : GoogleSignInOutcome
     data object NoDeviceAccount : GoogleSignInOutcome
     data object Cancelled : GoogleSignInOutcome
-    data class Failed(val message: String) : GoogleSignInOutcome
+    data class Failed(
+        val message: String,
+        val offerBrowserFallback: Boolean = true,
+    ) : GoogleSignInOutcome
 }
 
 class GoogleAuthRepository(private val context: Context) {
@@ -38,24 +42,42 @@ class GoogleAuthRepository(private val context: Context) {
      * the device. Returns [GoogleSignInOutcome.NoDeviceAccount] when there are none.
      */
     suspend fun signIn(): GoogleSignInOutcome {
+        if (BuildConfig.GOOGLE_WEB_CLIENT_ID.isBlank() ||
+            BuildConfig.SUPABASE_URL.isBlank() || BuildConfig.SUPABASE_KEY.isBlank()
+        ) {
+            Log.e(TAG, "Google sign-in credentials are missing from the local configuration")
+            return GoogleSignInOutcome.Failed(
+                "Google sign-in is unavailable right now. Please try again later.",
+                offerBrowserFallback = false,
+            )
+        }
+
+        if (!BuildConfig.GOOGLE_WEB_CLIENT_ID.endsWith(".apps.googleusercontent.com")) {
+            Log.e(TAG, "Google sign-in client ID is invalid")
+            return GoogleSignInOutcome.Failed(
+                "Google sign-in is unavailable right now. Please try again later.",
+                offerBrowserFallback = false,
+            )
+        }
+
         val rawNonce = UUID.randomUUID().toString()
         val hashedNonce = MessageDigest.getInstance("SHA-256")
             .digest(rawNonce.toByteArray())
             .joinToString("") { "%02x".format(it) }
 
-        val googleIdOption = GetGoogleIdOption.Builder()
-            .setFilterByAuthorizedAccounts(false)
-            .setServerClientId(BuildConfig.GOOGLE_WEB_CLIENT_ID)
-            .setNonce(hashedNonce)
-            .build()
-
-        val request = GetCredentialRequest.Builder()
-            .addCredentialOption(googleIdOption)
-            .build()
-
-        val credentialManager = CredentialManager.create(context)
         val result = try {
+            val googleIdOption = GetGoogleIdOption.Builder()
+                .setFilterByAuthorizedAccounts(false)
+                .setServerClientId(BuildConfig.GOOGLE_WEB_CLIENT_ID)
+                .setNonce(hashedNonce)
+                .build()
+            val request = GetCredentialRequest.Builder()
+                .addCredentialOption(googleIdOption)
+                .build()
+            val credentialManager = CredentialManager.create(context)
             credentialManager.getCredential(context, request)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: NoCredentialException) {
             Log.i(TAG, "No Google account available to Credential Manager", e)
             return GoogleSignInOutcome.NoDeviceAccount
@@ -70,7 +92,10 @@ class GoogleAuthRepository(private val context: Context) {
             // The exception type is the diagnosis here and the message often isn't: an empty
             // GOOGLE_WEB_CLIENT_ID or a missing Android OAuth client SHA-1 both land in this branch.
             Log.e(TAG, "Credential Manager failed: ${e::class.java.simpleName}", e)
-            return GoogleSignInOutcome.Failed("Google sign-in failed: ${e.message}")
+            return GoogleSignInOutcome.Failed("Google sign-in couldn't start. Please check your Google account and try again.")
+        } catch (e: Exception) {
+            Log.e(TAG, "Google sign-in configuration failed: ${e::class.java.simpleName}", e)
+            return GoogleSignInOutcome.Failed("Google sign-in is unavailable right now. Please try again later.")
         }
 
         val credential = result.credential
@@ -78,14 +103,14 @@ class GoogleAuthRepository(private val context: Context) {
             credential.type != GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
         ) {
             Log.e(TAG, "Unexpected credential type: ${credential.type}")
-            return GoogleSignInOutcome.Failed("Unexpected credential type returned")
+            return GoogleSignInOutcome.Failed("We couldn't sign you in with Google. Please try again.")
         }
 
         val googleIdToken = try {
             GoogleIdTokenCredential.createFrom(credential.data).idToken
         } catch (e: GoogleIdTokenParsingException) {
             Log.e(TAG, "Couldn't parse Google ID token", e)
-            return GoogleSignInOutcome.Failed("Couldn't parse Google ID token")
+            return GoogleSignInOutcome.Failed("We couldn't sign you in with Google. Please try again.")
         }
 
         return try {
@@ -97,7 +122,7 @@ class GoogleAuthRepository(private val context: Context) {
             GoogleSignInOutcome.Success
         } catch (e: Exception) {
             Log.e(TAG, "Supabase rejected the Google ID token", e)
-            GoogleSignInOutcome.Failed("Sign-in failed: ${e.message}")
+            GoogleSignInOutcome.Failed("Couldn't finish signing in with Google. Please try again.")
         }
     }
 

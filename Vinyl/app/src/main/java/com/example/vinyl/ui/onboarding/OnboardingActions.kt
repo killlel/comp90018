@@ -17,20 +17,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.vinyl.ui.theme.PoppinsFontFamily
 import com.example.vinyl.ui.theme.VinylPalette
 
-/**
- * The button area shared by the location page (3) and the notification page (4).
- *
- * Both pages put their buttons in this one block, pinned to the bottom of the page at a fixed
- * height, so the buttons sit at exactly the same height on both and are the same size. Only the
- * text above them is free to differ. Pages 1 and 2 keep their own layout.
- *
- * To move the buttons on both pages at once, change [OnboardingActionAreaHeight]: a larger value
- * lifts them, a smaller one lowers them. To resize them, change [OnboardingButtonHeight].
- */
-internal val OnboardingActionAreaHeight: Dp = 260.dp
+/** Shared dimensions retained for permission-page callers. */
+internal val OnboardingActionAreaHeight: Dp = 128.dp
 internal val OnboardingButtonHeight: Dp = 56.dp
+internal val OnboardingHorizontalPadding: Dp = 28.dp
+internal val OnboardingActionMinimumHeight: Dp = 112.dp
+internal val OnboardingBottomPadding: Dp = 20.dp
 
 /** Fixed-height block at the bottom of a page. Its content is stacked from the top. */
 @Composable
@@ -53,9 +48,11 @@ internal fun OnboardingPrimaryButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         modifier = modifier
             .fillMaxWidth()
             .height(OnboardingButtonHeight),
@@ -68,7 +65,9 @@ internal fun OnboardingPrimaryButton(
         Text(
             text = text,
             fontWeight = FontWeight.Medium,
-            fontSize = 15.sp,
+            fontFamily = PoppinsFontFamily,
+            fontSize = 18.sp,
+            lineHeight = 24.sp,
         )
     }
 }
@@ -79,8 +78,9 @@ internal fun OnboardingSecondaryButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
-    TextButton(onClick = onClick, modifier = modifier.padding(top = 4.dp)) {
-        Text(text, color = VinylPalette.TextMuted, fontSize = 14.sp)
+    TextButton(onClick = onClick, enabled = enabled, modifier = modifier.padding(top = 4.dp)) {
+        Text(text, color = VinylPalette.TextMuted, fontSize = 16.sp, lineHeight = 24.sp, fontFamily = PoppinsFontFamily)
     }
 }

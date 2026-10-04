@@ -13,13 +13,13 @@ import com.example.vinyl.R
 
 /**
  * The wordmark shown at the top of every onboarding page — the real logo asset
- * (`res/drawable/logo_cyan.png`), not a text approximation. Just the mark, no tagline, per
+ * (`res/drawable/vinyl_logo_white.xml`), converted from the supplied SVG. Just the mark, no tagline, per
  * earlier design feedback that the full lockup read too large/heavy at this spot.
  */
 @Composable
 fun OnboardingHeader(modifier: Modifier = Modifier) {
     Image(
-        painter = painterResource(R.drawable.logo_cyan),
+        painter = painterResource(R.drawable.vinyl_logo_white),
         contentDescription = "Vinyl",
         modifier = modifier
             .padding(top = 5.dp, bottom = 4.dp)
