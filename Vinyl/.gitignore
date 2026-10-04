@@ -7,6 +7,16 @@
 /.idea/workspace.xml
 /.idea/navEditor.xml
 /.idea/assetWizardSettings.xml
+
+# Per-machine device state. These record which emulator you last ran on and how
+# you sorted the device list, so they churn on every machine and show up in the
+# commit dialog forever. deploymentTargetSelector.xml was still carrying one
+# teammate's macOS avd path.
+#
+# The rest of Vinyl/.idea/ stays tracked on purpose: codeStyles, inspection
+# profiles, run configurations and misc.xml are shared project settings.
+/.idea/deploymentTargetSelector.xml
+/.idea/deviceManager.xml
 .DS_Store
 /build
 /captures
