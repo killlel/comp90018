@@ -68,6 +68,7 @@ import com.example.vinyl.data.Supabase
 import com.example.vinyl.data.onboarding.FakeOnboardingRepository
 import com.example.vinyl.data.onboarding.OnboardingRepository
 import com.example.vinyl.ui.collection.CollectionScreen
+import com.example.vinyl.ui.home.HomeScreen
 import com.example.vinyl.ui.daily.ArrivedRecordOption
 import com.example.vinyl.ui.daily.ArrivedTodayScreen
 import com.example.vinyl.ui.daily.ArrivedTodayUiState
@@ -354,14 +355,14 @@ private fun VinylApp() {
         ) {
             when (selectedTab) {
                 AppTab.Collection -> CollectionScreen()
-                // Placeholder — not the actual design, just enough to prove the tab works
-                AppTab.Home -> HomeTab(
+                AppTab.Home -> HomeScreen(
                     onOpenReceive = {
                         dailyMood = null
                         dailyGenres = emptySet()
                         receiveFlowStep = ReceiveFlowStep.Questionnaire
                     },
                     onOpenSettings = { showSettings = true },
+                    onSeeCollection = { selectedTab = AppTab.Collection },
                 )
                 AppTab.Create -> WriteCardScreen()
             }
@@ -521,49 +522,6 @@ private fun BottomSheetContainer(
                 ),
         ) {
             content()
-        }
-    }
-}
-
-@Composable
-private fun HomeTab(onOpenReceive: () -> Unit, onOpenSettings: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(VinylPalette.Background),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Text("Home", color = VinylPalette.TextMuted, fontSize = 16.sp)
-
-            Button(
-                onClick = onOpenReceive,
-                shape = RoundedCornerShape(50),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = VinylPalette.TealAccent,
-                    contentColor = VinylPalette.Background,
-                ),
-            ) {
-                Text("Open receive", fontWeight = FontWeight.Medium)
-            }
-
-            TextButton(onClick = onOpenSettings) {
-                Icon(
-                    imageVector = Icons.Filled.Settings,
-                    contentDescription = null,
-                    tint = VinylPalette.TextMuted,
-                    modifier = Modifier.size(16.dp),
-                )
-                Text(
-                    text = "Settings",
-                    color = VinylPalette.TextMuted,
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(start = 6.dp),
-                )
-            }
         }
     }
 }

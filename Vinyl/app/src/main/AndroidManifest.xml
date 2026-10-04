@@ -9,6 +9,11 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- The needle drop on the home screen. Normal permission, no runtime prompt. A device
+         without a vibrator, or a user who turned haptics off, simply gets silence. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <!-- Declared explicitly as optional: a location permission otherwise implies a required
          hardware feature, which would hide the app from devices without GPS. -->
     <uses-feature
