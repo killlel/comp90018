@@ -8,15 +8,21 @@
 /.idea/navEditor.xml
 /.idea/assetWizardSettings.xml
 
-# Per-machine device state. These record which emulator you last ran on and how
-# you sorted the device list, so they churn on every machine and show up in the
-# commit dialog forever. deploymentTargetSelector.xml was still carrying one
-# teammate's macOS avd path.
+# Per-machine IDE state. These record which emulator you last ran on, how you
+# sorted the device list, and what your local JDK happens to be called, so they
+# churn on every machine and show up in the commit dialog forever.
+# deploymentTargetSelector.xml was still carrying one teammate's macOS avd path;
+# misc.xml flips between "temurin-25" and "25" depending on whose install it is.
+#
+# misc.xml also holds languageLevel, which looks shared but isn't authoritative:
+# Gradle's compileOptions is what actually compiles the code, and the IDE
+# rewrites this file from Gradle on every sync.
 #
 # The rest of Vinyl/.idea/ stays tracked on purpose: codeStyles, inspection
-# profiles, run configurations and misc.xml are shared project settings.
+# profiles and run configurations are genuinely shared settings.
 /.idea/deploymentTargetSelector.xml
 /.idea/deviceManager.xml
+/.idea/misc.xml
 .DS_Store
 /build
 /captures

@@ -7,12 +7,20 @@ import io.github.jan.supabase.auth.ExternalAuthAction
 import io.github.jan.supabase.auth.FlowType
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
+import io.github.jan.supabase.serializer.KotlinXSerializer
+import kotlinx.serialization.json.Json
 
 object Supabase {
     val client: SupabaseClient = createSupabaseClient(
         supabaseUrl = BuildConfig.SUPABASE_URL,
         supabaseKey = BuildConfig.SUPABASE_KEY,
     ) {
+        // supabase-kt rejects unknown JSON keys by default, so adding a column to any composite
+        // the app decodes would throw on every call until every build is updated — in lockstep,
+        // across four people. Tolerating unknowns means a new server-side field is ignored until
+        // a client asks for it, which is the only way schema and app can ship independently.
+        defaultSerializer = KotlinXSerializer(Json { ignoreUnknownKeys = true })
+
         install(Auth) {
             // scheme + host form the redirect URL "com.example.vinyl://auth-callback" that the
             // browser OAuth fallback comes back through. Without both set, supabase-kt never uses
