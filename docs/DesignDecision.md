@@ -66,7 +66,7 @@ require it.
 | **Real names never leave the owner's device** | The Google name/avatar are private to their own settings screen                                                                           |
 
 The anonymity rules are proven by `supabase/tests/smoke_test.sql` (checks 4, 5,
-8, 9, 10, 20). If a change breaks one of those checks, the change is wrong.
+8, 9, 10, 20, 26–28). If a change breaks one of those checks, the change is wrong.
 
 ---
 
@@ -134,13 +134,14 @@ app with weaker matching. Nothing here may block reaching the main screen.
 
 1. **Mood question** — asked fresh every day. Required to match. Never stored
    as a preference; asking _is_ the ritual.
-2. **Genres** — optional override. Pre-filled from `favorite_genres`.
+2. **Genres** — optional override. If none are picked, matching falls back to
+   `favorite_genres`.
 3. **Context** — not asked. Intended to be inferred from the accelerometer
    (walking → `commuting`, still → `studying`).
 4. **Three records arrive.** Pick one, listen, react, optionally shelve it.
 
 Matching never returns your own songs, and never repeats a record you have
-already been shown.
+already been shown. How the three are chosen is explained in `matching.md`.
 
 ---
 
@@ -162,6 +163,9 @@ already been shown.
 | Username = random adjective + animal, **60 × 60 = 3600** combinations       | After 25 failed picks a 4-digit number is appended (`Happy Giraffe 4821`) so signup never fails on a crowded pool. That starts around 3000 users — widen the lists before then |
 | **No `settings` jsonb.** Every preference is its own typed column           | A jsonb bag has no type, no default, no `NOT NULL`, and a key anyone can misspell. Migrations are cheap; add a column                                                            |
 | **OS permissions are never stored.** Ask Android at runtime                 | The user can revoke a permission in system settings without the app knowing. A copy in the database is a mirror that silently goes stale. For GPS the state already *is* whether `lat` is null |
+| Matching uses **small-scale rules, not a learned model**                    | IDF genre weighting, Hacker News freshness, a circulation penalty, one-per-artist, one random slot. A model needs interaction data we don't have. See `matching.md`              |
+| **Filtering is always server-side; ranking may move to the device**         | Eligibility is a privacy rule. Ranking is arithmetic over rows that are already anonymous                                                                                       |
+| The app **ignores unknown JSON keys**                                       | supabase-kt rejects them by default, so one new server column would crash every older build. Set in `SupabaseClient.kt`                                                         |
 
 ---
 
@@ -221,11 +225,14 @@ Postgres with `23503`.
 
 ### RPCs
 
-| Function                                                | Returns           |
-| ------------------------------------------------------- | ----------------- |
-| `request_recommendations(p_mood, p_context?, p_limit?)` | `room_card[]`     |
-| `get_room(p_limit?)`                                    | `room_card[]`     |
-| `get_shelf(p_limit?)`                                   | `room_card[]`     |
+| Function                                                            | Returns            |
+| ------------------------------------------------------------------- | ------------------ |
+| `request_recommendations(p_mood, p_context?, p_limit?, p_genres?)`  | `room_card[]`      |
+| `get_room(p_limit?)`                                                | `room_card[]`      |
+| `get_shelf(p_limit?)`                                               | `room_card[]`      |
+| `get_candidates(p_limit?)`                                          | `candidate_card[]` |
+| `get_genre_weights()`                                               | `{slug, weight}[]` |
+| `commit_recommendations(p_submission_ids, p_mood, p_context?, p_scores?)` | `room_card[]` |
 | `submit_song(...)`                                      | `uuid`            |
 | `update_my_location(p_lat?, p_lng?)`                    | `void`            |
 | `reroll_username()`                                     | `text`            |
@@ -236,6 +243,17 @@ Postgres with `23503`.
 `submit_song` requires `p_provider`, `p_provider_track_id`, `p_title`,
 `p_artist`, `p_message`, `p_mood`. It takes **`p_attach_location` (boolean)**,
 not coordinates.
+
+`p_genres` takes **slugs**. Leave it out and the server uses `favorite_genres`.
+
+There are two ways to fill the room; the app uses the first. The split path
+(`get_candidates` → rank on device → `commit_recommendations`) is built but
+nothing calls it yet. See `matching.md` §6.
+
+**Do not add fields to `room_card`** until every teammate's build has
+`ignoreUnknownKeys = true`. An older build throws `JsonDecodingException` on
+every room, shelf and match call. New fields go on `candidate_card` or a new
+type.
 
 Shelving is a plain insert/delete on `shelf_items` — RLS covers it.
 
@@ -255,7 +273,7 @@ It only goes `false` → `true`: a client that tries to set it back gets `42501`
 | `42501`    | Signed in, but not allowed — usually correct behaviour, not a bug. Also what you get for editing `username`, rerolling after onboarding, or reopening onboarding |
 | `23514`    | Bad genre slug                                                    |
 | `23503`    | Unknown avatar slug                                               |
-| `22023`    | Missing message, title or artist                                  |
+| `22023`    | Missing message, title or artist; or more than 10 ids in one commit |
 | `PGRST202` | Wrong argument names — the client is calling an old signature     |
 
 ---
@@ -287,6 +305,8 @@ Unresolved. Do not build past these without agreeing them first.
 | **Where does the genre picker live?**      | The chip component is in the daily questionnaire; onboarding needs the same thing. Shared component, or two copies?                                                                                                                           |
 | **Who writes the avatar images?**          | `public.avatars` is seeded empty on purpose — placeholder URLs would make the feature look done while every icon 404s. Someone uploads the files to Supabase Storage, then one INSERT per icon. Until then the picker has nothing to show. |
 | **Is the Google name/picture still worth storing?** | `display_name` and `avatar_url` hold the Google identity and nothing reads them. Now that users get a generated username and pick an icon, they may have no purpose left.                                                              |
+| **Move the receive flow to the split matcher?** | It would stop over-fetched candidates being marked as seen and let ranking change without a migration. Costs three calls instead of one. The all-SQL path works today.                                                                    |
+| **Mood/genre card on Home** — summary or live dropdowns? | It currently shows a summary. Live dropdowns would let a user change today's answer without reopening the questionnaire.                                                                                                     |
 
 ---
 
@@ -294,7 +314,7 @@ Unresolved. Do not build past these without agreeing them first.
 
 | Area                                     | Owner   |
 | ---------------------------------------- | ------- |
-| Database, matchmaking, reactions         | Ivan    |
+| Database, matchmaking, reactions, Home   | Ivan    |
 | Auth, record room, GPS, onboarding flow  | Scott   |
 | Submission, questionnaire, accelerometer | Natalie |
 | UI / UX                                  | Raina   |
@@ -326,21 +346,24 @@ Not decisions — just things that are true right now and will surprise you.
   copy of the 23 genres and made-up names. The skip button and
   `FakeOnboardingRepository` are testing only and must be removed before
   shipping.
-- **Genre chips send display labels** (`K-pop`), not slugs. Any letter sent
-  with a genre selected is rejected with `23514`.
-- **A letter without a message or mood fails.** `submit_song` requires both,
-  but the write screen only requires a song.
-- **Nothing reads `favorite_genres`.** `request_recommendations` has no genre
-  term yet, so both this column and the daily genre chips are write-only.
+- **The daily genre chips do nothing.** The questionnaire still uses the
+  hardcoded `GenreOptions.all`: display labels (`K-pop`), missing Rock, Indie,
+  Metal and Hip-Hop. The chosen genres are never sent as `p_genres`, so
+  matching only ever uses `favorite_genres`. The fix is to read
+  `public.genres` as onboarding and the write screen already do, then pass the
+  slugs.
+- **Context is never sent.** Nothing calls `request_recommendations` with a
+  context, so that matching term is always zero until the accelerometer lands.
 - **Reactions are promised in the UI** ("Reactions stay anonymous") but no code
   calls `add_reaction` or `get_reactions`.
-- **The shelf is entirely fake.** `get_shelf()` has existed since Sprint 1, but
-  `RoomRepository` has no `getShelf()` and `CollectionViewModel` defaults to
-  `FakeVinylRepository` — so the Collection tab shows fabricated records. One
-  repository method fixes both that tab and "Recently collected" on Home.
-- **`GenreOptions.all` is hardcoded** and missing Rock, Indie, Metal and
-  Hip-Hop. Onboarding already reads `public.genres`; any other screen still
-  using the constant needs the same change.
+- **The Collection tab is fake.** `RoomRepository.getShelf()` exists and Home's
+  "Recently collected" uses it, but `CollectionViewModel` still defaults to
+  `FakeVinylRepository`.
+- **The Home turntable can't be tapped.** It looks like a real object but does
+  nothing when pressed; it should open the receive flow.
+- **The split matcher is unused.** `get_candidates`, `get_genre_weights`,
+  `commit_recommendations` and `Matchmaker.kt` are built and tested, but the
+  app still calls `request_recommendations`. See §10.
 - **Receive-flow screens quit the app on Back.** They have no `BackHandler`;
   the settings screens do.
 - **`SubmissionViewModel` is unused.** Nothing references it.
