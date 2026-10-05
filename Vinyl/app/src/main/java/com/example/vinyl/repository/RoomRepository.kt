@@ -4,7 +4,9 @@ import com.example.vinyl.data.ContextTag
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.data.Supabase
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Columns
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
@@ -89,6 +91,37 @@ data class CandidateCard(
         }
 }
 
+/**
+ * The caller's own `shelf_items` row, read directly (owner-only under RLS) for the two things
+ * `room_card` doesn't carry: when it was kept, and whether it's starred.
+ */
+@Serializable
+data class ShelfEntry(
+    @SerialName("submission_id") val submissionId: String,
+    @SerialName("is_favourite") val isFavourite: Boolean = false,
+    @SerialName("saved_at") val savedAt: String? = null,
+)
+
+/**
+ * One record the caller sent — a row from `get_my_submissions()`. Their own submission, so it
+ * carries no recipient or reactor identity, only totals.
+ */
+@Serializable
+data class SentCard(
+    @SerialName("submission_id") val submissionId: String,
+    val message: String = "",
+    val mood: String? = null,
+    val context: String? = null,
+    @SerialName("is_active") val isActive: Boolean = true,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("track_title") val trackTitle: String = "",
+    @SerialName("track_artist") val trackArtist: String = "",
+    @SerialName("artwork_url") val artworkUrl: String? = null,
+    @SerialName("reaction_count") val reactionCount: Int = 0,
+) {
+    val moodTag: MoodTag? get() = MoodTag.entries.firstOrNull { it.wireValue == mood }
+}
+
 /** One genre and how rare it is in the pool — the idf the client cannot compute for itself. */
 @Serializable
 data class GenreWeight(val slug: String, val weight: Double)
@@ -122,6 +155,57 @@ open class RoomRepository(private val supabase: SupabaseClient = Supabase.client
         val params = buildJsonObject { put("p_limit", limit) }
         supabase.postgrest.rpc("get_shelf", params).decodeList<RoomCard>()
     }
+
+    /**
+     * Puts a received record on the shelf. Keeping one that's already there is a no-op rather
+     * than an error, so a double tap can't fail. RLS only accepts records delivered to the caller.
+     */
+    open suspend fun keep(submissionId: String): Result<Unit> = runCatching {
+        val row = buildJsonObject {
+            put("owner_id", requireUserId())
+            put("submission_id", submissionId)
+        }
+        supabase.postgrest.from(SHELF_TABLE).upsert(row) {
+            onConflict = "owner_id,submission_id"
+            ignoreDuplicates = true
+        }
+    }
+
+    /** Takes a record off the shelf. Its favourite flag goes with it. */
+    open suspend fun unkeep(submissionId: String): Result<Unit> = runCatching {
+        supabase.postgrest.from(SHELF_TABLE).delete {
+            filter {
+                eq("owner_id", requireUserId())
+                eq("submission_id", submissionId)
+            }
+        }
+    }
+
+    /** Stars or unstars a kept record. A record that isn't on the shelf is left alone. */
+    open suspend fun setFavourite(submissionId: String, favourite: Boolean): Result<Unit> = runCatching {
+        supabase.postgrest.from(SHELF_TABLE).update({ set("is_favourite", favourite) }) {
+            filter {
+                eq("owner_id", requireUserId())
+                eq("submission_id", submissionId)
+            }
+        }
+    }
+
+    /** Kept-at times and favourite flags for the caller's whole shelf, to merge with [getShelf]. */
+    open suspend fun getShelfEntries(): Result<List<ShelfEntry>> = runCatching {
+        supabase.postgrest.from(SHELF_TABLE)
+            .select(Columns.list("submission_id", "is_favourite", "saved_at"))
+            .decodeList<ShelfEntry>()
+    }
+
+    /** Records the caller sent, newest first. */
+    open suspend fun getMySubmissions(limit: Int = SHELF_LIMIT): Result<List<SentCard>> = runCatching {
+        val params = buildJsonObject { put("p_limit", limit) }
+        supabase.postgrest.rpc("get_my_submissions", params).decodeList<SentCard>()
+    }
+
+    private fun requireUserId(): String = supabase.auth.currentUserOrNull()?.id
+        ?: error("No signed-in user; the shelf is unavailable")
 
     /**
      * Candidates to rank on the device. **Writes nothing** — nothing here is marked as seen, so
@@ -169,6 +253,8 @@ open class RoomRepository(private val supabase: SupabaseClient = Supabase.client
     }
 
     private companion object {
+        const val SHELF_TABLE = "shelf_items"
+
         /** "One of three" — matches the Arrived Today design. */
         const val DEFAULT_LIMIT = 3
 

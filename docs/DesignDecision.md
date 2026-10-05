@@ -109,7 +109,7 @@ the app can only ever move from `false` to `true`.
 | 1. Username (generated) + profile picture        | `profiles.username` (database-written) / `avatar_slug`     |
 | 2. Favourite genres, or "I listen to everything" | `profiles.favorite_genres`                                 |
 | 3. Location permission                           | `profiles.lat` / `lng`                                     |
-| 4. Notification permission                       | _(not yet in the schema — see §12)_                        |
+| 4. Notification permission                       | Device only — `ReminderPrefs` (see §5)                     |
 
 All four are **skippable**. A user who declines everything still gets a working
 app with weaker matching. Nothing here may block reaching the main screen.
@@ -122,10 +122,10 @@ app with weaker matching. Nothing here may block reaching the main screen.
 | ------------------------------ | -------------------------------------- |
 | Change profile picture         | `profiles.avatar_slug`                 |
 | Change favourite genres        | `profiles.favorite_genres`             |
-| Enable / disable notifications | _(not yet in the schema)_              |
+| Daily reminder on / off        | Device only — `ReminderPrefs`          |
 | Update or clear location       | `update_my_location()`                 |
 | Log out                        | Auth only, no data change              |
-| Delete account                 | _(not yet built — see open decisions)_ |
+| Delete account                 | _(button removed — see §10)_           |
 | Q&A / help                     | Static content, no backend             |
 
 ---
@@ -163,6 +163,7 @@ already been shown. How the three are chosen is explained in `matching.md`.
 | Username = random adjective + animal, **60 × 60 = 3600** combinations       | After 25 failed picks a 4-digit number is appended (`Happy Giraffe 4821`) so signup never fails on a crowded pool. That starts around 3000 users — widen the lists before then |
 | **No `settings` jsonb.** Every preference is its own typed column           | A jsonb bag has no type, no default, no `NOT NULL`, and a key anyone can misspell. Migrations are cheap; add a column                                                            |
 | **OS permissions are never stored.** Ask Android at runtime                 | The user can revoke a permission in system settings without the app knowing. A copy in the database is a mirror that silently goes stale. For GPS the state already *is* whether `lat` is null |
+| The daily reminder is a **local notification**, its switch stored **on the device** | Cards are pulled, so there is no server event to push; a per-phone reminder has no business in `profiles` |
 | Matching uses **small-scale rules, not a learned model**                    | IDF genre weighting, Hacker News freshness, a circulation penalty, one-per-artist, one random slot. A model needs interaction data we don't have. See `matching.md`              |
 | **Filtering is always server-side; ranking may move to the device**         | Eligibility is a privacy rule. Ranking is arithmetic over rows that are already anonymous                                                                                       |
 | The app **ignores unknown JSON keys**                                       | supabase-kt rejects them by default, so one new server column would crash every older build. Set in `SupabaseClient.kt`                                                         |
@@ -255,7 +256,9 @@ nothing calls it yet. See `matching.md` §6.
 every room, shelf and match call. New fields go on `candidate_card` or a new
 type.
 
-Shelving is a plain insert/delete on `shelf_items` — RLS covers it.
+Shelving is a plain insert/delete on `shelf_items` — RLS covers it. Starring a
+kept record is an update of `shelf_items.is_favourite` on the same row; read it
+straight from `shelf_items` (it is not on `room_card`).
 
 Writing to `profiles` is a direct upsert or update — RLS confines it to your own
 row. Do not add an RPC for it. The exceptions are `update_my_location()`, which
@@ -299,8 +302,7 @@ Unresolved. Do not build past these without agreeing them first.
 
 | Question                                   | Why it matters                                                                                                                                                                                                                                |
 | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Notifications** — local or push?         | Push needs a device-token table (one user, many devices — not a profile column) and a server to send from. Local needs neither. Records are matched when the user asks, so today there is no server event for "you received a card". Decide before building the toggle. |
-| **Delete account** — how?                  | `auth.users` cascades to everything, but the app cannot delete its own auth user with the publishable key. Needs an edge function with `service_role`, which bypasses all RLS.                                                                |
+| **Delete account** — how?                  | `auth.users` cascades to everything, but the app cannot delete its own auth user with the publishable key. Needs an edge function with `service_role`, which bypasses all RLS. The Settings button was removed until this is decided. Also decide whether a deleted user's sent cards vanish from other people's shelves (the cascade) or stay as anonymous. Google Play requires in-app deletion before release. |
 | **Distance vs coordinates** in `room_card` | Returning `distance_km` instead of `lat`/`lng` would mean a recipient never holds a sender's position. Changing `room_card` requires dropping and recreating three functions. The client already bands distances, so the UI works either way. |
 | **Where does the genre picker live?**      | The chip component is in the daily questionnaire; onboarding needs the same thing. Shared component, or two copies?                                                                                                                           |
 | **Who writes the avatar images?**          | `public.avatars` is seeded empty on purpose — placeholder URLs would make the feature look done while every icon 404s. Someone uploads the files to Supabase Storage, then one INSERT per icon. Until then the picker has nothing to show. |
@@ -328,24 +330,18 @@ location needs a second pair of eyes.
 
 Not decisions — just things that are true right now and will surprise you.
 
-- **Notifications are not implemented.** Onboarding page 4 asks Android for the
-  notification permission so only that is done. The answer is not stored anywhere
-  (no column, and per §7 OS permissions are never stored), nothing reads it
-  afterwards, there is no Settings toggle, and **nothing sends a notification**
-  — no Firebase, no notification channel, no scheduled reminder. Whether it
-  becomes local or push is still open in §10. `POST_NOTIFICATIONS` must be
-  declared in the manifest, or Android 13+ never shows the dialog.
-- **Avatars only work in the test flow.** "Skip sign-in (testing)" runs
-  onboarding on `FakeOnboardingRepository`, which shows eight numbered
-  placeholder circles. A real Google sign-in reads `public.avatars`, which is
+- **The daily reminder is local and fixed at 6 pm.** One notification a day
+  ("Today's record is waiting") nudges the user to open the app; tapping it
+  opens the mood question. It is skipped once they've asked for today's music.
+  It is local (WorkManager), not push: cards are pulled when the user asks, so
+  the server has no "a card arrived" event to send. The on/off choice lives on
+  the device (`ReminderPrefs`), not in `profiles` — a reminder belongs to the
+  phone it rings on, like the OS permission it depends on (§7). There is no
+  time picker yet.
+- **Avatars don't work yet.** Onboarding reads `public.avatars`, which is
   **empty**, so the picker shows no icons. (Next is let through when there are
   none, so testers aren't stuck.) Even once rows exist, `AvatarIcon` is still a
   placeholder circle and does not load `avatar.url` — it needs an image loader.
-- **"Skip sign-in (testing)" runs on fakes.** It has no Supabase session, so it
-  cannot reach the real `genres`, `avatars` or `profiles`; the fake shows a
-  copy of the 23 genres and made-up names. The skip button and
-  `FakeOnboardingRepository` are testing only and must be removed before
-  shipping.
 - **The daily genre chips do nothing.** The questionnaire still uses the
   hardcoded `GenreOptions.all`: display labels (`K-pop`), missing Rock, Indie,
   Metal and Hip-Hop. The chosen genres are never sent as `p_genres`, so
@@ -356,16 +352,11 @@ Not decisions — just things that are true right now and will surprise you.
   context, so that matching term is always zero until the accelerometer lands.
 - **Reactions are promised in the UI** ("Reactions stay anonymous") but no code
   calls `add_reaction` or `get_reactions`.
-- **The Collection tab is fake.** `RoomRepository.getShelf()` exists and Home's
-  "Recently collected" uses it, but `CollectionViewModel` still defaults to
-  `FakeVinylRepository`.
 - **The Home turntable can't be tapped.** It looks like a real object but does
   nothing when pressed; it should open the receive flow.
 - **The split matcher is unused.** `get_candidates`, `get_genre_weights`,
   `commit_recommendations` and `Matchmaker.kt` are built and tested, but the
   app still calls `request_recommendations`. See §10.
-- **Receive-flow screens quit the app on Back.** They have no `BackHandler`;
-  the settings screens do.
 - **`SubmissionViewModel` is unused.** Nothing references it.
 - **GeoNames isn't credited in the app yet.** CC BY 4.0 requires it; the credit
   is only in `assets/cities.tsv`.

@@ -16,9 +16,19 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -27,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -35,6 +46,7 @@ import com.example.vinyl.data.model.RecordSource
 import com.example.vinyl.data.model.VinylRecord
 import com.example.vinyl.ui.components.VinylSleeveThumbnail
 import com.example.vinyl.ui.theme.VinylColors
+import com.example.vinyl.ui.theme.VinylPalette
 import com.example.vinyl.ui.theme.VinylSectionTitleStyle
 import com.example.vinyl.ui.theme.VinylTheme
 
@@ -47,20 +59,39 @@ fun CollectionScreen(
     viewModel: CollectionViewModel = viewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
+
+    // Every time the tab opens: a record kept in the receive flow should already be here.
+    LaunchedEffect(Unit) { viewModel.refresh() }
+
     CollectionScreenContent(
         uiState = uiState,
         modifier = modifier,
         onFilterSelected = viewModel::selectFilter,
         onEditClick = onProfileClick,
+        onRefresh = viewModel::refresh,
+        onRecordClick = viewModel::openRecord,
     )
+
+    uiState.openRecord?.let { record ->
+        RecordDialog(
+            record = record,
+            error = uiState.actionError,
+            onToggleFavourite = { viewModel.toggleFavourite(record) },
+            onRemove = { viewModel.remove(record) },
+            onDismiss = viewModel::closeRecord,
+        )
+    }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CollectionScreenContent(
     uiState: CollectionUiState,
     modifier: Modifier = Modifier,
     onFilterSelected: (CollectionFilter) -> Unit = {},
     onEditClick: () -> Unit = {},
+    onRefresh: () -> Unit = {},
+    onRecordClick: (VinylRecord) -> Unit = {},
 ) {
     // Three shelf tiles fill the content width exactly, as in the exported design.
     val contentWidth = LocalConfiguration.current.screenWidthDp.dp - ScreenPadding * 2
@@ -68,39 +99,58 @@ private fun CollectionScreenContent(
 
     val isEmpty = !uiState.isLoading && uiState.sections.all { it.records.isEmpty() }
 
-    LazyColumn(
+    PullToRefreshBox(
+        isRefreshing = uiState.isLoading,
+        onRefresh = onRefresh,
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
-        contentPadding = PaddingValues(top = 32.dp, bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        item {
-            CollectionTopBar(
-                onEditClick = onEditClick,
-                modifier = Modifier.padding(horizontal = ScreenPadding),
-            )
-        }
-
-        item {
-            FilterTabs(
-                selected = uiState.selectedFilter,
-                totalCount = uiState.totalCount,
-                onFilterSelected = onFilterSelected,
-                modifier = Modifier.padding(bottom = 12.dp),
-            )
-        }
-
-        if (isEmpty) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(top = 32.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
             item {
-                EmptyCollectionMessage(modifier = Modifier.padding(horizontal = ScreenPadding))
+                CollectionTopBar(
+                    onEditClick = onEditClick,
+                    modifier = Modifier.padding(horizontal = ScreenPadding),
+                )
+            }
+
+            item {
+                FilterTabs(
+                    selected = uiState.selectedFilter,
+                    totalCount = uiState.totalCount,
+                    onFilterSelected = onFilterSelected,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+            }
+
+            if (uiState.error != null) {
+                item {
+                    CollectionMessage(uiState.error, modifier = Modifier.padding(horizontal = ScreenPadding))
+                }
+            } else if (isEmpty) {
+                item {
+                    CollectionMessage(
+                        emptyMessage(uiState.selectedFilter),
+                        modifier = Modifier.padding(horizontal = ScreenPadding),
+                    )
+                }
+            }
+
+            items(uiState.sections.filter { it.records.isNotEmpty() }, key = { it.title }) { section ->
+                CollectionSectionRow(section = section, sleeveSize = sleeveSize, onRecordClick = onRecordClick)
             }
         }
-
-        items(uiState.sections, key = { it.title }) { section ->
-            CollectionSectionRow(section = section, sleeveSize = sleeveSize)
-        }
     }
+}
+
+private fun emptyMessage(filter: CollectionFilter): String = when (filter) {
+    CollectionFilter.SENT -> "Records you send will show up here."
+    CollectionFilter.FAVOURITES -> "No favourites yet. Open a record you kept and tap the star."
+    else -> "Your shelf is empty. Music cards you keep will show up here."
 }
 
 @Composable
@@ -159,7 +209,11 @@ private fun FilterTabs(
 }
 
 @Composable
-private fun CollectionSectionRow(section: CollectionSection, sleeveSize: Dp) {
+private fun CollectionSectionRow(
+    section: CollectionSection,
+    sleeveSize: Dp,
+    onRecordClick: (VinylRecord) -> Unit,
+) {
     Column {
         Row(
             modifier = Modifier
@@ -189,6 +243,7 @@ private fun CollectionSectionRow(section: CollectionSection, sleeveSize: Dp) {
                     accentColor = Color(record.accentColor),
                     sleeveSize = sleeveSize,
                     localCoverRes = record.localCoverRes,
+                    modifier = Modifier.clickable { onRecordClick(record) },
                 )
             }
         }
@@ -219,10 +274,66 @@ private fun ShelfLedge() {
     }
 }
 
+/**
+ * A record opened from the shelf. Received records can be starred or taken off the shelf; sent
+ * ones are your own, so they're only shown.
+ */
 @Composable
-private fun EmptyCollectionMessage(modifier: Modifier = Modifier) {
+private fun RecordDialog(
+    record: VinylRecord,
+    error: String?,
+    onToggleFavourite: () -> Unit,
+    onRemove: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val received = record.source == RecordSource.RECEIVED
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = DialogBg,
+        titleContentColor = VinylPalette.TextPrimary,
+        textContentColor = VinylPalette.TextMuted,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(record.songName, fontWeight = FontWeight.SemiBold)
+                    Text(record.artist, style = MaterialTheme.typography.bodyMedium, color = VinylPalette.TextMuted)
+                }
+                if (received) {
+                    IconButton(onClick = onToggleFavourite) {
+                        Icon(
+                            if (record.isFavourite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                            contentDescription = if (record.isFavourite) "Remove from favourites" else "Add to favourites",
+                            tint = if (record.isFavourite) VinylPalette.TealAccent else VinylPalette.TextMuted,
+                        )
+                    }
+                }
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(listOfNotNull(if (received) "Received" else "Sent", record.mood).joinToString(" · "))
+                record.message?.let { Text("“$it”", color = VinylPalette.TextPrimary) }
+                error?.let { Text(it, color = RemoveFg) }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close", color = VinylPalette.TealAccent) }
+        },
+        dismissButton = if (received) {
+            { TextButton(onClick = onRemove) { Text("Remove from shelf", color = RemoveFg) } }
+        } else {
+            null
+        },
+    )
+}
+
+private val DialogBg = Color(0xFF1C1C1C)
+private val RemoveFg = Color(0xFFE57373)
+
+@Composable
+private fun CollectionMessage(text: String, modifier: Modifier = Modifier) {
     Text(
-        text = "Your shelf is empty. Music cards you keep will show up here.",
+        text = text,
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
         modifier = modifier.padding(vertical = 24.dp),

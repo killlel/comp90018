@@ -15,6 +15,10 @@ data class RoomUiState(
     val isLoading: Boolean = false,
     val cards: List<RoomCard> = emptyList(),
     val error: String? = null,
+    /** Submission ids on the shelf right now, seeded from each card's `saved`. */
+    val keptIds: Set<String> = cards.filter { it.saved }.map { it.submissionId }.toSet(),
+    /** A keep that didn't go through, for the opened card to show. */
+    val keepError: String? = null,
 )
 
 /** Loads the letters behind the Arrived Today picker. */
@@ -40,5 +44,29 @@ class RoomViewModel(private val repository: RoomRepository = RoomRepository()) :
                 .onSuccess { cards -> _uiState.update { RoomUiState(cards = cards) } }
                 .onFailure { e -> _uiState.update { RoomUiState(error = e.message) } }
         }
+    }
+
+    /**
+     * Keeps or un-keeps a record. Optimistic: the button flips at once and flips back if the
+     * write fails, since keeping is cheap to retry.
+     */
+    fun toggleKeep(submissionId: String) {
+        val keep = submissionId !in _uiState.value.keptIds
+        setKept(submissionId, keep)
+
+        viewModelScope.launch {
+            val result = if (keep) repository.keep(submissionId) else repository.unkeep(submissionId)
+            result.onFailure {
+                setKept(submissionId, !keep)
+                _uiState.update { it.copy(keepError = "Couldn't update your shelf. Try again.") }
+            }
+        }
+    }
+
+    private fun setKept(submissionId: String, kept: Boolean) = _uiState.update {
+        it.copy(
+            keptIds = if (kept) it.keptIds + submissionId else it.keptIds - submissionId,
+            keepError = null,
+        )
     }
 }

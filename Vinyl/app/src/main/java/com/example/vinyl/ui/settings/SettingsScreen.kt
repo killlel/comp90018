@@ -1,5 +1,12 @@
 package com.example.vinyl.ui.settings
 
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.example.vinyl.notification.DailyReminder
+import com.example.vinyl.notification.ReminderPrefs
+import com.example.vinyl.ui.notification.notificationsAllowed
+import com.example.vinyl.ui.notification.rememberNotificationPermissionRequest
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -95,7 +102,19 @@ fun SettingsScreen(
     val handle = "@vinyl"
 
     var page by rememberSaveable { mutableStateOf(SettingsPage.List) }
-    var notificationsEnabled by rememberSaveable { mutableStateOf(true) }
+    // The daily reminder: on only if the user wants it AND Android allows notifications. Re-read
+    // on every resume, since either can change in system settings while we're away.
+    val context = LocalContext.current
+    val reminderPrefs = remember { ReminderPrefs(context.applicationContext) }
+    var notificationsEnabled by remember { mutableStateOf(false) }
+    LifecycleResumeEffect(Unit) {
+        notificationsEnabled = reminderPrefs.enabled && context.notificationsAllowed()
+        onPauseOrDispose {}
+    }
+    val notificationPermission = rememberNotificationPermissionRequest { granted ->
+        DailyReminder.setEnabled(context, granted)
+        notificationsEnabled = granted
+    }
     var themeMode by rememberSaveable { mutableStateOf(2) }
     var accentIndex by rememberSaveable { mutableStateOf(0) }
     var selectedGenres by rememberSaveable { mutableStateOf(setOf("Indie", "Electronic")) }
@@ -144,7 +163,15 @@ fun SettingsScreen(
                     gradientIndex = avatarGradient,
                     locationValue = locationValue,
                     notificationsEnabled = notificationsEnabled,
-                    onNotificationsChange = { notificationsEnabled = it },
+                    onNotificationsChange = { on ->
+                        if (on) {
+                            // Asks Android if needed, or opens system settings once it won't ask.
+                            notificationPermission.request()
+                        } else {
+                            DailyReminder.setEnabled(context, false)
+                            notificationsEnabled = false
+                        }
+                    },
                     themeLabel = themeLabel(themeMode),
                     onOpenProfile = { page = SettingsPage.Account },
                     onOpenPreferences = { page = SettingsPage.Preferences },

@@ -8,6 +8,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import com.example.vinyl.notification.DailyReminder
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -24,6 +26,7 @@ fun NotificationPage(
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.uiState.collectAsState()
+    val context = LocalContext.current
 
     // Set once the user has said no, so the page can explain instead of moving on silently.
     var denied by rememberSaveable { mutableStateOf(false) }
@@ -32,6 +35,7 @@ fun NotificationPage(
     val permission = rememberNotificationPermissionRequest(
         onAnswered = { granted ->
             viewModel.setNotificationsEnabled(granted)
+            DailyReminder.setEnabled(context, granted)
             if (granted) {
                 denied = false
                 onFinish()
@@ -48,6 +52,7 @@ fun NotificationPage(
         onTurnOn = permission.request,
         onNotNow = {
             viewModel.setNotificationsEnabled(false)
+            DailyReminder.setEnabled(context, false)
             onFinish()
         },
         modifier = modifier,
@@ -65,7 +70,7 @@ private fun NotificationContent(
 ) {
     OnboardingPageLayout(
         title = "Turn on\nnotifications",
-        description = "A little music, just for you. Get a reminder when a music card arrives. You can turn notifications off any time.",
+        description = "A little music, just for you. Get a daily nudge to pick up today's record. You can turn this off any time in Settings.",
         modifier = modifier,
         illustration = R.drawable.onboarding_notification,
         actions = {

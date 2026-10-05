@@ -65,10 +65,10 @@ import com.example.vinyl.data.GoogleSignInOutcome
 import com.example.vinyl.data.MoodOptions
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.data.Supabase
-import com.example.vinyl.data.onboarding.FakeOnboardingRepository
 import com.example.vinyl.data.onboarding.OnboardingRepository
 import com.example.vinyl.ui.collection.CollectionScreen
 import com.example.vinyl.ui.home.HomeScreen
+import com.example.vinyl.ui.home.HomeViewModel
 import com.example.vinyl.ui.daily.ArrivedRecordOption
 import com.example.vinyl.ui.daily.ArrivedTodayScreen
 import com.example.vinyl.ui.daily.ArrivedTodayUiState
@@ -87,7 +87,6 @@ import com.example.vinyl.ui.onboarding.OnboardingHorizontalPadding
 import com.example.vinyl.ui.onboarding.OnboardingActionMinimumHeight
 import com.example.vinyl.ui.onboarding.OnboardingBottomPadding
 import com.example.vinyl.ui.onboarding.OnboardingPagerScreen
-import com.example.vinyl.ui.onboarding.OnboardingViewModel
 import com.example.vinyl.ui.daily.toArrivedOption
 import com.example.vinyl.ui.location.LocationGateScreen
 import com.example.vinyl.ui.location.LocationSettingsScreen
@@ -103,6 +102,8 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.handleDeeplinks
 import io.github.jan.supabase.auth.status.SessionStatus
 import kotlinx.coroutines.launch
+import com.example.vinyl.notification.DailyReminder
+import com.example.vinyl.notification.ReminderPrefs
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 class MainActivity : ComponentActivity() {
@@ -111,6 +112,10 @@ class MainActivity : ComponentActivity() {
     // than in AuthScreen because the callback arrives at the activity, not at the composition.
     private var authCallbackError by mutableStateOf<String?>(null)
 
+    // Set when the daily reminder is tapped; VinylApp opens the receive flow and clears it.
+    // Activity-level for the same reason as authCallbackError: the intent arrives here.
+    private var openReceiveRequested by mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -118,6 +123,8 @@ class MainActivity : ComponentActivity() {
         // the browser, so the callback arrives as the launch intent. handleDeeplinks() ignores
         // anything that isn't com.example.vinyl://auth-callback, so this is safe on a normal launch.
         handleAuthDeeplink(intent)
+        handleReminderTap(intent)
+        DailyReminder.createChannel(this)
 
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
@@ -125,9 +132,8 @@ class MainActivity : ComponentActivity() {
         )
         setContent {
             VinylTheme {
-                var continueWithoutAccount by remember { mutableStateOf(false) }
                 val sessionStatus by Supabase.client.auth.sessionStatus.collectAsState()
-                val inApp = sessionStatus is SessionStatus.Authenticated || continueWithoutAccount
+                val inApp = sessionStatus is SessionStatus.Authenticated
 
                 // Sign-out runs here rather than in VinylApp: the session clears part-way through,
                 // which removes VinylApp from composition and would cancel its scope before the
@@ -137,8 +143,7 @@ class MainActivity : ComponentActivity() {
                 val signOut: () -> Unit = {
                     authScope.launch {
                         googleAuthRepository.signOut()
-                        // Skip-for-now mode has no session to clear, so leave it explicitly.
-                        continueWithoutAccount = false
+                        DailyReminder.stop(applicationContext)
                     }
                 }
 
@@ -150,15 +155,24 @@ class MainActivity : ComponentActivity() {
                     wasInApp = inApp
                 }
 
+                // Re-aims the daily reminder on every launch, so a changed clock or time zone is
+                // picked up. Not while signed out: there's nothing to come back to.
+                LaunchedEffect(inApp) { if (inApp) DailyReminder.sync(applicationContext) }
+
                 if (inApp) {
-                    OnboardingGate(useStubData = continueWithoutAccount) { VinylApp(onSignOut = signOut) }
+                    OnboardingGate {
+                        VinylApp(
+                            onSignOut = signOut,
+                            openReceiveRequested = openReceiveRequested,
+                            onReceiveOpened = { openReceiveRequested = false },
+                        )
+                    }
                 } else {
                     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                         AuthScreen(
                             modifier = Modifier.padding(innerPadding),
                             callbackError = authCallbackError,
                             onClearCallbackError = { authCallbackError = null },
-                            onSkipForNow = { continueWithoutAccount = true },
                         )
                     }
                 }
@@ -172,6 +186,14 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleAuthDeeplink(intent)
+        handleReminderTap(intent)
+    }
+
+    private fun handleReminderTap(intent: Intent) {
+        if (!intent.getBooleanExtra(DailyReminder.EXTRA_OPEN_RECEIVE, false)) return
+        // Consumed once, so rotating or returning to the app doesn't reopen the flow.
+        intent.removeExtra(DailyReminder.EXTRA_OPEN_RECEIVE)
+        openReceiveRequested = true
     }
 
     // Exchanges the PKCE code in the callback for a session. On success the session lands in
@@ -233,27 +255,9 @@ private sealed class ReceiveFlowStep {
  * Reads the flag once on entry rather than through [com.example.vinyl.ui.onboarding.OnboardingViewModel],
  * since that view model's state doesn't carry `onboarding_completed` — it only tracks the fields
  * onboarding itself edits.
- *
- * [useStubData] — TESTING ONLY: when true (wired to the same `bypassAuthForTesting` switch as the
- * sign-in skip), the whole gate runs on [FakeOnboardingRepository] instead of checking Supabase,
- * since there's no real signed-in user to look up in that mode. Remove this parameter, and the
- * branch that uses it, before shipping.
  */
 @Composable
-private fun OnboardingGate(useStubData: Boolean = false, content: @Composable () -> Unit) {
-    if (useStubData) {
-        var stubCompleted by remember { mutableStateOf(false) }
-        if (stubCompleted) {
-            content()
-        } else {
-            OnboardingPagerScreen(
-                onOnboardingComplete = { stubCompleted = true },
-                viewModel = remember { OnboardingViewModel(repository = FakeOnboardingRepository()) },
-            )
-        }
-        return
-    }
-
+private fun OnboardingGate(content: @Composable () -> Unit) {
     // null = still resolving, so the gate can't yet say which way to go.
     var onboardingCompleted by remember { mutableStateOf<Boolean?>(null) }
 
@@ -310,14 +314,29 @@ private fun OnboardingGate(useStubData: Boolean = false, content: @Composable ()
 //}
 
 @Composable
-private fun VinylApp(onSignOut: () -> Unit) {
+private fun VinylApp(
+    onSignOut: () -> Unit,
+    openReceiveRequested: Boolean = false,
+    onReceiveOpened: () -> Unit = {},
+) {
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.Home) }
 
     var receiveFlowStep by remember { mutableStateOf<ReceiveFlowStep?>(null) }
+    val appContext = LocalContext.current.applicationContext
+    val reminderPrefs = remember(appContext) { ReminderPrefs(appContext) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showLocationSettings by rememberSaveable { mutableStateOf(false) }
 
     val roomViewModel: RoomViewModel = viewModel()
+
+    // Same activity-scoped instance HomeScreen uses. Its "Recently collected" row reads the
+    // shelf, so it reloads after the receive flow closes in case a record was kept there.
+    val homeViewModel: HomeViewModel = viewModel()
+    var wasReceiving by remember { mutableStateOf(false) }
+    LaunchedEffect(receiveFlowStep == null) {
+        if (receiveFlowStep == null && wasReceiving) homeViewModel.refresh()
+        wasReceiving = receiveFlowStep != null
+    }
 
     // Activity-scoped, so it's the same instance the onboarding pager and settings screen use
     val locationViewModel: LocationViewModel = viewModel()
@@ -328,6 +347,16 @@ private fun VinylApp(onSignOut: () -> Unit) {
     LaunchedEffect(locationState.hasLocation) { locationViewModel.loadCityLabel() }
     var dailyMood by remember { mutableStateOf<MoodTag?>(null) }
     var dailyGenres by remember { mutableStateOf(setOf<String>()) }
+
+    // Tapping the daily reminder lands on the mood question, same as Home's "Open Today's Cards".
+    LaunchedEffect(openReceiveRequested) {
+        if (!openReceiveRequested) return@LaunchedEffect
+        selectedTab = AppTab.Home
+        dailyMood = null
+        dailyGenres = emptySet()
+        receiveFlowStep = ReceiveFlowStep.Questionnaire
+        onReceiveOpened()
+    }
 
     Scaffold(
         containerColor = VinylPalette.Background,
@@ -396,6 +425,16 @@ private fun VinylApp(onSignOut: () -> Unit) {
     BackHandler(enabled = showLocationSettings) { showLocationSettings = false }
     BackHandler(enabled = showSettings && !showLocationSettings) { showSettings = false }
 
+    // The receive flow is the same kind of overlay. Each step goes where its own on-screen
+    // back or close button goes: only an unopened record steps back (to the picker); every
+    // other step closes the flow. Declared last so it wins while the flow is on top.
+    BackHandler(enabled = receiveFlowStep != null) {
+        receiveFlowStep = when (receiveFlowStep) {
+            is ReceiveFlowStep.Unopened -> ReceiveFlowStep.ArrivedToday
+            else -> null
+        }
+    }
+
     if (showSettings) {
         SettingsScreen(
             locationValue = settingsLocationValue(locationState),
@@ -427,10 +466,12 @@ private fun VinylApp(onSignOut: () -> Unit) {
                     // returns there, and request_recommendations records new matches on every
                     // call — loading on entry would deal a fresh hand each time.
                     onSubmit = {
+                        reminderPrefs.markPulledToday()
                         roomViewModel.load(dailyMood)
                         receiveFlowStep = ReceiveFlowStep.ArrivedToday
                     },
                     onLetCrateDecide = {
+                        reminderPrefs.markPulledToday()
                         roomViewModel.load(mood = null)
                         receiveFlowStep = ReceiveFlowStep.ArrivedToday
                     },
@@ -488,6 +529,9 @@ private fun VinylApp(onSignOut: () -> Unit) {
         }
 
         is ReceiveFlowStep.Opened -> {
+            val roomState by roomViewModel.uiState.collectAsState()
+            val submissionId = step.option.submissionId
+
             BottomSheetContainer(onDismiss = { receiveFlowStep = null }) {
                 ReceivedCardScreen(
                     state = ReceivedCardUiState(
@@ -499,8 +543,11 @@ private fun VinylApp(onSignOut: () -> Unit) {
                         senderDistanceLabel = step.option.distanceLabel,
                         senderDistanceNote = step.option.distanceNote,
                         sentTimeLabel = step.option.sentTimeLabel,
+                        isKept = submissionId != null && submissionId in roomState.keptIds,
+                        keepError = roomState.keepError,
                     ),
                     onClose = { receiveFlowStep = null },
+                    onKeep = { submissionId?.let(roomViewModel::toggleKeep) },
                 )
             }
         }
@@ -572,7 +619,6 @@ private fun AuthScreen(
     modifier: Modifier = Modifier,
     callbackError: String? = null,
     onClearCallbackError: () -> Unit = {},
-    onSkipForNow: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -661,9 +707,6 @@ private fun AuthScreen(
                 Text(if (isSigningIn) "Signing in…" else "Continue with Google", fontSize = 18.sp, lineHeight = 24.sp, fontFamily = PoppinsFontFamily, fontWeight = FontWeight.Medium)
             }
             Spacer(Modifier.height(12.dp))
-            TextButton(onClick = onSkipForNow, enabled = !isSigningIn, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("Continue as guest", color = VinylPalette.TealAccent, fontSize = 16.sp, lineHeight = 24.sp, fontFamily = PoppinsFontFamily)
-            }
             if (!isSigningIn && (showBrowserFallback || callbackError != null)) {
                 TextButton(onClick = {
                     onClearCallbackError()
