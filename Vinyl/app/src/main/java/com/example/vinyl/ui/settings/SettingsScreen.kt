@@ -28,7 +28,6 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.outlined.BrightnessAuto
 import androidx.compose.material.icons.outlined.DarkMode
-import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.LightMode
@@ -100,7 +99,6 @@ fun SettingsScreen(
     var themeMode by rememberSaveable { mutableStateOf(2) }
     var accentIndex by rememberSaveable { mutableStateOf(0) }
     var selectedGenres by rememberSaveable { mutableStateOf(setOf("Indie", "Electronic")) }
-    var showDeleteConfirm by rememberSaveable { mutableStateOf(false) }
     var signedOutNote by rememberSaveable { mutableStateOf(false) }
     val avatarAppearance = rememberAvatarAppearance()
     var avatarIcon by rememberSaveable { mutableStateOf(avatarAppearance.iconIndex) }
@@ -162,7 +160,6 @@ fun SettingsScreen(
                     iconIndex = avatarIcon,
                     gradientIndex = avatarGradient,
                     onEditIcon = { page = SettingsPage.IconMaker },
-                    onDelete = { showDeleteConfirm = true },
                 )
                 SettingsPage.IconMaker -> AvatarMakerBody(
                     iconIndex = avatarIcon,
@@ -193,22 +190,6 @@ fun SettingsScreen(
 
     }
 
-    if (showDeleteConfirm) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            containerColor = CardBg,
-            titleContentColor = VinylPalette.TextPrimary,
-            textContentColor = VinylPalette.TextMuted,
-            title = { Text("Delete account?") },
-            text = { Text("This will remove your letters and collection from this app.") },
-            confirmButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) { Text("Close", color = SignOutFg) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel", color = VinylPalette.TextMuted) }
-            },
-        )
-    }
     if (signedOutNote) {
         AlertDialog(
             onDismissRequest = { signedOutNote = false },
@@ -218,13 +199,15 @@ fun SettingsScreen(
             title = { Text("Sign out") },
             text = { Text("You’ll need to sign in again to send or receive letters.") },
             confirmButton = {
-                TextButton(onClick = { signedOutNote = false }) { Text("OK", color = VinylPalette.TealAccent) }
+                TextButton(onClick = {
+                    signedOutNote = false
+                    onSignOut()
+                }) { Text("Sign out", color = SignOutFg) }
+            },
+            dismissButton = {
+                TextButton(onClick = { signedOutNote = false }) { Text("Cancel", color = VinylPalette.TextMuted) }
             },
         )
-
-        TextButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) {
-            Text("Sign out", color = VinylPalette.TextMuted, fontSize = 14.sp)
-        }
     }
 }
 
@@ -446,7 +429,6 @@ private fun AccountPage(
     iconIndex: Int,
     gradientIndex: Int,
     onEditIcon: () -> Unit,
-    onDelete: () -> Unit,
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = PagePad),
@@ -470,16 +452,6 @@ private fun AccountPage(
             IconNavRow(title = "Name", subtitle = displayName, showChevron = false, onClick = {})
             GroupDivider()
             IconNavRow(title = "ID", subtitle = handle, showChevron = false, onClick = {})
-        }
-        Spacer(Modifier.height(24.dp))
-        Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(GroupRadius)).background(SignOutBg)
-                .clickable(onClick = onDelete).padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Outlined.Delete, null, tint = SignOutFg, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(14.dp))
-            Text("Delete account", color = SignOutFg, fontSize = 16.sp)
         }
     }
 }

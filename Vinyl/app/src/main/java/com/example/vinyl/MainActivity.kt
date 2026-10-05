@@ -127,9 +127,31 @@ class MainActivity : ComponentActivity() {
             VinylTheme {
                 var continueWithoutAccount by remember { mutableStateOf(false) }
                 val sessionStatus by Supabase.client.auth.sessionStatus.collectAsState()
+                val inApp = sessionStatus is SessionStatus.Authenticated || continueWithoutAccount
 
-                if (sessionStatus is SessionStatus.Authenticated || continueWithoutAccount) {
-                    OnboardingGate(useStubData = continueWithoutAccount) { VinylApp() }
+                // Sign-out runs here rather than in VinylApp: the session clears part-way through,
+                // which removes VinylApp from composition and would cancel its scope before the
+                // Credential Manager cleanup ran.
+                val authScope = rememberCoroutineScope()
+                val googleAuthRepository = remember { GoogleAuthRepository(applicationContext) }
+                val signOut: () -> Unit = {
+                    authScope.launch {
+                        googleAuthRepository.signOut()
+                        // Skip-for-now mode has no session to clear, so leave it explicitly.
+                        continueWithoutAccount = false
+                    }
+                }
+
+                // The app's view models are activity-scoped, so they outlive a sign-out and would
+                // show the previous user's location, cards and collection to the next one.
+                var wasInApp by remember { mutableStateOf(false) }
+                LaunchedEffect(inApp) {
+                    if (wasInApp && !inApp) viewModelStore.clear()
+                    wasInApp = inApp
+                }
+
+                if (inApp) {
+                    OnboardingGate(useStubData = continueWithoutAccount) { VinylApp(onSignOut = signOut) }
                 } else {
                     Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                         AuthScreen(
@@ -288,7 +310,7 @@ private fun OnboardingGate(useStubData: Boolean = false, content: @Composable ()
 //}
 
 @Composable
-private fun VinylApp() {
+private fun VinylApp(onSignOut: () -> Unit) {
     var selectedTab by rememberSaveable { mutableStateOf(AppTab.Home) }
 
     var receiveFlowStep by remember { mutableStateOf<ReceiveFlowStep?>(null) }
@@ -306,8 +328,6 @@ private fun VinylApp() {
     LaunchedEffect(locationState.hasLocation) { locationViewModel.loadCityLabel() }
     var dailyMood by remember { mutableStateOf<MoodTag?>(null) }
     var dailyGenres by remember { mutableStateOf(setOf<String>()) }
-
-    val scope = rememberCoroutineScope()
 
     Scaffold(
         containerColor = VinylPalette.Background,
@@ -380,7 +400,7 @@ private fun VinylApp() {
         SettingsScreen(
             locationValue = settingsLocationValue(locationState),
             onOpenLocation = { showLocationSettings = true },
-            onSignOut = { scope.launch { runCatching { Supabase.client.auth.signOut() } } },
+            onSignOut = onSignOut,
             onBack = { showSettings = false },
         )
     }
