@@ -15,6 +15,7 @@ directly.
 | `supabase/migrations/20260918…` – `20260924…` | Sprint 2 profile changes, applied in filename order: profile location, genre lookup, favorite genres, avatars and generated usernames (`20260924000001_usernames_and_avatars.sql`, `20260924000002_user_name_generate.sql`) |
 | `supabase/migrations/20261004000001_matchmaking_v2.sql` | The real matchmaker: rewrites the scoring in `request_recommendations`, adds `p_genres` |
 | `supabase/migrations/20261004000002_split_matchmaker.sql` | The split path: `candidate_card`, `get_candidates`, `get_genre_weights`, `commit_recommendations` |
+| `supabase/migrations/20261005000001_shelf_favourites.sql` | `shelf_items.is_favourite`, for the Collection's Favourites filter |
 | `supabase/seed.sql` | 24 demo submissions across every mood |
 | `supabase/seed_demo_users.sql` | Optional fake "stranger" accounts |
 | `supabase/tests/smoke_test.sql` | CRUD + privacy checks, self-asserting (29 checks) |
@@ -135,6 +136,7 @@ erDiagram
         uuid owner_id      FK,UK
         uuid submission_id FK,UK
         text note
+        bool is_favourite
     }
     reactions {
         uuid id            PK
@@ -278,7 +280,9 @@ when the split path commits without scores.
 ### `shelf_items`
 The record shelf. Owner-only, and the insert policy additionally requires that
 the submission was actually recommended to you — you cannot shelve a record you
-were never given.
+were never given. `is_favourite` is the owner's star in their Collection; it
+lives and dies with the row, so taking a record off the shelf unstars it. It is
+deliberately not on `room_card` — read it from `shelf_items` directly.
 
 ### `reactions`
 `(submission_id, reactor_id)` is unique, so reacting again updates in place
@@ -315,7 +319,8 @@ passed **by name**, so anything with a default can be omitted.
 | `get_my_submissions(p_limit?)` | rows | "Records I've sent", with reaction totals. |
 
 Saving and unsaving a shelf item is a plain insert/delete on `shelf_items` — no
-RPC needed, RLS covers it.
+RPC needed, RLS covers it. Starring one is an update of `is_favourite` on the
+same row.
 
 Onboarding choices are plain updates to the caller's own `profiles` row, which
 RLS confines: `avatar_slug`, `favorite_genres` and `onboarding_completed`
@@ -517,8 +522,8 @@ Prefer `db push`. If you did run one by hand, see `migration repair` in §5.
   `genres` table and are saved as **slugs** to `favorite_genres` (an empty array
   means "I listen to everything"; write nothing to leave it unanswered).
   Finishing onboarding is an update setting `onboarding_completed = true`. The
-  notification choice is **not stored anywhere yet** — there is no column for it;
-  add a real one when it is needed.
+  daily-reminder choice is not in the database: it is stored on the device
+  (`ReminderPrefs`), see DesignDecision.md §7.
 - **Everyone, before demoing onboarding:** the `avatars` table is empty, so the
   picture step has nothing to show until rows are inserted.
 - **Natalie — still outstanding:** the write-a-card screen now reads
@@ -531,8 +536,9 @@ Prefer `db push`. If you did run one by hand, see `migration repair` in §5.
 - **Natalie:** submission is one call, `submit_song()`. Validate a non-empty
   message and a selected song client-side for a good error message; the database
   rejects both anyway, so nothing bad gets stored if a check is missed.
-- **Ivan:** `RoomRepository.getShelf()` now exists and Home's "Recently
-  collected" uses it. The Collection tab still runs on `FakeVinylRepository`.
+- **Collection is live.** It reads `get_shelf()` (kept records),
+  `get_my_submissions()` (sent) and `shelf_items` (stars and kept-at times).
+  "Keep this record" in the receive flow inserts into `shelf_items`.
 - **Everyone:** pull the `SupabaseClient.kt` change (`ignoreUnknownKeys =
   true`) as soon as it is merged. Until every build has it, no field can be
   added to `room_card`.

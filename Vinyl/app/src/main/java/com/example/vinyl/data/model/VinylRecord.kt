@@ -18,4 +18,8 @@ data class VinylRecord(
     val isNew: Boolean = false,
     val source: RecordSource = RecordSource.RECEIVED,
     val mood: String? = null,
+    /** The note that came with the record, shown when it's opened from the shelf. */
+    val message: String? = null,
+    /** When it was kept (received) or sent, as epoch millis. Orders "Recently collected". */
+    val collectedAtMs: Long? = null,
 )
