@@ -19,7 +19,9 @@ import kotlin.random.Random
  *
  *   mood          the question the user actually answered, so it dominates
  *   genre         inverse document frequency, as in BM25 — a match on a rare genre says far
- *                 more than a match on one half the pool carries
+ *                 more than a match on one half the pool carries. Normalised to at most 1 per
+ *                 genre, so the whole term is capped at the genre weight and can never
+ *                 outweigh a mood match
  *   freshness     the Hacker News shape, `w / (age + 2) ^ gravity`; decays smoothly instead of
  *                 falling off a cliff at some arbitrary cutoff
  *   circulation   a penalty on records already shown to many people, so the first submissions
@@ -56,7 +58,7 @@ class Matchmaker(
 
     /**
      * @param candidates   what `get_candidates()` returned — already filtered and anonymised
-     * @param genreWeights slug to idf, from `get_genre_weights()`
+     * @param genreWeights slug to normalised idf in (0, 1], from `get_genre_weights()`
      * @param preferred    today's genre chips, or the profile's standing taste; empty means no
      *                     genre filter, which is what "I listen to everything" should do
      * @param nowEpochMs   injected rather than read, so freshness is testable
@@ -122,10 +124,14 @@ class Matchmaker(
 
         // Divided by how many genres the user picked, so choosing eight does not simply outscore
         // choosing one. Jaccard-ish, without the cost of a real union.
+        //
+        // Each weight is clamped to 1, which caps the term at weights.genre (2.0) — below a mood
+        // match (3.0). The server already sends values in (0, 1]; the clamp keeps that true
+        // against one that predates the normalisation and still sends raw idf.
         if (preferred.isNotEmpty()) {
             val overlap = card.genres
                 .filter { it in preferred }
-                .sumOf { genreWeights[it] ?: 0.0 }
+                .sumOf { (genreWeights[it] ?: 0.0).coerceIn(0.0, 1.0) }
             total += weights.genre * overlap / preferred.size
         }
 

@@ -494,6 +494,17 @@ begin
   end if;
   raise notice 'CHECK 29 ok — rarer genres carry more weight';
 
+  -- ---------------------------------------------------------------------
+  -- CHECK 30 — genre weights are capped at 1, so genre can never outweigh mood
+  --
+  -- The genre term is w_genre (2.0) × weight; mood is 3.0. A weight above 1
+  -- would let one rare genre outrank the question the user answered.
+  -- ---------------------------------------------------------------------
+  if exists (select 1 from public.get_genre_weights() where weight > 1 or weight <= 0) then
+    raise exception 'CHECK 30 FAILED: a genre weight is outside (0, 1]';
+  end if;
+  raise notice 'CHECK 30 ok — genre weights are within (0, 1]';
+
   execute 'reset role';
   raise notice '=== ALL CHECKS PASSED ===';
 end $$;

@@ -57,7 +57,7 @@ class MatchmakerTest {
         val ranked = matchmaker.rank(
             candidates = listOf(card("common", genres = listOf("pop")), card("rare", genres = listOf("shoegaze"))),
             mood = MoodTag.Happy,
-            genreWeights = mapOf("pop" to 0.4, "shoegaze" to 3.2),
+            genreWeights = mapOf("pop" to 0.34, "shoegaze" to 1.0),
             preferred = setOf("pop", "shoegaze"),
             nowEpochMs = now,
         )
@@ -65,11 +65,45 @@ class MatchmakerTest {
     }
 
     @Test
+    fun `a genre match never outweighs a mood match`() {
+        // The worst case for mood: one genre picked, and the other card matches it at the
+        // maximum weight. Mood must still win.
+        val ranked = matchmaker.rank(
+            candidates = listOf(
+                card("genre", mood = "sad", genres = listOf("shoegaze")),
+                card("mood", mood = "happy"),
+            ),
+            mood = MoodTag.Happy,
+            genreWeights = mapOf("shoegaze" to 1.0),
+            preferred = setOf("shoegaze"),
+            nowEpochMs = now,
+        )
+        assertEquals("mood", ranked.first().card.submissionId)
+    }
+
+    @Test
+    fun `raw idf from an older server is clamped rather than trusted`() {
+        // Before 0014, get_genre_weights() returned raw idf (up to ~3.2), which is enough for one
+        // rare genre to beat mood. The clamp keeps the ceiling regardless.
+        val ranked = matchmaker.rank(
+            candidates = listOf(
+                card("genre", mood = "sad", genres = listOf("shoegaze")),
+                card("mood", mood = "happy"),
+            ),
+            mood = MoodTag.Happy,
+            genreWeights = mapOf("shoegaze" to 3.2),
+            preferred = setOf("shoegaze"),
+            nowEpochMs = now,
+        )
+        assertEquals("mood", ranked.first().card.submissionId)
+    }
+
+    @Test
     fun `picking many genres does not simply outscore picking one`() {
         // Normalisation guards against "select everything to win". The same card, scored against
         // a one-genre preference and an eight-genre one, must not gain from the larger set.
         val subject = card("x", genres = listOf("jazz"))
-        val weights = mapOf("jazz" to 2.0)
+        val weights = mapOf("jazz" to 0.7)
 
         val narrow = matchmaker.rank(listOf(subject), MoodTag.Happy, genreWeights = weights, preferred = setOf("jazz"), nowEpochMs = now)
         val wide = matchmaker.rank(
@@ -174,7 +208,7 @@ class MatchmakerTest {
         val ranked = matchmaker.rank(
             candidates = listOf(card("a", genres = listOf("pop")), card("b", genres = emptyList())),
             mood = MoodTag.Happy,
-            genreWeights = mapOf("pop" to 3.0),
+            genreWeights = mapOf("pop" to 1.0),
             preferred = emptySet(),
             nowEpochMs = now,
         )
