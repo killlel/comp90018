@@ -1,5 +1,6 @@
 package com.example.vinyl.data.repository
 
+import com.example.vinyl.data.MoodTag
 import com.example.vinyl.data.model.RecordSource
 import com.example.vinyl.repository.RoomCard
 import com.example.vinyl.repository.SentCard
@@ -44,6 +45,27 @@ class CollectionMappingTest {
         assertEquals("https://example.com/a.jpg", record.coverUrl)
         assertEquals("Calm", record.mood)
         assertEquals("hello", record.message)
+    }
+
+    @Test
+    fun `kept record carries what its music card needs`() {
+        val card = kept("a").copy(lat = -37.81, lng = 144.96, submittedAt = "2026-10-04T09:00:00+00:00")
+        val record = card.toVinylRecord(entry = null)
+
+        assertEquals(MoodTag.Calm, record.moodTag)
+        assertEquals(-37.81, record.senderLat!!, 0.0)
+        assertEquals(144.96, record.senderLng!!, 0.0)
+        assertEquals("2026-10-04T09:00:00+00:00", record.sentAt)
+    }
+
+    @Test
+    fun `sent record has its send time but no sender location`() {
+        val record = sent("s", createdAt = "2026-10-03T00:00:00+00:00").toVinylRecord()
+
+        assertEquals(MoodTag.Happy, record.moodTag)
+        assertEquals("2026-10-03T00:00:00+00:00", record.sentAt)
+        assertNull(record.senderLat)
+        assertNull(record.senderLng)
     }
 
     @Test

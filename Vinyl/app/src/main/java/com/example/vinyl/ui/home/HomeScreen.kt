@@ -128,7 +128,7 @@ fun HomeScreen(
                 border = androidx.compose.foundation.BorderStroke(1.5.dp, VinylPalette.TealAccent),
             ) {
                 Text(
-                    text = if (state.arrivedCount > 0) "Open Today's Cards" else "Pull three records",
+                    text = if (state.arrivedCount > 0) "Open today's music cards" else "Find three music cards",
                     color = VinylPalette.Cream,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -212,7 +212,7 @@ private fun RecentlyCollected(items: List<RoomCard>, onSeeAll: () -> Unit) {
             if (items.isEmpty()) {
                 // Day one for every user, so it gets a real sentence rather than a bare ledge.
                 Text(
-                    text = "Nothing kept yet. Records you save will line up here.",
+                    text = "Nothing kept yet. Music cards you keep will line up here.",
                     color = VinylPalette.TextMuted,
                     fontSize = 13.sp,
                     modifier = Modifier.padding(bottom = 12.dp),
@@ -248,8 +248,8 @@ private fun ArrivedLine(count: Int, isLoading: Boolean) {
     val text = when {
         isLoading -> "Checking the crate…"
         count == 0 -> "Nothing has arrived yet today."
-        count == 1 -> "1 Music Card arrived today."
-        else -> "$count Music Cards arrived today."
+        count == 1 -> "1 music card arrived today."
+        else -> "$count music cards arrived today."
     }
     Text(
         text = text,

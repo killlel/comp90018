@@ -14,7 +14,7 @@ import com.example.vinyl.ui.theme.VinylPalette
 fun ReadyPage(viewModel: OnboardingViewModel, onEnter: () -> Unit, modifier: Modifier = Modifier) {
     val state by viewModel.uiState.collectAsState()
     OnboardingPageLayout(
-        title = "You are ready",
+        title = "You're all set",
         description = "Your next music discovery is waiting. Let's start sharing.",
         modifier = modifier,
         illustration = R.drawable.onboarding_done,

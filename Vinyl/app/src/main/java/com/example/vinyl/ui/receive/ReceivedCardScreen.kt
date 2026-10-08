@@ -6,13 +6,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,22 +44,28 @@ data class ReceivedCardUiState(
     val mood: MoodTag? = null,
     val message: String,
     val senderDistanceLabel: String? = null,
-    /** Why [senderDistanceLabel] is missing; shown under a "N/A" distance block. */
+    /** Why [senderDistanceLabel] is missing; shown in place of the distance block. */
     val senderDistanceNote: String? = null,
     val senderWeatherLabel: String? = null,
     val sentTimeLabel: String,
     val isKept: Boolean = false,
     /** Why the last keep didn't go through, shown under the buttons. */
     val keepError: String? = null,
-    val isLiked: Boolean = false,
+    /** The Collection's star. Null hides it (the receive flow, and cards you sent). */
+    val isFavourite: Boolean? = null,
+    /** A card the reader sent themselves, opened from their Collection. */
+    val isOwn: Boolean = false,
 )
 
 @Composable
 fun ReceivedCardScreen(
     state: ReceivedCardUiState,
     onClose: () -> Unit = {},
-    onKeep: () -> Unit = {},
-    onToggleLike: () -> Unit = {},
+    /** Null hides the keep button - a card you sent yourself can't be kept. */
+    onKeep: (() -> Unit)? = {},
+    /** Set from the Collection: the keep button becomes "Remove from collection" and calls this. */
+    onRemove: (() -> Unit)? = null,
+    onToggleFavourite: () -> Unit = {},
     /** The DISTANCE block calls this - only when a distance is actually known (see below), since
      *  there is nothing to show a bearing for otherwise. Intended target: CompassScreen. */
     onViewDirection: () -> Unit = {},
@@ -85,11 +90,21 @@ fun ReceivedCardScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "LETTER CARD · ANONYMOUS",
+                text = if (state.isOwn) "MUSIC CARD YOU SENT" else "MUSIC CARD · ANONYMOUS",
                 color = VinylPalette.TextMuted,
                 fontSize = 11.sp,
                 letterSpacing = 1.sp,
+                modifier = Modifier.weight(1f),
             )
+            state.isFavourite?.let { favourite ->
+                IconButton(onClick = onToggleFavourite) {
+                    Icon(
+                        if (favourite) Icons.Filled.Star else Icons.Outlined.StarBorder,
+                        contentDescription = if (favourite) "Remove from favourites" else "Add to favourites",
+                        tint = if (favourite) VinylPalette.TealAccent else VinylPalette.TextMuted,
+                    )
+                }
+            }
             IconButton(onClick = onClose) {
                 Icon(Icons.Filled.Close, contentDescription = "Close", tint = VinylPalette.TextPrimary)
             }
@@ -149,18 +164,22 @@ fun ReceivedCardScreen(
             }
 
             Text(
-                text = "— ${state.senderDistanceLabel?.let { "someone $it away" } ?: "someone, somewhere"}",
+                text = when {
+                    state.isOwn -> "— you"
+                    else -> "— ${state.senderDistanceLabel?.let { "someone $it away" } ?: "someone, somewhere"}"
+                },
                 color = letterTextMuted,
                 fontSize = 12.sp,
                 modifier = Modifier.align(Alignment.End),
             )
         }
 
-        val showDistance = state.senderDistanceLabel != null || state.senderDistanceNote != null
-        if (showDistance || state.senderWeatherLabel != null) {
+        // No location on one end: the DISTANCE block is left out and only the note below says why.
+        val distanceLabel = state.senderDistanceLabel
+        if (distanceLabel != null || state.senderDistanceNote != null || state.senderWeatherLabel != null) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "CAME WITH THE RECORD",
+                    text = "CAME WITH THE MUSIC CARD",
                     color = VinylPalette.TextMuted,
                     fontSize = 10.sp,
                     letterSpacing = 1.sp,
@@ -169,15 +188,12 @@ fun ReceivedCardScreen(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                 ) {
-                    if (showDistance) {
+                    if (distanceLabel != null) {
                         ReceivedInfoBlock(
                             label = "DISTANCE",
-                            value = state.senderDistanceLabel ?: "N/A",
-                            // Only clickable (and only hinted) when a distance is known - if it's
-                            // "N/A" there is no location on at least one end, so there is nothing
-                            // for a direction screen to point at either.
-                            hint = if (state.senderDistanceLabel != null) "Tap for direction" else null,
-                            onClick = if (state.senderDistanceLabel != null) onViewDirection else null,
+                            value = distanceLabel,
+                            hint = "Tap for direction",
+                            onClick = onViewDirection,
                             modifier = Modifier.weight(1f).fillMaxHeight(),
                         )
                     }
@@ -202,36 +218,28 @@ fun ReceivedCardScreen(
             border = BorderStroke(1.5.dp, VinylPalette.Cream),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = VinylPalette.Cream),
         ) {
-            Text("Play this record", fontWeight = FontWeight.SemiBold)
+            Text("Play this song", fontWeight = FontWeight.SemiBold)
         }
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        // From the Collection it's a remove; in the receive flow a keep toggle; for your own card, nothing.
+        val keepAction = onRemove ?: onKeep
+        if (keepAction != null) {
             OutlinedButton(
-                onClick = onKeep,
-                modifier = Modifier.weight(1f).height(52.dp),
+                onClick = keepAction,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
                 shape = RoundedCornerShape(50),
                 border = BorderStroke(1.5.dp, VinylPalette.Cream),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = VinylPalette.Cream),
             ) {
-                Text(if (state.isKept) "Kept" else "Keep this record", fontWeight = FontWeight.SemiBold)
-            }
-            IconButton(
-                onClick = onToggleLike,
-                modifier = Modifier
-                    .size(52.dp)
-                    .clip(CircleShape)
-                    .background(VinylPalette.PanelDark)
-                    .border(1.dp, VinylPalette.TextMuted.copy(alpha = 0.3f), CircleShape),
-            ) {
-                Icon(
-                    imageVector = if (state.isLiked) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                    contentDescription = "React",
-                    tint = if (state.isLiked) VinylPalette.TealAccent else VinylPalette.TextMuted,
+                Text(
+                    text = when {
+                        onRemove != null -> "Remove from collection"
+                        state.isKept -> "Kept"
+                        else -> "Keep this music card"
+                    },
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
         }
@@ -246,14 +254,7 @@ fun ReceivedCardScreen(
             )
         }
 
-        Text(
-            text = "Reactions stay anonymous. The sender only sees that someone listened.",
-            color = VinylPalette.TextMuted,
-            fontSize = 12.sp,
-            lineHeight = 17.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
-        )
+        Spacer(modifier = Modifier.height(12.dp))
     }
 }
 

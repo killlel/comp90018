@@ -116,7 +116,7 @@ fun CompassScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        Text("Music Card from", color = VinylPalette.TextMuted, fontSize = 17.sp)
+        Text("Music card from", color = VinylPalette.TextMuted, fontSize = 17.sp)
         Text(
             text = (state.distanceLabel ?: "an unknown distance") + " away",
             color = VinylPalette.TextPrimary,
@@ -233,9 +233,9 @@ fun CompassScreen(
                 compassState == CompassState.Unavailable ->
                     "This device has no compass sensor, so the arrow can't be shown."
                 isFacingSender ->
-                    "You're facing the direction this record travelled from."
+                    "You're facing the direction this music card travelled from."
                 else ->
-                    "Turn until the arrow lines up with the mark at the top. Only approximate city-level direction is shown."
+                    "Turn until the arrow lines up with the mark at the top. It points to their city, not their exact spot."
             },
             color = VinylPalette.TextMuted,
             fontSize = 13.sp,

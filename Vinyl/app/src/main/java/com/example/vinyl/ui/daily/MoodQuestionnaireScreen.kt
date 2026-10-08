@@ -88,7 +88,7 @@ fun MoodQuestionnaireScreen(
             Text(
                 // Used to add "Your answer stays on this phone." — true while this flow ran on sample
                 // data, false since it calls request_recommendations, which stores the mood.
-                text = "Three records get pulled from the crate to match.",
+                text = "We'll find three music cards to match your mood.",
                 color = VinylPalette.TextMuted,
                 fontSize = 13.sp,
                 lineHeight = 18.sp,
@@ -115,7 +115,7 @@ fun MoodQuestionnaireScreen(
         if (genreOptions.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "GENRE · optional — nudges the pull",
+                    text = "GENRE · optional",
                     color = VinylPalette.TextMuted,
                     fontSize = 11.sp,
                     letterSpacing = 1.sp,
@@ -148,7 +148,7 @@ fun MoodQuestionnaireScreen(
                 ),
             ) {
                 Text(
-                    text = if (selectedMood != null) "Pull three records" else "Pick a mood first",
+                    text = if (selectedMood != null) "Find three music cards" else "Pick a mood first",
                     fontWeight = FontWeight.SemiBold,
                 )
             }
