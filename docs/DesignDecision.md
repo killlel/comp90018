@@ -119,7 +119,7 @@ app with weaker matching. Nothing here may block reaching the main screen.
 ## 5. Settings
 
 | Setting                        | Backed by                              |
-| ------------------------------ | -------------------------------------- |
+| ------------------------------ | --------------------------------------- |
 | Change profile picture         | `profiles.avatar_slug`                 |
 | Change favourite genres        | `profiles.favorite_genres`             |
 | Daily reminder on / off        | Device only — `ReminderPrefs`          |
@@ -134,10 +134,12 @@ app with weaker matching. Nothing here may block reaching the main screen.
 
 1. **Mood question** — asked fresh every day. Required to match. Never stored
    as a preference; asking _is_ the ritual.
-2. **Genres** — optional override. If none are picked, matching falls back to
-   `favorite_genres`.
-3. **Context** — not asked. Intended to be inferred from the accelerometer
-   (walking → `commuting`, still → `studying`).
+2. **Genres** — optional chips, read from `public.genres`. They start on the
+   user's `favorite_genres`; whatever is selected replaces the favourites for
+   that pull. None selected falls back to the favourites.
+3. **Context** — not used. A context match needs both the sender's record and
+   the receiver's request to carry one, and neither side ever sets it. The
+   column and `p_context` stay, since both are optional and harmless.
 4. **Three records arrive.** Pick one, listen, react, optionally shelve it.
 
 Matching never returns your own songs, and never repeats a record you have
@@ -152,11 +154,11 @@ already been shown. How the three are chosen is explained in `matching.md`.
 | Genres are a **lookup table**, not an enum                                  | Adding a genre is one `INSERT`, not a migration plus an app release                                                                                                             |
 | Genres are stored as **slugs** (`k_pop`), displayed as **labels** (`K-pop`) | The app must read `public.genres`, never hardcode a list                                                                                                                        |
 | Location lives on the **profile**, copied onto a submission at send time    | No continuous tracking; old records don't move when you relocate                                                                                                                |
-| Location is snapped to a **city from a bundled list**, not reverse-geocoded | Android's Geocoder returns suburbs in Australia ("Collingwood"). The list is GeoNames `cities15000` minus suburbs (`PPLX`), in `assets/cities.tsv`. CC BY 4.0 — credit required |
+| Location is snapped to a **city from a bundled list**, not reverse-geocoded | Android's Geocoder returns suburbs in Australia ("Collingwood"). The list is GeoNames `cities15000` minus suburbs (`PPLX`), in `assets/cities.tsv` — five columns (`name`, `lat`, `lng`, `population`, `countryCode`); GeoNames doesn't supply the country code, so it's backfilled offline. Needed so the Compass screen can show "Chicago, US", not just "Chicago". CC BY 4.0 — credit required |
 | **No place-name column**                                                    | Coordinates are the truth; the label comes from the bundled city list, so it works offline                                                                                      |
 | Distances are shown **only as bands**                                       | `< 20`, `< 50`, `< 100`, `100+`, `200+`, `1000+`, `2000+`, `3000+ km`. An exact figure would claim precision the data doesn't have                                              |
 | A missing location shows **N/A with a reason**                              | If both sides are missing, the reader's own reason wins — it's the one they can fix                                                                                             |
-| **No** `default_mood` / `default_context`                                   | Mood is daily; context comes from the sensor                                                                                                                                    |
+| **No** `default_mood` / `default_context`                                   | Mood is daily; context is not used (§6)                                                                                                                                         |
 | Favourite genres are one **nullable `text[]`**                              | Three states in one column, nothing to keep in sync                                                                                                                             |
 | Avatars are a **lookup table** with a real foreign key                      | One value, so Postgres enforces it outright. Not an enum — an icon added or retired would otherwise mean a migration plus an app release                                        |
 | Usernames are **generated by the database**, unique, stored as plain text   | A fixed list would repeat names and cap the user count. Uniqueness needs the database: RLS hides other users' rows, so a client can't check what is taken                        |
@@ -165,6 +167,7 @@ already been shown. How the three are chosen is explained in `matching.md`.
 | **OS permissions are never stored.** Ask Android at runtime                 | The user can revoke a permission in system settings without the app knowing. A copy in the database is a mirror that silently goes stale. For GPS the state already *is* whether `lat` is null |
 | The daily reminder is a **local notification**, its switch stored **on the device** | Cards are pulled, so there is no server event to push; a per-phone reminder has no business in `profiles` |
 | Matching uses **small-scale rules, not a learned model**                    | IDF genre weighting, Hacker News freshness, a circulation penalty, one-per-artist, one random slot. A model needs interaction data we don't have. See `matching.md`              |
+| **Genre can never outweigh mood**                                           | Genre rarity is scaled to 0–1, so the genre term is at most 2.0 against mood's 3.0. Mood is the question the user answered; one rare genre chip must not override it            |
 | **Filtering is always server-side; ranking may move to the device**         | Eligibility is a privacy rule. Ranking is arithmetic over rows that are already anonymous                                                                                       |
 | The app **ignores unknown JSON keys**                                       | supabase-kt rejects them by default, so one new server column would crash every older build. Set in `SupabaseClient.kt`                                                         |
 
@@ -183,7 +186,7 @@ Read the vocabulary from the table — 23 active rows:
 
 ```kotlin
 supabase.postgrest.from("genres")
-    .select(Columns.list("slug", "label")) { order("sort_order", Order.ASCENDING) }
+  .select(Columns.list("slug", "label")) { order("sort_order", Order.ASCENDING) }
 ```
 
 ### Usernames
@@ -206,7 +209,7 @@ Read the set, show the image, store the **slug**:
 
 ```kotlin
 supabase.postgrest.from("avatars")
-    .select(Columns.list("slug", "url")) { order("sort_order", Order.ASCENDING) }
+  .select(Columns.list("slug", "url")) { order("sort_order", Order.ASCENDING) }
 ```
 
 Filter on `is_active` when building the picker. A retired entry stays valid on
@@ -286,8 +289,9 @@ It only goes `false` → `true`: a client that tries to set it back gets `42501`
 **Mood** (required, one) — `happy`, `sad`, `calm`, `energetic`, `nostalgic`,
 `anxious`, `romantic`, `angry`, `hopeful`, `lonely`
 
-**Context** (optional, one) — `commuting`, `studying`, `working_out`,
-`relaxing`, `sleeping`, `partying`, `heartbroken`, `celebrating`, `late_night`
+**Context** (optional, one; **not used**, see §6) — `commuting`, `studying`,
+`working_out`, `relaxing`, `sleeping`, `partying`, `heartbroken`,
+`celebrating`, `late_night`
 
 **Reaction** (one per record, changeable) — `heart`, `tears`, `fire`, `hug`,
 `goosebumps`, `smile`
@@ -342,14 +346,9 @@ Not decisions — just things that are true right now and will surprise you.
   **empty**, so the picker shows no icons. (Next is let through when there are
   none, so testers aren't stuck.) Even once rows exist, `AvatarIcon` is still a
   placeholder circle and does not load `avatar.url` — it needs an image loader.
-- **The daily genre chips do nothing.** The questionnaire still uses the
-  hardcoded `GenreOptions.all`: display labels (`K-pop`), missing Rock, Indie,
-  Metal and Hip-Hop. The chosen genres are never sent as `p_genres`, so
-  matching only ever uses `favorite_genres`. The fix is to read
-  `public.genres` as onboarding and the write screen already do, then pass the
-  slugs.
-- **Context is never sent.** Nothing calls `request_recommendations` with a
-  context, so that matching term is always zero until the accelerometer lands.
+- **Clearing every daily genre chip doesn't switch genre off.** An empty
+  selection falls back to `favorite_genres`, so there's no "no genre, just
+  today" option.
 - **Reactions are promised in the UI** ("Reactions stay anonymous") but no code
   calls `add_reaction` or `get_reactions`.
 - **The Home turntable can't be tapped.** It looks like a real object but does

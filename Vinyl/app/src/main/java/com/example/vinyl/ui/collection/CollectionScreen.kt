@@ -34,7 +34,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
@@ -44,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.vinyl.data.model.RecordSource
 import com.example.vinyl.data.model.VinylRecord
+import com.example.vinyl.ui.components.ShelfLedge
 import com.example.vinyl.ui.components.VinylSleeveThumbnail
 import com.example.vinyl.ui.theme.VinylColors
 import com.example.vinyl.ui.theme.VinylPalette
@@ -247,30 +247,7 @@ private fun CollectionSectionRow(
                 )
             }
         }
-        ShelfLedge()
-    }
-}
-
-/** The wooden ledge each row of records stands on: a lit top face over a shadowed front edge. */
-@Composable
-private fun ShelfLedge() {
-    Column(modifier = Modifier.padding(horizontal = ScreenPadding)) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(10.dp)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(VinylColors.ShelfTop, VinylColors.ShelfFade),
-                    ),
-                ),
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(3.dp)
-                .background(VinylColors.ShelfEdge),
-        )
+        ShelfLedge(modifier = Modifier.padding(horizontal = ScreenPadding))
     }
 }
 

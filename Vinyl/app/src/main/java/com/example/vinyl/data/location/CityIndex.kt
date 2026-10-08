@@ -4,8 +4,26 @@ import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** One row of the bundled city list: a city's centre, and how many people live there. */
-data class City(val name: String, val lat: Double, val lng: Double, val population: Int)
+/**
+ * One row of the bundled city list: a city's centre, how many people live there, and (if the
+ * data has it) which country it's in.
+ *
+ * [countryCode] is the ISO alpha-2 code ("US", "AU", "GB" - whatever the data file actually uses,
+ * shown exactly as-is rather than expanded to a full name, matching how a GeoNames export carries
+ * it) - null until assets/cities.tsv actually has a 5th column. Every row currently in that file
+ * is 4 columns (name/lat/lng/population), so until the file is regenerated with a country column,
+ * [countryCode] is null for everything and [displayLabel] falls back to the bare name.
+ */
+data class City(
+    val name: String,
+    val lat: Double,
+    val lng: Double,
+    val population: Int,
+    val countryCode: String? = null,
+) {
+    /** "Chicago, US" when [countryCode] is known, otherwise just "Chicago". */
+    val displayLabel: String get() = if (countryCode != null) "$name, $countryCode" else name
+}
 
 /**
  * Picks the city a position belongs to.
@@ -51,9 +69,16 @@ object CitySnapping {
 
     private fun qualifies(city: City, km: Double): Boolean =
         (city.population >= TOWN_MIN_POPULATION && km <= TOWN_REACH_KM) ||
-            (city.population >= METRO_MIN_POPULATION && km <= METRO_REACH_KM)
+                (city.population >= METRO_MIN_POPULATION && km <= METRO_REACH_KM)
 
-    /** Parses assets/cities.tsv: `name \t lat \t lng \t population`, `#` lines are comments. */
+    /**
+     * Parses assets/cities.tsv: `name \t lat \t lng \t population`, with an OPTIONAL 5th
+     * `\t countryCode` column - `#` lines are comments.
+     *
+     * Backwards compatible on purpose: a 4-column row (every row in the file today) parses exactly
+     * as before, just with [City.countryCode] left null. Add a 5th column to the file whenever
+     * that data exists and it starts showing up with no other code change needed.
+     */
     fun parse(lines: Sequence<String>): List<City> = lines
         .filter { it.isNotBlank() && !it.startsWith("#") }
         .mapNotNull { line ->
@@ -64,6 +89,7 @@ object CitySnapping {
                 lat = f[1].toDoubleOrNull() ?: return@mapNotNull null,
                 lng = f[2].toDoubleOrNull() ?: return@mapNotNull null,
                 population = f[3].toIntOrNull() ?: 0,
+                countryCode = f.getOrNull(4)?.trim()?.takeIf { it.isNotEmpty() },
             )
         }
         .toList()

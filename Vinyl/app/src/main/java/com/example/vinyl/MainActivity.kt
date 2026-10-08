@@ -74,6 +74,7 @@ import com.example.vinyl.ui.daily.ArrivedTodayScreen
 import com.example.vinyl.ui.daily.ArrivedTodayUiState
 import com.example.vinyl.ui.daily.MoodQuestionnaireScreen
 import com.example.vinyl.ui.daily.RoomViewModel
+import com.example.vinyl.ui.daily.DailyGenresViewModel
 import com.example.vinyl.ui.daily.UnopenedRecordScreen
 import com.example.vinyl.ui.daily.UnopenedRecordUiState
 import androidx.compose.foundation.Image
@@ -93,8 +94,13 @@ import com.example.vinyl.ui.location.LocationSettingsScreen
 import com.example.vinyl.ui.location.LocationUiState
 import com.example.vinyl.ui.settings.SettingsScreen
 import com.example.vinyl.ui.location.LocationViewModel
-import com.example.vinyl.ui.received.ReceivedCardScreen
-import com.example.vinyl.ui.received.ReceivedCardUiState
+import com.example.vinyl.ui.receive.ReceivedCardScreen
+import com.example.vinyl.ui.receive.ReceivedCardUiState
+import com.example.vinyl.ui.receive.CompassScreen
+import com.example.vinyl.ui.receive.CompassUiState
+import com.example.vinyl.ui.receive.CompassState
+import com.example.vinyl.ui.receive.rememberCompassHeading
+import com.example.vinyl.ui.receive.rememberSenderCityLabel
 import com.example.vinyl.ui.theme.VinylPalette
 import com.example.vinyl.ui.theme.VinylTheme
 import com.example.vinyl.ui.write.WriteCardScreen
@@ -244,6 +250,8 @@ private sealed class ReceiveFlowStep {
     object ArrivedToday : ReceiveFlowStep()
     data class Unopened(val option: ArrivedRecordOption) : ReceiveFlowStep()
     data class Opened(val option: ArrivedRecordOption) : ReceiveFlowStep()
+    /** The compass screen, reached by tapping "Tap for direction" on the opened letter. */
+    data class Direction(val option: ArrivedRecordOption) : ReceiveFlowStep()
 }
 
 /**
@@ -276,42 +284,6 @@ private fun OnboardingGate(content: @Composable () -> Unit) {
         true -> content()
     }
 }
-
-/**
- * Shows the location gate once per launch when the signed-in user has no stored location, then
- * hands over to the app.
- *
- * Temporary home. The app has no onboarding flow yet — `profiles.onboarding_completed` exists in
- * the schema but nothing on the client sets it — so the location ask lives here on its own. When
- * onboarding is built, fold LocationGateScreen into it as a step and delete this wrapper.
- */
-//@Composable
-//private fun LocationGate(content: @Composable () -> Unit) {
-//    val locationViewModel: LocationViewModel = viewModel()
-//    val locationState by locationViewModel.uiState.collectAsState()
-//
-//    // Decided once, from the first completed profile read, and never again this launch. Deciding
-//    // it live from hasLocation meant that removing a location in Settings threw the user onto
-//    // this gate mid-session — straight after they'd said they didn't want one. Device testing
-//    // caught that. Null = the first read hasn't finished yet.
-//    var showGate by rememberSaveable { mutableStateOf<Boolean?>(null) }
-//    LaunchedEffect(locationState.isLoading) {
-//        if (!locationState.isLoading && showGate == null) showGate = !locationState.hasLocation
-//    }
-//
-//    when (showGate) {
-//        // Blank rather than a spinner: the read is usually a few hundred ms, and a spinner that
-//        // fast reads as a flicker.
-//        null -> Box(Modifier.fillMaxSize().background(VinylPalette.Background))
-//
-//        true -> LocationGateScreen(
-//            onDone = { showGate = false },
-//            viewModel = locationViewModel,
-//        )
-//
-//        false -> content()
-//    }
-//}
 
 @Composable
 private fun VinylApp(
@@ -346,14 +318,16 @@ private fun VinylApp(
     // known or nothing is stored, so the city list is searched at most once per launch.
     LaunchedEffect(locationState.hasLocation) { locationViewModel.loadCityLabel() }
     var dailyMood by remember { mutableStateOf<MoodTag?>(null) }
-    var dailyGenres by remember { mutableStateOf(setOf<String>()) }
+    // The chips' options and selection, as slugs. Reset to the onboarding favourites on every open.
+    val dailyGenresViewModel: DailyGenresViewModel = viewModel()
+    val dailyGenresState by dailyGenresViewModel.uiState.collectAsState()
 
     // Tapping the daily reminder lands on the mood question, same as Home's "Open Today's Cards".
     LaunchedEffect(openReceiveRequested) {
         if (!openReceiveRequested) return@LaunchedEffect
         selectedTab = AppTab.Home
         dailyMood = null
-        dailyGenres = emptySet()
+        dailyGenresViewModel.reset()
         receiveFlowStep = ReceiveFlowStep.Questionnaire
         onReceiveOpened()
     }
@@ -407,7 +381,7 @@ private fun VinylApp(
                 AppTab.Home -> HomeScreen(
                     onOpenReceive = {
                         dailyMood = null
-                        dailyGenres = emptySet()
+                        dailyGenresViewModel.reset()
                         receiveFlowStep = ReceiveFlowStep.Questionnaire
                     },
                     onOpenSettings = { showSettings = true },
@@ -457,17 +431,16 @@ private fun VinylApp(
             BottomSheetContainer(onDismiss = { receiveFlowStep = null }) {
                 MoodQuestionnaireScreen(
                     selectedMood = dailyMood,
-                    selectedGenres = dailyGenres,
+                    genreOptions = dailyGenresState.options,
+                    selectedGenres = dailyGenresState.selected,
                     onMoodSelected = { dailyMood = it },
-                    onGenreToggled = { genre ->
-                        dailyGenres = if (genre in dailyGenres) dailyGenres - genre else dailyGenres + genre
-                    },
+                    onGenreToggled = dailyGenresViewModel::toggle,
                     // Load here rather than on entering Arrived Today: Unopened's back button
                     // returns there, and request_recommendations records new matches on every
                     // call — loading on entry would deal a fresh hand each time.
                     onSubmit = {
                         reminderPrefs.markPulledToday()
-                        roomViewModel.load(dailyMood)
+                        roomViewModel.load(dailyMood, dailyGenresState.selected)
                         receiveFlowStep = ReceiveFlowStep.ArrivedToday
                     },
                     onLetCrateDecide = {
@@ -496,8 +469,8 @@ private fun VinylApp(
                     ArrivedTodayScreen(
                         state = ArrivedTodayUiState(
                             moodLabel = moodLabel,
-                            // No genre label: the RPCs match on mood only, so showing the chosen
-                            // genre would imply a filter that never ran.
+                            // No genre label: genre only nudges the ranking, so naming it here
+                            // would promise a filter that the records may not match.
                             fallbackNote = when {
                                 roomState.error != null ->
                                     "Couldn't reach the crate. Check your connection and try again."
@@ -547,9 +520,36 @@ private fun VinylApp(
                         keepError = roomState.keepError,
                     ),
                     onClose = { receiveFlowStep = null },
+                    onViewDirection = {
+                        receiveFlowStep = ReceiveFlowStep.Direction(step.option)
+                    },
                     onKeep = { submissionId?.let(roomViewModel::toggleKeep) },
                 )
             }
+        }
+
+        // Not wrapped in BottomSheetContainer - CompassScreen is full-screen with its own back
+        // arrow, the same style as UnopenedRecordScreen, not a bottom sheet.
+        is ReceiveFlowStep.Direction -> {
+            val compassState by rememberCompassHeading(
+                enabled = true,
+                readerLat = locationState.lat,
+                readerLng = locationState.lng,
+                senderLat = step.option.senderLat,
+                senderLng = step.option.senderLng,
+            )
+            val senderCityLabel by rememberSenderCityLabel(
+                senderLat = step.option.senderLat,
+                senderLng = step.option.senderLng,
+            )
+            CompassScreen(
+                state = CompassUiState(
+                    distanceLabel = step.option.distanceLabel,
+                    cityLabel = senderCityLabel,
+                ),
+                compassState = compassState,
+                onBack = { receiveFlowStep = ReceiveFlowStep.Opened(step.option) },
+            )
         }
     }
 }
@@ -667,52 +667,52 @@ private fun AuthScreen(
                 Modifier.fillMaxWidth().padding(horizontal = OnboardingHorizontalPadding),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-            Button(
-                enabled = !isSigningIn,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),
-                shape = RoundedCornerShape(50),
-                contentPadding = PaddingValues(horizontal = 16.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFFF4F0EA),
-                    contentColor = Color(0xFF1F1F1F),
-                ),
-                onClick = {
-                    scope.launch {
-                        isSigningIn = true
-                        errorMessage = null
-                        showBrowserFallback = false
-                        onClearCallbackError()
-                        try {
-                            when (val outcome = googleAuthRepository.signIn()) {
-                                GoogleSignInOutcome.Success, GoogleSignInOutcome.Cancelled -> Unit
-                                // Devices without a Google account use the existing browser fallback.
-                                GoogleSignInOutcome.NoDeviceAccount -> startBrowserSignIn()
-                                is GoogleSignInOutcome.Failed -> {
-                                    errorMessage = outcome.message
-                                    showBrowserFallback = outcome.offerBrowserFallback
-                                }
-                            }
-                        } catch (e: Exception) {
-                            Log.e("MainActivity", "Google sign-in could not be started", e)
-                            errorMessage = "Google sign-in is unavailable right now. Please try again later."
+                Button(
+                    enabled = !isSigningIn,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),
+                    shape = RoundedCornerShape(50),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFF4F0EA),
+                        contentColor = Color(0xFF1F1F1F),
+                    ),
+                    onClick = {
+                        scope.launch {
+                            isSigningIn = true
+                            errorMessage = null
                             showBrowserFallback = false
-                        } finally {
-                            isSigningIn = false
+                            onClearCallbackError()
+                            try {
+                                when (val outcome = googleAuthRepository.signIn()) {
+                                    GoogleSignInOutcome.Success, GoogleSignInOutcome.Cancelled -> Unit
+                                    // Devices without a Google account use the existing browser fallback.
+                                    GoogleSignInOutcome.NoDeviceAccount -> startBrowserSignIn()
+                                    is GoogleSignInOutcome.Failed -> {
+                                        errorMessage = outcome.message
+                                        showBrowserFallback = outcome.offerBrowserFallback
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                Log.e("MainActivity", "Google sign-in could not be started", e)
+                                errorMessage = "Google sign-in is unavailable right now. Please try again later."
+                                showBrowserFallback = false
+                            } finally {
+                                isSigningIn = false
+                            }
                         }
                     }
-                },
-            ) {
-                Image(painterResource(R.drawable.google_g), contentDescription = null, modifier = Modifier.size(24.dp))
-                Spacer(Modifier.width(12.dp))
-                Text(if (isSigningIn) "Signing in…" else "Continue with Google", fontSize = 18.sp, lineHeight = 24.sp, fontFamily = PoppinsFontFamily, fontWeight = FontWeight.Medium)
-            }
-            Spacer(Modifier.height(12.dp))
-            if (!isSigningIn && (showBrowserFallback || callbackError != null)) {
-                TextButton(onClick = {
-                    onClearCallbackError()
-                    scope.launch { startBrowserSignIn() }
-                }) { Text("Sign in with a browser instead") }
-            }
+                ) {
+                    Image(painterResource(R.drawable.google_g), contentDescription = null, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text(if (isSigningIn) "Signing in…" else "Continue with Google", fontSize = 18.sp, lineHeight = 24.sp, fontFamily = PoppinsFontFamily, fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(12.dp))
+                if (!isSigningIn && (showBrowserFallback || callbackError != null)) {
+                    TextButton(onClick = {
+                        onClearCallbackError()
+                        scope.launch { startBrowserSignIn() }
+                    }) { Text("Sign in with a browser instead") }
+                }
                 (errorMessage ?: callbackError)?.let {
                     Text(it, color = VinylPalette.TealAccent, textAlign = TextAlign.Center,
                         modifier = Modifier.padding(top = 12.dp), fontSize = 14.sp)

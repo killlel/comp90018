@@ -1,6 +1,6 @@
 # Vinyl — the matching algorithm
 
-**Owner:** Ivan (`guangyu11`) · Sprint 2
+**Owner:** Ivan (`guangyu11`) · Sprint 3
 
 How Vinyl decides which three records you get today, and why it works this
 way. The exact contracts (argument names, return types) are in
@@ -10,9 +10,10 @@ way. The exact contracts (argument names, return types) are in
 | --- | --- |
 | `supabase/migrations/20261004000001_matchmaking_v2.sql` | `request_recommendations()`: the whole algorithm in SQL. **This is the one the app calls.** |
 | `supabase/migrations/20261004000002_split_matchmaker.sql` | `get_candidates()`, `get_genre_weights()`, `commit_recommendations()`: the split path |
+| `supabase/migrations/20261008000001_cap_genre_weight.sql` | Caps the genre term so it can never outweigh mood (current version of both functions above) |
 | `Vinyl/app/.../matchmaking/Matchmaker.kt` | The same scoring in Kotlin, for the split path |
-| `Vinyl/app/src/test/.../matchmaking/MatchmakerTest.kt` | 13 unit tests, one or two per term |
-| `supabase/tests/smoke_test.sql` checks 26–29 | The split path's security and IDF, tested against a real database |
+| `Vinyl/app/src/test/.../matchmaking/MatchmakerTest.kt` | 15 unit tests, one or two per term |
+| `supabase/tests/smoke_test.sql` checks 26–30 | The split path's security and genre weights, tested against a real database |
 
 ---
 
@@ -26,15 +27,16 @@ Matching runs in two stages:
    record gets a score, then two selection rules pick the final three.
 
 ```
-score = mood match
-      + context match
-      + genre overlap   (rare genres count more)
+score = mood match      (+3)
+      + genre overlap   (up to +2; rare genres count more)
       + freshness       (newer counts more, smoothly)
       − circulation     (already shown to many people counts less)
 
 then: one record per artist
 then: top 2 by score + 1 picked at random
 ```
+
+A mood match always outweighs any genre match.
 
 ---
 
@@ -60,15 +62,14 @@ data, so it can run anywhere.
 
 ## 3. Stage 2: the score
 
-Five terms are added together. The weights are fixed numbers, listed here in
+Four terms are added together. The weights are fixed numbers, listed here in
 order of importance:
 
 | Term | Weight | In plain words |
 | --- | --- | --- |
 | Mood | **3.0** | Same mood as the one you picked today? |
-| Genre | **2.0** × rarity | Shares a genre you like? Rare genres count more |
+| Genre | up to **2.0** | Shares a genre you picked? Rare genres count more |
 | Freshness | **1.5**, decaying | How recently it was sent |
-| Context | **1.0** | Same listening moment (commuting, studying…)? |
 | Circulation | **−0.8**, growing | How many people have already been shown it |
 
 **Nobody tuned these weights against data, because there isn't enough data to
@@ -80,19 +81,22 @@ feels wrong, change the weights first.
 
 If the record's mood equals today's answer, add 3. Otherwise add nothing.
 
-Mood is the question the user actually answered, so it gets the biggest fixed
-weight. (A very rare genre can still beat it; see §7.)
+Mood is the question the user actually answered, so it gets the biggest
+weight, and the genre term is capped below it (see below).
 
 On the device, a null mood ("let the crate decide") skips this term, and the
-other four decide the order. The SQL path always needs a mood.
+other three decide the order. The SQL path always needs a mood.
 
-### Context (1.0)
+### Context: not used
 
-Same idea, smaller weight. **Right now it always adds zero**, because nothing
-sends a context yet. It is meant to come from the accelerometer (walking →
-`commuting`), and that has not been built.
+The code still has a context term (+1.0 for the same listening moment, like
+`commuting`), but **it always adds zero, and we've dropped it from the plan.**
+A match needs both the sender's record and the receiver's request to carry a
+context, and neither ever does: the write screen doesn't ask, and nothing
+infers it. The column and the `p_context` argument stay, because both are
+optional and removing them would mean recreating three functions for no gain.
 
-### Genre overlap (2.0 × rarity), using IDF
+### Genre overlap (up to 2.0), using IDF
 
 **The idea:** matching on a genre that half the pool has tells you very
 little. Matching on a genre only three records have tells you a lot.
@@ -102,23 +106,33 @@ is called **inverse document frequency (IDF)**, and it comes from BM25, the
 ranking formula behind most text search:
 
 ```
-rarity(genre) = ln(1 + N / df)
+rarity(genre) = ln(1 + N / df) / ln(1 + N)
 
 N  = active records in the whole pool
 df = how many of them carry this genre
 ```
 
+The top half is plain IDF. The bottom half is the IDF of a genre only **one**
+record carries, which is the largest IDF possible. Dividing by it puts every
+rarity between 0 and 1.
+
 With today's 24 records:
 
 | Records with this genre | Rarity | × weight 2.0 |
 | --- | --- | --- |
-| 1 | 3.22 | 6.44 |
-| 3 | 2.20 | 4.39 |
-| 6 | 1.61 | 3.22 |
-| 12 | 1.10 | 2.20 |
-| 24 (every record) | 0.69 | 1.39 |
+| 1 | 1.00 | 2.00 |
+| 3 | 0.68 | 1.37 |
+| 6 | 0.50 | 1.00 |
+| 12 | 0.34 | 0.68 |
+| 24 (every record) | 0.22 | 0.43 |
 
 The `1 +` keeps the value above zero even when every record has the genre.
+
+**Why divide by the maximum:** without it, a single rare genre could score
+up to 6.4, more than double a mood match. Once the daily chips were connected,
+people picking one genre would have seen genre quietly outrank the mood they
+chose. With the cap, the genre term can never exceed 2.0, so mood (3.0) always
+wins, and rarer genres still count more than common ones.
 
 **The total is divided by how many genres you picked.** If it weren't, someone
 who ticks eight genres would beat someone who ticks one just by ticking more.
@@ -127,8 +141,11 @@ who ticks eight genres would beat someone who ticks one just by ticking more.
 genre term = 2.0 × (sum of rarity of the matching genres) / (genres you picked)
 ```
 
-**Which genres are "yours":** today's choice if you made one, otherwise the
-favourite genres from onboarding. If both are empty (`null`, or "I listen to
+**Which genres are "yours":** the chips selected on the daily questionnaire.
+They start on your onboarding favourites, so leaving them alone means your
+favourites are used. Whatever is selected **replaces** the favourites for that
+pull rather than adding to them. If nothing is selected, the server falls back
+to the favourites; if those are empty too (`null`, or "I listen to
 everything"), the term is skipped and genre has no effect.
 
 **Rarity is measured over the whole pool**, not over the records you can still
@@ -236,17 +253,18 @@ mood **happy** and genres **{pop, jazz}**.
 | Age | 1 day | just sent | 10 days |
 | Already shown to | 0 | 2 | 5 |
 | **Mood** | +3.00 | 0 | +3.00 |
-| **Genre** 2.0 × rarity ÷ 2 picked | +1.10 | +2.20 | +2.20 |
+| **Genre** 2.0 × rarity ÷ 2 picked | +0.34 | +0.68 | +0.68 |
 | **Freshness** | +0.40 | +0.65 | +0.08 |
 | **Circulation** | 0 | −0.88 | −1.43 |
-| **Score** | **4.50** | **1.97** | **3.84** |
+| **Score** | **3.74** | **0.46** | **2.33** |
 
-Order: **A, C, B.**
+Order: **A, C, B.** (B's parts add to 0.45; the 0.46 is rounding.)
 
 - A wins on mood alone, even though its genre is the common one.
 - C has the rare genre *and* the mood, but has already been shown widely.
   Circulation costs it the lead.
-- B is the newest record and has the rare genre, but the wrong mood.
+- B is the newest record and has the rare genre, but the wrong mood. However
+  rare its genre, it can't make up the 3 points of a mood match.
 
 With three slots: A and C take the top two, and the third is a random pick
 from everything else, which may or may not be B.
@@ -273,7 +291,7 @@ shown could never be offered again.
 ### Split (built, nothing calls it yet)
 
 ```
-get_genre_weights()               rarity of every genre; cacheable for the session
+get_genre_weights()               rarity (0–1) of every genre; cacheable for the session
 get_candidates(p_limit => 20)     read-only: filtered, anonymous, saves nothing
    … Matchmaker.kt ranks and picks on the device …
 commit_recommendations(ids, mood) saves only the three actually shown
@@ -301,7 +319,7 @@ that was deactivated between fetch and commit is a timing issue, not an attack.
 
 | Server, always (security) | Either side (arithmetic) | Server provides the numbers |
 | --- | --- | --- |
-| Not your own record | Mood, context | Genre rarity (IDF) |
+| Not your own record | Mood | Genre rarity (IDF) |
 | Never one you've seen | Genre overlap | Times shown (circulation) |
 | Active only | Freshness | |
 | No `sender_id` in the output | One per artist, random slot | |
@@ -316,14 +334,10 @@ device can't have that view, so the server sends the result as plain numbers.
 Things that are true about the current numbers. They aren't bugs, but anyone
 tuning the weights should know them.
 
-- **A very rare genre can beat mood.** If you pick a single genre and a record
-  matches it, the genre term beats a mood match (3.0) whenever 6 or fewer of
-  the 24 records carry that genre. Picking more genres dilutes this. Raise
-  `w_mood` if mood should always win.
-- **The daily genre chips have no effect yet.** The questionnaire still uses a
-  hard-coded list of display labels (`K-pop`), and the app never sends
-  `p_genres`. So the genre term currently uses only the onboarding favourites.
-- **Context always adds zero** until the accelerometer is wired up.
+- **Clearing every chip doesn't mean "no genre".** An empty selection makes
+  the server fall back to the onboarding favourites, so a user can't switch
+  genre off for one pull. Today the only way is answering "I listen to
+  everything" at onboarding.
 - **The two paths compare artists slightly differently.** Kotlin ignores case
   and surrounding spaces ("Adele" = " adele"). SQL compares exactly. This only
   matters for records whose artist names differ only in case or spacing.
@@ -357,7 +371,7 @@ where this app actually is. Each one is a standard, citable idea:
 
 ## 9. How it is tested
 
-**On the device, `MatchmakerTest.kt` (13 tests).** `Matchmaker` is plain
+**On the device, `MatchmakerTest.kt` (15 tests).** `Matchmaker` is plain
 Kotlin, with no Android, no network and no clock of its own. The current time
 and the random generator are passed in, so every test is repeatable. Each term
 is tested on its own:
@@ -366,6 +380,8 @@ is tested on its own:
 | --- | --- |
 | mood match outranks a mood mismatch | Mood term |
 | a rare genre beats a common one | IDF |
+| a genre match never outweighs a mood match | The genre cap |
+| raw idf from an older server is clamped rather than trusted | The cap holds even before the migration |
 | picking many genres does not simply outscore picking one | Dividing by genres picked |
 | freshness decays smoothly rather than falling off a cliff | Hacker News curve |
 | a heavily circulated record is pushed down | Circulation |
@@ -386,6 +402,7 @@ is tested on its own:
 | 27 | `commit_recommendations()` refuses your own submission |
 | 28 | `commit_recommendations()` refuses a record you've already seen |
 | 29 | Rarer genres get a higher weight |
+| 30 | Every genre weight is between 0 and 1, so genre can't outweigh mood |
 
 Checks 26–28 are security checks. **If a change breaks one, the change is
 wrong.**
@@ -396,7 +413,7 @@ wrong.**
 
 | You want to… | Change |
 | --- | --- |
-| Re-weight a term | The `w_*` constants in `request_recommendations` (new migration), and `Matchmaker.Weights` to match |
+| Re-weight a term | The `w_*` constants in `request_recommendations` (new migration), and `Matchmaker.Weights` to match. Keep `w_genre` below `w_mood` or genre can outrank mood again |
 | Make old records fade faster | Raise `gravity` |
 | Make popular records fade faster | Raise `w_crowded` / `circulation` |
 | Add a scoring term | Both paths, plus a unit test that isolates it |

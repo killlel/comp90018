@@ -44,6 +44,9 @@ data class ArrivedRecordOption(
     val submissionId: String? = null,
     /** How long ago the sender sent it, for example "Just now", "3 hr. ago" or "Yesterday". */
     val sentTimeLabel: String = "Recently",
+    /** Where the letter was sent from — needed to compute which way to point the compass arrow. */
+    val senderLat: Double? = null,
+    val senderLng: Double? = null,
 )
 
 data class ArrivedTodayUiState(

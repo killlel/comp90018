@@ -16,9 +16,10 @@ directly.
 | `supabase/migrations/20261004000001_matchmaking_v2.sql` | The real matchmaker: rewrites the scoring in `request_recommendations`, adds `p_genres` |
 | `supabase/migrations/20261004000002_split_matchmaker.sql` | The split path: `candidate_card`, `get_candidates`, `get_genre_weights`, `commit_recommendations` |
 | `supabase/migrations/20261005000001_shelf_favourites.sql` | `shelf_items.is_favourite`, for the Collection's Favourites filter |
+| `supabase/migrations/20261008000001_cap_genre_weight.sql` | Scales genre rarity to 0–1 in `request_recommendations` and `get_genre_weights`, so genre can never outweigh mood |
 | `supabase/seed.sql` | 24 demo submissions across every mood |
 | `supabase/seed_demo_users.sql` | Optional fake "stranger" accounts |
-| `supabase/tests/smoke_test.sql` | CRUD + privacy checks, self-asserting (29 checks) |
+| `supabase/tests/smoke_test.sql` | CRUD + privacy checks, self-asserting (30 checks) |
 | `docs/matching.md` | How the matchmaker scores and picks, and why |
 
 ---
@@ -162,8 +163,8 @@ and no `NOT NULL`, and a string key anyone can misspell. If something new needs
 storing, add a column — migrations are cheap.
 
 There are no `default_mood` / `default_context` columns. Mood is asked fresh
-each day — that question *is* the ritual — and context is intended to come from
-the accelerometer rather than a remembered preference.
+each day — that question *is* the ritual — and context is not used at all (see
+`matching.md` §3).
 
 `favorite_genres` is the one lasting taste preference, set at onboarding. It
 holds slugs from `genres` and carries three states in a single nullable column:
@@ -309,7 +310,7 @@ passed **by name**, so anything with a default can be omitted.
 | `get_room(p_limit?)` | `room_card[]` | Replays the current room. Call this on app start instead of re-matching. |
 | `get_shelf(p_limit?)` | `room_card[]` | Saved records, newest save first. |
 | `get_candidates(p_limit?)` | `candidate_card[]` | Split path. Eligible records in random order, for ranking on the device. **Read-only — marks nothing as seen.** Default 20, capped at 50. |
-| `get_genre_weights()` | `{slug, weight}[]` | Split path. How rare each genre is across the whole pool (IDF). Changes slowly; fetch once per session. |
+| `get_genre_weights()` | `{slug, weight}[]` | Split path. How rare each genre is across the whole pool (IDF), scaled to 0–1: 1.0 is a genre only one record carries. Changes slowly; fetch once per session. |
 | `commit_recommendations(p_submission_ids, p_mood, p_context?, p_scores?)` | `room_card[]` | Split path. Records the cards actually shown and returns them. Re-checks every id; ineligible ones are dropped silently. At most 10 ids (`22023` otherwise). |
 | `submit_song(...)` | `uuid` | Upserts the track and creates the submission in one call. Required: `p_provider`, `p_provider_track_id`, `p_title`, `p_artist`, `p_message`, `p_mood`. Pass `p_attach_location = true` to snapshot the sender's saved location onto the record. **Does not accept coordinates** — see below. |
 | `update_my_location(p_lat?, p_lng?)` | `void` | Sets the caller's coarse home location (onboarding / settings). Call with no arguments to clear it. |
@@ -505,7 +506,7 @@ Prefer `db push`. If you did run one by hand, see `migration repair` in §5.
 | --- | --- |
 | Tables exist with correct relationships and constraints | `20260904000001_schema.sql` — 6 tables, FKs with explicit delete behaviour, 4 unique constraints |
 | Required fields non-nullable, basic validation enforced | `not null` throughout, `check` constraints on message length, coordinate range and lat/lng pairing, enums for mood/context/reaction |
-| Sample CRUD queries succeed against each table | `tests/smoke_test.sql`, self-asserting (12 checks in Sprint 1, 29 now) |
+| Sample CRUD queries succeed against each table | `tests/smoke_test.sql`, self-asserting (12 checks in Sprint 1, 30 now) |
 | Schema documented for the team | This file — ER diagram, table notes, and the RPC contract in §4 |
 
 ## 8. Notes for the team
@@ -526,13 +527,10 @@ Prefer `db push`. If you did run one by hand, see `migration repair` in §5.
   (`ReminderPrefs`), see DesignDecision.md §7.
 - **Everyone, before demoing onboarding:** the `avatars` table is empty, so the
   picture step has nothing to show until rows are inserted.
-- **Natalie — still outstanding:** the write-a-card screen now reads
-  `public.genres` and sends slugs, so submissions with a genre work. The
-  **daily questionnaire** still uses the hardcoded `GenreOptions.all` (labels
-  like `"K-pop"`, missing Rock, Indie, Metal and Hip-Hop), and its choices are
-  never sent. Read `public.genres` there too, then pass the slugs as
-  `p_genres` to `request_recommendations`. That makes today's genre answer
-  actually affect matching; for now only onboarding favourites do.
+- **Natalie — heads-up, the questionnaire changed:** the daily genre chips now
+  read `public.genres` through `DailyGenresViewModel`, start on the user's
+  favourites, and are sent as `p_genres`. `GenreOptions.all` is gone. Every
+  screen now sends slugs.
 - **Natalie:** submission is one call, `submit_song()`. Validate a non-empty
   message and a selected song client-side for a good error message; the database
   rejects both anyway, so nothing bad gets stored if a check is missed.

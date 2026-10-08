@@ -17,10 +17,5 @@ object MoodOptions {
     )
 }
 
-// Fixed vocabulary for genre
-object GenreOptions {
-    val all = listOf(
-        "Ambient", "Avant-garde", "Classical", "EDM", "Electronic", "Folk",
-        "Jazz", "K-pop", "Musical", "Pop", "R&B", "Rap", "Shoegaze", "Soul"
-    )
-}
+// No genre list here on purpose: genres come from the `genres` table, as slugs. A hardcoded list
+// of labels ("K-pop") is what the database rejects with 23514.
