@@ -146,16 +146,17 @@ fun Turntable(
                 )
                 .graphicsLayer { scaleY = PLATTER_SURFACE_ASPECT * PLATTER_SQUASH },
         ) {
+            // Held still on purpose: the photo's sheen is lit by the room, so it must not turn with
+            // the disc. Grooves are circles and look the same at any angle - the label below is
+            // what shows the record spinning.
             Image(
                 painter = painterResource(R.drawable.turntable_record),
                 contentDescription = null,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer { rotationZ = spinAngle },
+                modifier = Modifier.fillMaxSize(),
             )
 
             // The export has a plain white label. Today's artwork goes there when there is any,
-            // the accent colour when there isn't — both turn with the disc.
+            // the accent colour when there isn't. It's the only part that turns.
             val labelSize = recordSize * LABEL_DIAMETER_FRACTION
             Box(
                 modifier = Modifier

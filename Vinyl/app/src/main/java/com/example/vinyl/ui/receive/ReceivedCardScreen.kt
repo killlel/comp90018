@@ -1,6 +1,8 @@
 package com.example.vinyl.ui.receive
 
+import android.net.Uri
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,6 +25,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -30,6 +34,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.vinyl.R
 import com.example.vinyl.data.MoodOptions
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.ui.theme.VinylPalette
@@ -221,6 +226,8 @@ fun ReceivedCardScreen(
             Text("Play this song", fontWeight = FontWeight.SemiBold)
         }
 
+        StreamingBadges(trackName = state.trackName, artistName = state.artistName)
+
         Spacer(modifier = Modifier.height(12.dp))
 
         // From the Collection it's a remove; in the receive flow a keep toggle; for your own card, nothing.
@@ -257,6 +264,64 @@ fun ReceivedCardScreen(
         Spacer(modifier = Modifier.height(12.dp))
     }
 }
+
+/**
+ * "Listen on Apple Music" and Spotify, side by side. Each opens a search for this song - the
+ * card only knows the title and artist, not either service's own track id. Android hands the
+ * link to the app when it's installed, the browser when it isn't.
+ */
+@Composable
+private fun StreamingBadges(trackName: String, artistName: String) {
+    val uriHandler = LocalUriHandler.current
+    val query = Uri.encode("$trackName $artistName")
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+    ) {
+        // Apple's own badge, used as supplied: black with a grey hairline and its own padding.
+        Image(
+            painter = painterResource(R.drawable.badge_apple_music),
+            contentDescription = "Listen on Apple Music",
+            modifier = Modifier
+                .height(BadgeHeight)
+                .aspectRatio(APPLE_BADGE_ASPECT)
+                .clip(RoundedCornerShape(BadgeCorner))
+                .clickable { uriHandler.openUri("https://music.apple.com/search?term=$query") },
+        )
+        // Spotify ships only a logo, so it gets a badge built to match Apple's: same size,
+        // black fill, grey hairline, rounded corners, the logo centred with matching padding.
+        Box(
+            modifier = Modifier
+                .height(BadgeHeight)
+                .aspectRatio(APPLE_BADGE_ASPECT)
+                .clip(RoundedCornerShape(BadgeCorner))
+                .background(Color.Black)
+                .border(1.dp, BadgeOutline, RoundedCornerShape(BadgeCorner))
+                .clickable { uriHandler.openUri("https://open.spotify.com/search/$query") },
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                painter = painterResource(R.drawable.badge_spotify_logo),
+                contentDescription = "Listen on Spotify",
+                modifier = Modifier.fillMaxHeight(SPOTIFY_LOGO_HEIGHT_FRACTION),
+                contentScale = ContentScale.Fit,
+            )
+        }
+    }
+}
+
+private val BadgeHeight = 44.dp
+
+/** Apple's badge export is 390x114; its corners are about a seventh of its height. */
+private const val APPLE_BADGE_ASPECT = 390f / 114f
+private val BadgeCorner = 6.dp
+
+/** The grey of Apple's hairline, sampled from the export. */
+private val BadgeOutline = Color(0xFFABABAB)
+
+/** Matches the height of Apple's note icon inside its badge, so the two logos read as a pair. */
+private const val SPOTIFY_LOGO_HEIGHT_FRACTION = 0.6f
 
 @Composable
 private fun LetterInfoBlock(
