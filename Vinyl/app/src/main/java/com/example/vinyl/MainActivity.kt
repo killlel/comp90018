@@ -108,6 +108,16 @@ import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.handleDeeplinks
 import io.github.jan.supabase.auth.status.SessionStatus
 import kotlinx.coroutines.launch
+import androidx.compose.animation.core.animate
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import com.example.vinyl.notification.DailyReminder
 import com.example.vinyl.notification.ReminderPrefs
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -428,12 +438,17 @@ private fun VinylApp(
         null -> Unit
 
         ReceiveFlowStep.Questionnaire -> {
-            BottomSheetContainer(onDismiss = { receiveFlowStep = null }) {
+            BottomSheetContainer(
+                onDismiss = { receiveFlowStep = null },
+                heightFraction = 0.88f,
+                dismissOnSwipe = true,
+            ) {
                 MoodQuestionnaireScreen(
                     selectedMood = dailyMood,
                     genreOptions = dailyGenresState.options,
                     selectedGenres = dailyGenresState.selected,
-                    onMoodSelected = { dailyMood = it },
+                    // Tapping the selected mood again clears it.
+                    onMoodSelected = { dailyMood = if (dailyMood == it) null else it },
                     onGenreToggled = dailyGenresViewModel::toggle,
                     // Load here rather than on entering Arrived Today: Unopened's back button
                     // returns there, and request_recommendations records new matches on every
@@ -558,14 +573,19 @@ private fun VinylApp(
  * A manually-built bottom sheet — not Material3's ModalBottomSheet, to avoid depending on an
  * experimental API whose surface has shifted across Compose versions. Just a dimmed scrim behind
  * a rounded-top panel pinned to the bottom, sized to a fraction of the screen. Tapping the scrim
- * dismisses; tapping the panel itself does not.
+ * dismisses; tapping the panel itself does not. With [dismissOnSwipe], dragging the top strip
+ * (where the content draws its handle) down past a quarter of the sheet, or flinging it, dismisses.
  */
 @Composable
 private fun BottomSheetContainer(
     onDismiss: () -> Unit,
     heightFraction: Float = 0.88f,
+    dismissOnSwipe: Boolean = false,
     content: @Composable () -> Unit,
 ) {
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+    var sheetHeight by remember { mutableIntStateOf(0) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -581,6 +601,8 @@ private fun BottomSheetContainer(
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(heightFraction)
+                .onSizeChanged { sheetHeight = it.height }
+                .offset { IntOffset(0, dragOffset.roundToInt()) }
                 .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                 .clickable(
                     indication = null,
@@ -589,6 +611,27 @@ private fun BottomSheetContainer(
                 ),
         ) {
             content()
+            if (dismissOnSwipe) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .height(32.dp)
+                        .draggable(
+                            orientation = Orientation.Vertical,
+                            state = rememberDraggableState { delta ->
+                                dragOffset = (dragOffset + delta).coerceAtLeast(0f)
+                            },
+                            onDragStopped = { velocity ->
+                                if (dragOffset > sheetHeight * 0.25f || velocity > 1500f) {
+                                    onDismiss()
+                                } else {
+                                    animate(dragOffset, 0f) { value, _ -> dragOffset = value }
+                                }
+                            },
+                        ),
+                )
+            }
         }
     }
 }

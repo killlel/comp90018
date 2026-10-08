@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -91,9 +92,12 @@ fun AvatarPreview(
         contentAlignment = Alignment.Center,
     ) {
         if (imageUrl != null && imageUrl != "placeholder") {
-            AsyncImage(model = imageUrl, contentDescription = null,
-                error = icon?.let { painterResource(it) }, fallback = icon?.let { painterResource(it) },
-                modifier = Modifier.size(size * 0.85f), contentScale = ContentScale.Fit)
+            // Coil only re-applies the error painter when the model changes; options can share a URL.
+            key(iconIndex) {
+                AsyncImage(model = imageUrl, contentDescription = null,
+                    error = icon?.let { painterResource(it) }, fallback = icon?.let { painterResource(it) },
+                    modifier = Modifier.size(size * 0.85f), contentScale = ContentScale.Fit)
+            }
         } else if (icon != null) {
             Image(
                 painter = painterResource(icon),
