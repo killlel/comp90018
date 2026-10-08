@@ -2,6 +2,7 @@ package com.example.vinyl.data
 
 import android.content.Context
 import android.util.Log
+import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
@@ -137,8 +138,30 @@ class GoogleAuthRepository(private val context: Context) {
         Log.e(TAG, "Couldn't start the browser sign-in flow", it)
     }
 
+    /**
+     * Always ends the local session, even offline. supabase-kt only clears the stored session
+     * itself when the logout request reaches the server, so a network failure would otherwise
+     * leave the user signed in with no feedback.
+     */
     suspend fun signOut() {
-        Supabase.client.auth.signOut()
+        try {
+            Supabase.client.auth.signOut()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Server sign-out failed; clearing the local session anyway", e)
+            Supabase.client.auth.clearSession()
+        }
+
+        // Forget the Google account picked at sign-in, so the next sign-in shows the account
+        // chooser instead of silently reusing the previous user.
+        try {
+            CredentialManager.create(context).clearCredentialState(ClearCredentialStateRequest())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Couldn't clear Credential Manager state", e)
+        }
     }
 
     private companion object {

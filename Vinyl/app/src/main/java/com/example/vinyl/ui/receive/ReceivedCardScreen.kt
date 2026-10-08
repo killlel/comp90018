@@ -50,6 +50,8 @@ data class ReceivedCardUiState(
     val senderWeatherLabel: String? = null,
     val sentTimeLabel: String,
     val isKept: Boolean = false,
+    /** Why the last keep didn't go through, shown under the buttons. */
+    val keepError: String? = null,
     val isLiked: Boolean = false,
 )
 
@@ -232,6 +234,16 @@ fun ReceivedCardScreen(
                     tint = if (state.isLiked) VinylPalette.TealAccent else VinylPalette.TextMuted,
                 )
             }
+        }
+
+        state.keepError?.let {
+            Text(
+                text = it,
+                color = VinylPalette.Cream,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            )
         }
 
         Text(

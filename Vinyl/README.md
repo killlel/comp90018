@@ -17,8 +17,9 @@ app/src/main/java/com/example/vinyl/
 │   ├── model/
 │   │   └── VinylRecord.kt        # Vinyl record entity model
 │   └── repository/
-│       ├── VinylRepository.kt    # Vinyl repository interface
-│       └── FakeVinylRepository.kt# Mock implementation for local testing
+│       ├── VinylRepository.kt    # Collection repository interface
+│       ├── SupabaseVinylRepository.kt # Collection backed by Supabase (shelf + sent)
+│       └── CollectionMapping.kt  # Server rows -> VinylRecord
 │
 ├── repository/                    # Submission Repositories
 │   ├── SubmissionRepository.kt    # Card submission interface/implementation

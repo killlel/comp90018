@@ -35,6 +35,8 @@ declare
   v_leaked   integer;
   v_lat      double precision;
   v_lng      double precision;
+  v_name     text;       -- generated username before a reroll
+  v_name2    text;       -- and after
 begin
   -- ---------------------------------------------------------------------
   -- Setup (as the migration role — RLS is bypassed here on purpose)
@@ -369,50 +371,128 @@ begin
   raise notice 'CHECK 20 ok — favorite_genres stays private to its owner';
 
   -- ---------------------------------------------------------------------
-  -- CHECK 21 — the username pool is readable and non-empty
+  -- CHECK 21 — every profile is given a generated username at signup
   -- ---------------------------------------------------------------------
-  select count(*)::integer into v_cnt from public.usernames where is_active;
-  if v_cnt < 1 then
-    raise exception 'CHECK 21 FAILED: public.usernames is empty or unreadable';
+  select username into v_name from public.profiles where id = v_b;
+
+  if coalesce(btrim(v_name), '') = '' then
+    raise exception 'CHECK 21 FAILED: profile has no generated username';
   end if;
-  raise notice 'CHECK 21 ok — % aliases available to pick from', v_cnt;
+  raise notice 'CHECK 21 ok — username generated at signup: %', v_name;
 
   -- ---------------------------------------------------------------------
-  -- CHECK 22 — picking a valid alias works
-  -- ---------------------------------------------------------------------
-  update public.profiles
-     set username_slug = (select slug from public.usernames order by sort_order limit 1)
-   where id = v_b;
-
-  select count(*)::integer into v_cnt
-  from public.profiles where id = v_b and username_slug is not null;
-
-  if v_cnt <> 1 then
-    raise exception 'CHECK 22 FAILED: a valid username_slug was not stored';
-  end if;
-  raise notice 'CHECK 22 ok — alias stored on the profile';
-
-  -- ---------------------------------------------------------------------
-  -- CHECK 23 — an unknown alias is rejected by the foreign key
+  -- CHECK 22 — a client cannot rename itself
+  --
+  -- The lock trigger tests current_user, so a direct update from the app role
+  -- is refused while reroll_username() (SECURITY DEFINER) is let through.
   -- ---------------------------------------------------------------------
   begin
-    update public.profiles set username_slug = 'not_a_real_alias' where id = v_b;
-    raise exception 'CHECK 23 FAILED: an unknown username_slug was accepted';
+    update public.profiles set username = 'Chosen By Hand' where id = v_b;
+    raise exception 'CHECK 22 FAILED: a client renamed itself directly';
   exception
-    when foreign_key_violation then
-      raise notice 'CHECK 23 ok — unknown alias rejected by the foreign key';
+    when insufficient_privilege then
+      raise notice 'CHECK 22 ok — direct rename refused, only the server names you';
   end;
 
   -- ---------------------------------------------------------------------
-  -- CHECK 24 — an unknown avatar is rejected too
+  -- CHECK 23 — reroll_username() issues a different name while onboarding
+  --            is still open
+  -- ---------------------------------------------------------------------
+  select public.reroll_username() into v_name2;
+
+  if v_name2 is null or v_name2 = v_name then
+    raise exception 'CHECK 23 FAILED: reroll returned % (was %)', v_name2, v_name;
+  end if;
+  raise notice 'CHECK 23 ok — rerolled % to %', v_name, v_name2;
+
+  -- ---------------------------------------------------------------------
+  -- CHECK 24 — onboarding cannot be reopened, so the name stays fixed
+  --
+  -- Without this guard a client could flip the flag back and reroll forever.
+  -- ---------------------------------------------------------------------
+  update public.profiles set onboarding_completed = true where id = v_b;
+
+  begin
+    update public.profiles set onboarding_completed = false where id = v_b;
+    raise exception 'CHECK 24 FAILED: a client reopened onboarding';
+  exception
+    when insufficient_privilege then
+      raise notice 'CHECK 24 ok — onboarding is one-way, so the username is final';
+  end;
+
+  -- ---------------------------------------------------------------------
+  -- CHECK 25 — an unknown avatar is rejected by the foreign key
   -- ---------------------------------------------------------------------
   begin
     update public.profiles set avatar_slug = 'not_a_real_avatar' where id = v_b;
-    raise exception 'CHECK 24 FAILED: an unknown avatar_slug was accepted';
+    raise exception 'CHECK 25 FAILED: an unknown avatar_slug was accepted';
   exception
     when foreign_key_violation then
-      raise notice 'CHECK 24 ok — unknown avatar rejected by the foreign key';
+      raise notice 'CHECK 25 ok — unknown avatar rejected by the foreign key';
   end;
+
+  -- ---------------------------------------------------------------------
+  -- CHECK 26 — get_candidates() writes nothing
+  --
+  -- The whole point of the split: over-fetching candidates must not mark them
+  -- seen, or showing three of twenty would burn the other seventeen.
+  -- ---------------------------------------------------------------------
+  select count(*)::integer into v_own_cnt
+  from public.recommendations where recipient_id = v_b;
+
+  perform public.get_candidates(20);
+
+  select count(*)::integer into v_cnt
+  from public.recommendations where recipient_id = v_b;
+
+  if v_cnt <> v_own_cnt then
+    raise exception 'CHECK 26 FAILED: get_candidates() wrote % recommendation(s)', v_cnt - v_own_cnt;
+  end if;
+  raise notice 'CHECK 26 ok — get_candidates() is read-only';
+
+  -- ---------------------------------------------------------------------
+  -- CHECK 27 — a client cannot commit its own submission
+  --
+  -- commit_recommendations() takes ids from the client, so it has to re-check
+  -- eligibility. Trusting the ids would reopen the hole CHECK 5 closes.
+  -- ---------------------------------------------------------------------
+  select count(*)::integer into v_cnt
+  from public.commit_recommendations(
+    array(select id from public.submissions where sender_id = v_b limit 1),
+    'happy'::public.mood_tag
+  );
+
+  if v_cnt <> 0 then
+    raise exception 'CHECK 27 FAILED: a client committed its own submission';
+  end if;
+  raise notice 'CHECK 27 ok — commit refuses your own submission';
+
+  -- ---------------------------------------------------------------------
+  -- CHECK 28 — nor one already delivered, so a record cannot be replayed
+  -- ---------------------------------------------------------------------
+  select count(*)::integer into v_cnt
+  from public.commit_recommendations(
+    array(select submission_id from public.recommendations where recipient_id = v_b limit 1),
+    'happy'::public.mood_tag
+  );
+
+  if v_cnt <> 0 then
+    raise exception 'CHECK 28 FAILED: an already-delivered record was committed again';
+  end if;
+  raise notice 'CHECK 28 ok — commit refuses a record you have already seen';
+
+  -- ---------------------------------------------------------------------
+  -- CHECK 29 — idf: a rare genre must outweigh a common one
+  --
+  -- The client cannot compute this for itself — it only ever sees the
+  -- candidates it was handed — so the server has to export it correctly.
+  -- ---------------------------------------------------------------------
+  if (select weight from public.get_genre_weights() where slug = 'pop')
+     >= (select weight from public.get_genre_weights() where slug = 'shoegaze')
+  then
+    raise exception 'CHECK 29 FAILED: common genre weighs as much as a rare one';
+  end if;
+  raise notice 'CHECK 29 ok — rarer genres carry more weight';
 
   execute 'reset role';
   raise notice '=== ALL CHECKS PASSED ===';

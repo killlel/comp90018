@@ -41,6 +41,11 @@ android {
         }
     }
     compileOptions {
+        // java.time landed in API 26 but minSdk is 24, so without this the matchmaker's
+        // timestamp parsing compiles cleanly and then throws NoClassDefFoundError on an older
+        // device. Desugaring backports it instead of forcing minSdk up or hand-rolling an
+        // ISO-8601 parser.
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
@@ -51,6 +56,9 @@ android {
 }
 
 dependencies {
+    // Backports java.time (and friends) to minSdk 24. Required by isCoreLibraryDesugaringEnabled.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
+
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)
@@ -59,6 +67,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.navigation.compose)
