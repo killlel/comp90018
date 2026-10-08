@@ -79,4 +79,65 @@ class CollectionMappingTest {
     fun `placeholder colour is stable for the same id`() {
         assertEquals(placeholderAccent("abc"), placeholderAccent("abc"))
     }
+
+    @Test
+    fun `placeholder colour is valid even for ids with a negative hash`() {
+        // "polygenelubricants".hashCode() is Int.MIN_VALUE, where a plain % would go negative.
+        placeholderAccent("polygenelubricants")
+        placeholderAccent("")
+    }
+
+    @Test
+    fun `timestamps in any offset parse to the same instant`() {
+        val utc = 1_791_194_400_000L
+        assertEquals(utc, parseTimestampMs("2026-10-05T10:00:00+00:00"))
+        assertEquals(utc, parseTimestampMs("2026-10-05T21:00:00+11:00"))
+        assertEquals(utc, parseTimestampMs("2026-10-05T10:00:00Z"))
+    }
+
+    @Test
+    fun `unreadable or missing timestamps give null rather than throwing`() {
+        assertNull(parseTimestampMs(null))
+        assertNull(parseTimestampMs(""))
+        assertNull(parseTimestampMs("yesterday"))
+        assertNull(parseTimestampMs("2026-10-05"))
+    }
+
+    @Test
+    fun `sent record is marked sent, never starred, and dated by when it was sent`() {
+        val record = sent("s", createdAt = "2026-10-05T10:00:00+00:00").toVinylRecord()
+
+        assertEquals(RecordSource.SENT, record.source)
+        assertFalse(record.isFavourite)
+        assertEquals(1_791_194_400_000L, record.collectedAtMs)
+        assertEquals("Happy", record.mood)
+    }
+
+    @Test
+    fun `missing mood stays missing`() {
+        assertNull(kept("a", mood = null).toVinylRecord(null).mood)
+    }
+
+    @Test
+    fun `shelf entries for records not on the shelf are ignored`() {
+        val merged = mergeCollection(
+            shelf = listOf(kept("a")),
+            entries = listOf(ShelfEntry("gone", isFavourite = true)),
+            sent = emptyList(),
+        )
+
+        assertEquals(listOf("a"), merged.map { it.id })
+        assertFalse(merged.single().isFavourite)
+    }
+
+    @Test
+    fun `undated records keep the server's order`() {
+        val merged = mergeCollection(
+            shelf = listOf(kept("1"), kept("2"), kept("3")),
+            entries = emptyList(),
+            sent = emptyList(),
+        )
+
+        assertEquals(listOf("1", "2", "3"), merged.map { it.id })
+    }
 }

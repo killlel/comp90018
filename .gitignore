@@ -50,3 +50,6 @@ keystore.properties
 
 # IDE state for the root folder (Vinyl/.idea/ is tracked separately)
 /.idea/
+
+# Report drafts (not part of the app)
+/docs/report/
