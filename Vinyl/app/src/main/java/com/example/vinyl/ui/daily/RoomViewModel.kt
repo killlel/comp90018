@@ -30,13 +30,15 @@ class RoomViewModel(private val repository: RoomRepository = RoomRepository()) :
     /**
      * A chosen mood asks the server for new matches. "Let the crate decide" has no mood to match
      * on, and request_recommendations requires one, so it replays what's already been delivered
-     * instead.
+     * instead, and [genres] go unused.
+     *
+     * @param genres today's chip slugs; empty lets the server use the onboarding favourites
      */
-    fun load(mood: MoodTag?) {
+    fun load(mood: MoodTag?, genres: Set<String> = emptySet()) {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             val result = if (mood != null) {
-                repository.requestRecommendations(mood)
+                repository.requestRecommendations(mood, genres = genres)
             } else {
                 repository.getRoom()
             }

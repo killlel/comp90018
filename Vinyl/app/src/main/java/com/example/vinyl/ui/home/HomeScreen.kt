@@ -2,10 +2,9 @@ package com.example.vinyl.ui.home
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,21 +20,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -45,15 +42,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.vinyl.R
+import com.example.vinyl.data.repository.placeholderAccent
 import com.example.vinyl.repository.RoomCard
+import com.example.vinyl.ui.components.ShelfLedge
 import com.example.vinyl.ui.components.VinylSleeveThumbnail
 import com.example.vinyl.ui.theme.VinylPalette
+import com.example.vinyl.ui.theme.VinylSectionTitleStyle
 
 /**
  * The "Today" tab — the turntable, what arrived, and a glance at the shelf.
  *
- * Reads only. Picking a mood and being dealt letters is the receive flow; this screen's job is to
- * say whether anything is waiting and get out of the way.
+ * Reads only. Picking a mood and being dealt letters is the receive flow, reached through the one
+ * button; there is deliberately no mood or genre picker here, so the question has one home.
  */
 @Composable
 fun HomeScreen(
@@ -103,8 +103,6 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             TopBar(onOpenSettings = onOpenSettings)
-
-            MoodGenreSummary(onClick = onOpenReceive)
 
             RecentlyCollected(
                 items = state.recentlyCollected,
@@ -181,106 +179,69 @@ private fun TopBar(onOpenSettings: () -> Unit) {
 }
 
 /**
- * A summary, not a control. The mood question lives in the receive flow — asking it is the daily
- * ritual, and duplicating the picker here would give two places to answer it and no agreement on
- * which one wins. Tapping opens the flow.
+ * The newest kept records, on the same shelf as the Collection tab: the same header, three
+ * sleeves filling the width, the same wooden ledge, and the same per-record sleeve colour.
+ * Tapping a sleeve opens the Collection, where records can be played and starred.
  */
 @Composable
-private fun MoodGenreSummary(onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(VinylPalette.SheetSurface)
-            .border(1.dp, VinylPalette.TextMuted.copy(alpha = 0.2f), RoundedCornerShape(14.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        SummaryField(label = "Today's Mood", value = "Not set yet", modifier = Modifier.weight(1f))
-        Box(
-            modifier = Modifier
-                .width(1.dp)
-                .height(34.dp)
-                .background(VinylPalette.TextMuted.copy(alpha = 0.2f)),
-        )
-        SummaryField(
-            label = "Genre (optional)",
-            value = "Any",
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = 16.dp),
-        )
-    }
-}
-
-@Composable
-private fun SummaryField(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier) {
-        Text(label, color = VinylPalette.TextMuted, fontSize = 11.sp)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(value, color = VinylPalette.TextPrimary, fontSize = 15.sp)
-            Icon(
-                imageVector = Icons.Filled.KeyboardArrowDown,
-                contentDescription = null,
-                tint = VinylPalette.TealAccent,
-                modifier = Modifier.size(18.dp),
-            )
-        }
-    }
-}
-
-@Composable
 private fun RecentlyCollected(items: List<RoomCard>, onSeeAll: () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "Recently collected",
-                color = VinylPalette.TextPrimary,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = onSeeAll) {
-                Text("See all", color = VinylPalette.TealAccent, fontSize = 14.sp)
-            }
-        }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        // Three sleeves, each with its disc overhang, fill the width exactly — as in Collection.
+        val sleeveSize = maxWidth / SLEEVES_PER_SHELF / SLEEVE_WITH_DISC
 
-        if (items.isEmpty()) {
-            // Day one for every user, so it gets a real sentence rather than a blank row.
-            Text(
-                text = "Nothing kept yet. Records you save will line up here.",
-                color = VinylPalette.TextMuted,
-                fontSize = 13.sp,
-                modifier = Modifier.padding(bottom = 4.dp),
-            )
-        } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                items.forEach { card ->
-                    VinylSleeveThumbnail(
-                        songName = card.trackTitle,
-                        artist = card.trackArtist,
-                        coverUrl = card.artworkUrl,
-                        accentColor = VinylPalette.BrownAccent,
-                        sleeveSize = 84.dp,
-                    )
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Recently collected",
+                    style = VinylSectionTitleStyle,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = "See all",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable(onClick = onSeeAll),
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+
+            if (items.isEmpty()) {
+                // Day one for every user, so it gets a real sentence rather than a bare ledge.
+                Text(
+                    text = "Nothing kept yet. Records you save will line up here.",
+                    color = VinylPalette.TextMuted,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+            } else {
+                Row {
+                    items.take(SLEEVES_PER_SHELF).forEach { card ->
+                        VinylSleeveThumbnail(
+                            songName = card.trackTitle,
+                            artist = card.trackArtist,
+                            coverUrl = card.artworkUrl,
+                            // Same colour the record has in Collection, picked from its id.
+                            accentColor = Color(placeholderAccent(card.submissionId)),
+                            sleeveSize = sleeveSize,
+                            modifier = Modifier.clickable(onClick = onSeeAll),
+                        )
+                    }
                 }
             }
-        }
 
-        // The rust shelf the sleeves stand on, straight from the design.
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(6.dp)
-                .clip(RoundedCornerShape(3.dp))
-                .background(VinylPalette.BrownAccent),
-        )
+            ShelfLedge()
+        }
     }
 }
+
+private const val SLEEVES_PER_SHELF = 3
+
+/** A sleeve is drawn with its record poking out a quarter-width to the right. */
+private const val SLEEVE_WITH_DISC = 1.25f
 
 @Composable
 private fun ArrivedLine(count: Int, isLoading: Boolean) {

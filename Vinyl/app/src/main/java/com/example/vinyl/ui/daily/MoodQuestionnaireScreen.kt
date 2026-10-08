@@ -29,15 +29,21 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.vinyl.data.GenreOptions
 import com.example.vinyl.data.MoodOption
 import com.example.vinyl.data.MoodOptions
 import com.example.vinyl.data.MoodTag
+import com.example.vinyl.data.onboarding.GenreOption
 import com.example.vinyl.ui.theme.VinylPalette
 
+/**
+ * @param genreOptions from the `genres` table; empty hides the genre section
+ * @param selectedGenres slugs (`k_pop`), not labels - they are sent to the matcher as-is
+ * @param onGenreToggled receives a slug
+ */
 @Composable
 fun MoodQuestionnaireScreen(
     selectedMood: MoodTag?,
+    genreOptions: List<GenreOption>,
     selectedGenres: Set<String>,
     onMoodSelected: (MoodTag) -> Unit,
     onGenreToggled: (String) -> Unit,
@@ -105,18 +111,21 @@ fun MoodQuestionnaireScreen(
             }
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                text = "GENRE · optional — nudges the pull",
-                color = VinylPalette.TextMuted,
-                fontSize = 11.sp,
-                letterSpacing = 1.sp,
-            )
-            GenreFlowRow(
-                items = GenreOptions.all,
-                selected = selectedGenres,
-                onToggle = onGenreToggled,
-            )
+        // Hidden rather than shown empty while the list loads or if it can't: genre is optional.
+        if (genreOptions.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "GENRE · optional — nudges the pull",
+                    color = VinylPalette.TextMuted,
+                    fontSize = 11.sp,
+                    letterSpacing = 1.sp,
+                )
+                GenreFlowRow(
+                    items = genreOptions,
+                    selected = selectedGenres,
+                    onToggle = onGenreToggled,
+                )
+            }
         }
 
         Column(
@@ -204,13 +213,13 @@ private fun DailyMoodCard(
 }
 
 @Composable
-private fun GenreFlowRow(items: List<String>, selected: Set<String>, onToggle: (String) -> Unit) {
+private fun GenreFlowRow(items: List<GenreOption>, selected: Set<String>, onToggle: (String) -> Unit) {
     val rows = remember(items) {
-        val chunks = mutableListOf<MutableList<String>>()
-        var current = mutableListOf<String>()
+        val chunks = mutableListOf<MutableList<GenreOption>>()
+        var current = mutableListOf<GenreOption>()
         var lineLen = 0
         items.forEach { genre ->
-            val approxLen = genre.length + 3
+            val approxLen = genre.label.length + 3
             if (lineLen + approxLen > 30 && current.isNotEmpty()) {
                 chunks.add(current); current = mutableListOf(); lineLen = 0
             }
@@ -224,17 +233,17 @@ private fun GenreFlowRow(items: List<String>, selected: Set<String>, onToggle: (
         rows.forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { genre ->
-                    val isSelected = genre in selected
+                    val isSelected = genre.slug in selected
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(50))
                             .background(if (isSelected) VinylPalette.TealAccent else VinylPalette.PanelDark)
                             .border(1.dp, VinylPalette.TextMuted.copy(alpha = 0.2f), RoundedCornerShape(50))
-                            .clickable(onClick = { onToggle(genre) })
+                            .clickable(onClick = { onToggle(genre.slug) })
                             .padding(horizontal = 14.dp, vertical = 8.dp),
                     ) {
                         Text(
-                            genre,
+                            genre.label,
                             color = if (isSelected) VinylPalette.Background else VinylPalette.TextPrimary,
                             fontSize = 13.sp,
                         )
@@ -250,7 +259,13 @@ private fun GenreFlowRow(items: List<String>, selected: Set<String>, onToggle: (
 private fun MoodQuestionnaireScreenPreview() {
     MoodQuestionnaireScreen(
         selectedMood = MoodTag.Nostalgic,
-        selectedGenres = setOf("K-pop"),
+        genreOptions = listOf(
+            GenreOption("jazz", "Jazz"),
+            GenreOption("k_pop", "K-pop"),
+            GenreOption("rnb", "R&B"),
+            GenreOption("shoegaze", "Shoegaze"),
+        ),
+        selectedGenres = setOf("k_pop"),
         onMoodSelected = {},
         onGenreToggled = {},
         onSubmit = {},

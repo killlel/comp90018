@@ -74,6 +74,7 @@ import com.example.vinyl.ui.daily.ArrivedTodayScreen
 import com.example.vinyl.ui.daily.ArrivedTodayUiState
 import com.example.vinyl.ui.daily.MoodQuestionnaireScreen
 import com.example.vinyl.ui.daily.RoomViewModel
+import com.example.vinyl.ui.daily.DailyGenresViewModel
 import com.example.vinyl.ui.daily.UnopenedRecordScreen
 import com.example.vinyl.ui.daily.UnopenedRecordUiState
 import androidx.compose.foundation.Image
@@ -317,14 +318,16 @@ private fun VinylApp(
     // known or nothing is stored, so the city list is searched at most once per launch.
     LaunchedEffect(locationState.hasLocation) { locationViewModel.loadCityLabel() }
     var dailyMood by remember { mutableStateOf<MoodTag?>(null) }
-    var dailyGenres by remember { mutableStateOf(setOf<String>()) }
+    // The chips' options and selection, as slugs. Reset to the onboarding favourites on every open.
+    val dailyGenresViewModel: DailyGenresViewModel = viewModel()
+    val dailyGenresState by dailyGenresViewModel.uiState.collectAsState()
 
     // Tapping the daily reminder lands on the mood question, same as Home's "Open Today's Cards".
     LaunchedEffect(openReceiveRequested) {
         if (!openReceiveRequested) return@LaunchedEffect
         selectedTab = AppTab.Home
         dailyMood = null
-        dailyGenres = emptySet()
+        dailyGenresViewModel.reset()
         receiveFlowStep = ReceiveFlowStep.Questionnaire
         onReceiveOpened()
     }
@@ -378,7 +381,7 @@ private fun VinylApp(
                 AppTab.Home -> HomeScreen(
                     onOpenReceive = {
                         dailyMood = null
-                        dailyGenres = emptySet()
+                        dailyGenresViewModel.reset()
                         receiveFlowStep = ReceiveFlowStep.Questionnaire
                     },
                     onOpenSettings = { showSettings = true },
@@ -428,17 +431,16 @@ private fun VinylApp(
             BottomSheetContainer(onDismiss = { receiveFlowStep = null }) {
                 MoodQuestionnaireScreen(
                     selectedMood = dailyMood,
-                    selectedGenres = dailyGenres,
+                    genreOptions = dailyGenresState.options,
+                    selectedGenres = dailyGenresState.selected,
                     onMoodSelected = { dailyMood = it },
-                    onGenreToggled = { genre ->
-                        dailyGenres = if (genre in dailyGenres) dailyGenres - genre else dailyGenres + genre
-                    },
+                    onGenreToggled = dailyGenresViewModel::toggle,
                     // Load here rather than on entering Arrived Today: Unopened's back button
                     // returns there, and request_recommendations records new matches on every
                     // call — loading on entry would deal a fresh hand each time.
                     onSubmit = {
                         reminderPrefs.markPulledToday()
-                        roomViewModel.load(dailyMood)
+                        roomViewModel.load(dailyMood, dailyGenresState.selected)
                         receiveFlowStep = ReceiveFlowStep.ArrivedToday
                     },
                     onLetCrateDecide = {
@@ -467,8 +469,8 @@ private fun VinylApp(
                     ArrivedTodayScreen(
                         state = ArrivedTodayUiState(
                             moodLabel = moodLabel,
-                            // No genre label: the RPCs match on mood only, so showing the chosen
-                            // genre would imply a filter that never ran.
+                            // No genre label: genre only nudges the ranking, so naming it here
+                            // would promise a filter that the records may not match.
                             fallbackNote = when {
                                 roomState.error != null ->
                                     "Couldn't reach the crate. Check your connection and try again."

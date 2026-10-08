@@ -131,13 +131,19 @@ data class GenreWeight(val slug: String, val weight: Double)
  * `security definer` and scope everything to `auth.uid()` server-side.
  */
 open class RoomRepository(private val supabase: SupabaseClient = Supabase.client) {
-    /** Picks new letters for this mood and records them as delivered. */
+    /**
+     * Picks new letters for this mood and records them as delivered.
+     *
+     * [genres] are today's chip slugs (`k_pop`). Empty lets the server fall back to the user's
+     * onboarding favourites.
+     */
     open suspend fun requestRecommendations(
         mood: MoodTag,
         context: ContextTag? = null,
         limit: Int = DEFAULT_LIMIT,
+        genres: Collection<String> = emptyList(),
     ): Result<List<RoomCard>> = runCatching {
-        val params = requestRecommendationsParams(mood, context, limit)
+        val params = requestRecommendationsParams(mood, context, limit, genres)
         supabase.postgrest.rpc("request_recommendations", params).decodeList<RoomCard>()
     }
 
@@ -266,10 +272,23 @@ open class RoomRepository(private val supabase: SupabaseClient = Supabase.client
     }
 }
 
-/** The named arguments for the `request_recommendations` RPC; see [submitSongParams]. */
-internal fun requestRecommendationsParams(mood: MoodTag, context: ContextTag?, limit: Int): JsonObject =
+/**
+ * The named arguments for the `request_recommendations` RPC; see [submitSongParams].
+ *
+ * `p_genres` is left out when empty rather than sent as `[]`: the server treats both the same,
+ * and omitting it keeps the call identical to before genres were sent at all.
+ */
+internal fun requestRecommendationsParams(
+    mood: MoodTag,
+    context: ContextTag?,
+    limit: Int,
+    genres: Collection<String> = emptyList(),
+): JsonObject =
     buildJsonObject {
         put("p_mood", mood.wireValue)
         put("p_context", context?.wireValue)
         put("p_limit", limit)
+        if (genres.isNotEmpty()) {
+            put("p_genres", JsonArray(genres.map { JsonPrimitive(it) }))
+        }
     }

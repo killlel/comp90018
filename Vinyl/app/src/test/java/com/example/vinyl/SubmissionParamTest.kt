@@ -155,4 +155,16 @@ class SubmissionParamsTest {
         val p = requestRecommendationsParams(MoodTag.Calm, ContextTag.Studying, 3)
         assertEquals("studying", p.getValue("p_context").jsonPrimitive.content)
     }
+
+    @Test
+    fun `pulling records sends today's genres as slugs`() {
+        val p = requestRecommendationsParams(MoodTag.Happy, null, 3, genres = listOf("k_pop", "jazz"))
+        assertEquals(listOf("k_pop", "jazz"), p.getValue("p_genres").jsonArray.map { it.jsonPrimitive.content })
+    }
+
+    @Test
+    fun `no genres leaves p_genres out so the server uses the favourites`() {
+        val p = requestRecommendationsParams(MoodTag.Happy, null, 3, genres = emptyList())
+        assertTrue("p_genres" !in p)
+    }
 }
