@@ -50,7 +50,7 @@ class LocationRepository(private val context: Context, private val cityIndex: Ci
      * "approximate only" in the system dialog is a perfectly good outcome.
      */
     fun hasPermission(): Boolean = isGranted(Manifest.permission.ACCESS_COARSE_LOCATION) ||
-        isGranted(Manifest.permission.ACCESS_FINE_LOCATION)
+            isGranted(Manifest.permission.ACCESS_FINE_LOCATION)
 
     /**
      * Resolves the user's city centre, or explains why it couldn't.
@@ -65,17 +65,18 @@ class LocationRepository(private val context: Context, private val cityIndex: Ci
         val fix = currentFix() ?: return LocationResult.LocationUnavailable
         val city = runCatching { cityIndex.nearest(fix.latitude, fix.longitude) }.getOrNull()
             ?: return LocationResult.CityUnknown
-        return LocationResult.Success(city.lat, city.lng, city.name)
+        return LocationResult.Success(city.lat, city.lng, city.displayLabel)
     }
 
     /**
-     * The city name for a point already stored on the profile, for display only. Offline-safe.
+     * The city label for a point already stored on the profile, for display only. Offline-safe.
+     * "Chicago, US" once assets/cities.tsv has a country column (see [City.displayLabel])
      *
      * For anything saved since the switch to the city list this is an exact match. Rows saved
      * earlier hold a suburb centre, and resolve to the city that suburb belongs to.
      */
     suspend fun cityFor(lat: Double, lng: Double): String? =
-        runCatching { cityIndex.nearest(lat, lng)?.name }.getOrNull()
+        runCatching { cityIndex.nearest(lat, lng)?.displayLabel }.getOrNull()
 
     private fun isGranted(permission: String): Boolean =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED

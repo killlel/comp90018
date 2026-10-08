@@ -1,8 +1,9 @@
-package com.example.vinyl.ui.received
+package com.example.vinyl.ui.receive
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -58,6 +59,9 @@ fun ReceivedCardScreen(
     onClose: () -> Unit = {},
     onKeep: () -> Unit = {},
     onToggleLike: () -> Unit = {},
+    /** The DISTANCE block calls this - only when a distance is actually known (see below), since
+     *  there is nothing to show a bearing for otherwise. Intended target: CompassScreen. */
+    onViewDirection: () -> Unit = {},
 ) {
     val moodOption = MoodOptions.all.firstOrNull { it.tag == state.mood }
 
@@ -167,6 +171,11 @@ fun ReceivedCardScreen(
                         ReceivedInfoBlock(
                             label = "DISTANCE",
                             value = state.senderDistanceLabel ?: "N/A",
+                            // Only clickable (and only hinted) when a distance is known - if it's
+                            // "N/A" there is no location on at least one end, so there is nothing
+                            // for a direction screen to point at either.
+                            hint = if (state.senderDistanceLabel != null) "Tap for direction" else null,
+                            onClick = if (state.senderDistanceLabel != null) onViewDirection else null,
                             modifier = Modifier.weight(1f).fillMaxHeight(),
                         )
                     }
@@ -258,12 +267,21 @@ private fun LetterInfoBlock(
 }
 
 @Composable
-private fun ReceivedInfoBlock(label: String, value: String, modifier: Modifier = Modifier) {
+private fun ReceivedInfoBlock(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    /** Shown as a small extra line under the label, e.g. "Tap for direction". Null hides it. */
+    hint: String? = null,
+    /** Null means not clickable at all - the block looks and behaves exactly as before. */
+    onClick: (() -> Unit)? = null,
+) {
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
             .background(Color.White.copy(alpha = 0.05f))
             .border(1.dp, VinylPalette.TextMuted.copy(alpha = 0.15f), RoundedCornerShape(14.dp))
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
             .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.Center,
     ) {
@@ -277,6 +295,10 @@ private fun ReceivedInfoBlock(label: String, value: String, modifier: Modifier =
         )
         Spacer(modifier = Modifier.height(2.dp))
         Text(label, color = VinylPalette.TextMuted, fontSize = 9.sp, letterSpacing = 1.sp)
+        hint?.let {
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(it, color = VinylPalette.TealAccent, fontSize = 9.sp, lineHeight = 11.sp, maxLines = 2)
+        }
     }
 }
 

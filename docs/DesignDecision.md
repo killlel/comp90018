@@ -119,7 +119,7 @@ app with weaker matching. Nothing here may block reaching the main screen.
 ## 5. Settings
 
 | Setting                        | Backed by                              |
-| ------------------------------ | -------------------------------------- |
+| ------------------------------ | --------------------------------------- |
 | Change profile picture         | `profiles.avatar_slug`                 |
 | Change favourite genres        | `profiles.favorite_genres`             |
 | Enable / disable notifications | _(not yet in the schema)_              |
@@ -151,7 +151,7 @@ already been shown.
 | Genres are a **lookup table**, not an enum                                  | Adding a genre is one `INSERT`, not a migration plus an app release                                                                                                             |
 | Genres are stored as **slugs** (`k_pop`), displayed as **labels** (`K-pop`) | The app must read `public.genres`, never hardcode a list                                                                                                                        |
 | Location lives on the **profile**, copied onto a submission at send time    | No continuous tracking; old records don't move when you relocate                                                                                                                |
-| Location is snapped to a **city from a bundled list**, not reverse-geocoded | Android's Geocoder returns suburbs in Australia ("Collingwood"). The list is GeoNames `cities15000` minus suburbs (`PPLX`), in `assets/cities.tsv`. CC BY 4.0 — credit required |
+| Location is snapped to a **city from a bundled list**, not reverse-geocoded | Android's Geocoder returns suburbs in Australia ("Collingwood"). The list is GeoNames `cities15000` minus suburbs (`PPLX`), in `assets/cities.tsv` — five columns (`name`, `lat`, `lng`, `population`, `countryCode`); GeoNames doesn't supply the country code, so it's backfilled offline. Needed so the Compass screen can show "Chicago, US", not just "Chicago". CC BY 4.0 — credit required |
 | **No place-name column**                                                    | Coordinates are the truth; the label comes from the bundled city list, so it works offline                                                                                      |
 | Distances are shown **only as bands**                                       | `< 20`, `< 50`, `< 100`, `100+`, `200+`, `1000+`, `2000+`, `3000+ km`. An exact figure would claim precision the data doesn't have                                              |
 | A missing location shows **N/A with a reason**                              | If both sides are missing, the reader's own reason wins — it's the one they can fix                                                                                             |
@@ -178,7 +178,7 @@ Read the vocabulary from the table — 23 active rows:
 
 ```kotlin
 supabase.postgrest.from("genres")
-    .select(Columns.list("slug", "label")) { order("sort_order", Order.ASCENDING) }
+  .select(Columns.list("slug", "label")) { order("sort_order", Order.ASCENDING) }
 ```
 
 ### Usernames
@@ -201,7 +201,7 @@ Read the set, show the image, store the **slug**:
 
 ```kotlin
 supabase.postgrest.from("avatars")
-    .select(Columns.list("slug", "url")) { order("sort_order", Order.ASCENDING) }
+  .select(Columns.list("slug", "url")) { order("sort_order", Order.ASCENDING) }
 ```
 
 Filter on `is_active` when building the picker. A retired entry stays valid on

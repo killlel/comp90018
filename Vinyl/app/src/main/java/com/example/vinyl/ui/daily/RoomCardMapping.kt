@@ -75,5 +75,7 @@ internal fun RoomCard.toArrivedOption(readerLat: Double?, readerLng: Double?): A
         mood = tag,
         submissionId = submissionId,
         sentTimeLabel = sentTimeLabel(submittedAt),
+        senderLat = lat,
+        senderLng = lng,
     )
 }
