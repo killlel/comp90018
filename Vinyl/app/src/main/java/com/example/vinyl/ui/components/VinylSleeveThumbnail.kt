@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.example.vinyl.R
+import com.example.vinyl.data.itunesArtworkAt
 import com.example.vinyl.ui.theme.PoppinsFontFamily
 import com.example.vinyl.ui.theme.VinylColors
 import com.example.vinyl.ui.theme.VinylTheme
@@ -92,7 +93,7 @@ fun VinylSleeveThumbnail(
                 )
 
                 coverUrl != null -> AsyncImage(
-                    model = coverUrl,
+                    model = itunesArtworkAt(coverUrl, SLEEVE_ARTWORK_PX),
                     contentDescription = songName,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
@@ -190,3 +191,6 @@ private fun VinylSleeveThumbnailPreview() {
         }
     }
 }
+
+/** Enough for the largest sleeve (about a third of a phone's width) on a high-density screen. */
+private const val SLEEVE_ARTWORK_PX = 600

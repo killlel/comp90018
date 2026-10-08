@@ -75,7 +75,7 @@ class CollectionViewModel(
                     publish()
                 }
                 .onFailure {
-                    _uiState.update { it.copy(actionError = "Couldn't remove this record. Try again.") }
+                    _uiState.update { it.copy(actionError = "Couldn't remove this music card. Try again.") }
                 }
         }
     }

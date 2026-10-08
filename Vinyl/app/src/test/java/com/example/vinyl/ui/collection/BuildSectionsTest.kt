@@ -48,4 +48,49 @@ class BuildSectionsTest {
     fun `an empty shelf has no rows`() {
         assertEquals(emptyList<CollectionSection>(), buildSections(emptyList(), CollectionFilter.ALL))
     }
+
+    @Test
+    fun `no favourites means no favourites row outside its own tab`() {
+        val sections = buildSections(records.filterNot { it.isFavourite }, CollectionFilter.ALL)
+
+        assertEquals(listOf("Recently collected", "Calm", "Sad"), sections.titles())
+    }
+
+    @Test
+    fun `favourites tab holds only starred records, across sources`() {
+        val withStarredSent = records + record("s2", RecordSource.SENT, favourite = true)
+
+        assertEquals(listOf("r1", "s2"), buildSections(withStarredSent, CollectionFilter.FAVOURITES).ids("Favourites"))
+    }
+
+    @Test
+    fun `records without a mood get no mood row but still appear in recently collected`() {
+        val sections = buildSections(listOf(record("x", RecordSource.RECEIVED)), CollectionFilter.ALL)
+
+        assertEquals(listOf("Recently collected"), sections.titles())
+        assertEquals(listOf("x"), sections.ids("Recently collected"))
+    }
+
+    @Test
+    fun `mood rows are scoped to the tab`() {
+        assertEquals(listOf("Recently collected", "Sad"), buildSections(records, CollectionFilter.SENT).titles())
+    }
+
+    @Test
+    fun `a tab with nothing in it has no rows`() {
+        val receivedOnly = records.filter { it.source == RecordSource.RECEIVED }
+
+        assertEquals(emptyList<CollectionSection>(), buildSections(receivedOnly, CollectionFilter.SENT))
+    }
+
+    @Test
+    fun `rows keep the order records came in`() {
+        val ordered = listOf(
+            record("c", RecordSource.RECEIVED, mood = "Calm"),
+            record("a", RecordSource.RECEIVED, mood = "Calm"),
+            record("b", RecordSource.RECEIVED, mood = "Calm"),
+        )
+
+        assertEquals(listOf("c", "a", "b"), buildSections(ordered, CollectionFilter.ALL).ids("Calm"))
+    }
 }

@@ -110,7 +110,7 @@ fun WriteCardScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = if (state.isPreviewMode) "Preview" else "Write Letter",
+                text = if (state.isPreviewMode) "Preview" else "Write a music card",
                 color = VinylPalette.TextPrimary,
                 fontSize = 28.sp,
             )
@@ -595,7 +595,7 @@ private fun SendBar(state: WriteCardUiState, isSending: Boolean, onSend: () -> U
                 disabledContentColor = VinylPalette.TextMuted,
             ),
         ) {
-            Text(if (isSending || state.isSubmitting) "Sending…" else "Send this record", fontWeight = FontWeight.SemiBold)
+            Text(if (isSending || state.isSubmitting) "Sending…" else "Send this music card", fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -628,7 +628,7 @@ private fun CardPreview(state: WriteCardUiState, modifier: Modifier = Modifier) 
         verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         Text(
-            text = "LETTER CARD · ANONYMOUS",
+            text = "MUSIC CARD · ANONYMOUS",
             color = VinylPalette.TextMuted,
             fontSize = 11.sp,
             letterSpacing = 1.sp,
@@ -723,7 +723,7 @@ private fun CardPreview(state: WriteCardUiState, modifier: Modifier = Modifier) 
         EnvelopePreview(style = state.envelopeStyle, modifier = Modifier.padding(horizontal = 30.dp))
 
         Text(
-            text = "This is what the person who receives it will see. Reactions stay anonymous — you'll only see that someone listened.",
+            text = "This is what the person who receives it will see.",
             color = VinylPalette.TextMuted,
             fontSize = 12.sp,
             lineHeight = 17.sp,

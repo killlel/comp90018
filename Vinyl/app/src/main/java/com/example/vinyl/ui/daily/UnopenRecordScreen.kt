@@ -62,7 +62,7 @@ fun UnopenedRecordScreen(
                 Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = VinylPalette.TextPrimary)
             }
             Text(
-                text = "UNOPENED RECORD",
+                text = "UNOPENED MUSIC CARD",
                 color = VinylPalette.TextMuted,
                 fontSize = 11.sp,
                 letterSpacing = 1.sp,
@@ -115,8 +115,8 @@ fun UnopenedRecordScreen(
 
         Text(
             text = state.distanceLabel
-                ?.let { "Someone $it away\nsent you a record" }
-                ?: "Someone\nsent you a record",
+                ?.let { "Someone $it away\nsent you a music card" }
+                ?: "Someone\nsent you a music card",
             color = VinylPalette.TextPrimary,
             fontSize = 22.sp,
             fontWeight = FontWeight.SemiBold,
@@ -127,7 +127,7 @@ fun UnopenedRecordScreen(
 
         state.distanceNote?.let { note ->
             Text(
-                text = "Distance N/A · $note",
+                text = note,
                 color = VinylPalette.TextMuted,
                 fontSize = 12.sp,
                 lineHeight = 17.sp,
@@ -182,7 +182,7 @@ fun UnopenedRecordScreen(
         Spacer(modifier = Modifier.height(10.dp))
 
         Text(
-            text = "Opening drops the needle and unfolds the letter. It buzzes once when the record catches.",
+            text = "Opening drops the needle and unfolds the message. It buzzes once when the record catches.",
             color = VinylPalette.TextMuted,
             fontSize = 11.sp,
             lineHeight = 15.sp,

@@ -125,7 +125,7 @@ private fun LocationSettingsContent(
             )
 
             Text(
-                text = "Letters you send can carry roughly how far away you are — " +
+                text = "Music cards you send can carry roughly how far away you are — " +
                     "\"200+ km away\", never where you actually are. We save your city, " +
                     "not your position.",
                 color = VinylPalette.TextMuted,
@@ -196,7 +196,7 @@ private fun statusMessage(status: LocationStatus, permanentlyDenied: Boolean): S
 
     LocationStatus.Saved -> "Location updated."
 
-    LocationStatus.Cleared -> "Location removed. Letters you send won't carry a distance."
+    LocationStatus.Cleared -> "Location removed. Music cards you send won't carry a distance."
 
     LocationStatus.PermissionDenied ->
         if (permanentlyDenied) {

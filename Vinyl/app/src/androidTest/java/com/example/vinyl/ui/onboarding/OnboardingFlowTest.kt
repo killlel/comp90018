@@ -65,7 +65,7 @@ class OnboardingFlowTest {
         compose.onNodeWithText("Turn on\nnotifications").assertIsDisplayed()
         saveScreenshot("notifications")
         compose.onNodeWithText("Not now").performClick()
-        compose.onNodeWithText("You are ready").assertIsDisplayed()
+        compose.onNodeWithText("You're all set").assertIsDisplayed()
         saveScreenshot("ready")
         assertFalse(runBlocking { repository.getMyProfile().getOrThrow().onboardingCompleted })
         compose.onNodeWithText("Enter Vinyl").performClick()

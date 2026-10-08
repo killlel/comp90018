@@ -168,7 +168,7 @@ internal fun SendingAnimation(
         }
 
         Text(
-            text = "Sending your record…",
+            text = "Sending your music card…",
             color = VinylPalette.TextMuted,
             fontSize = 12.sp,
             modifier = Modifier

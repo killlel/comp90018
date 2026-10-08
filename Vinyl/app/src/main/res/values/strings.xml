@@ -4,6 +4,6 @@
     <!-- Daily reminder notification -->
     <string name="reminder_channel_name">Daily reminder</string>
     <string name="reminder_channel_description">A nudge once a day to pick up today\'s music.</string>
-    <string name="reminder_title">Today\'s record is waiting</string>
+    <string name="reminder_title">Today\'s music cards are waiting</string>
     <string name="reminder_text">Tell us how you feel and we\'ll find you something to listen to.</string>
 </resources>

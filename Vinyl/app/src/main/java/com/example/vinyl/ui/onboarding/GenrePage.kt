@@ -64,7 +64,7 @@ private fun GenreContent(
 ) {
     OnboardingPageLayout(
         title = "Select your\nmusic vibes",
-        description = "Pick the styles you enjoy to help Vinyl find records for you.",
+        description = "Pick the styles you enjoy to help Vinyl find music for you.",
         modifier = modifier,
         actions = {
             OnboardingPrimaryButton(if (state.isSaving) "Saving…" else "Continue", onNext,

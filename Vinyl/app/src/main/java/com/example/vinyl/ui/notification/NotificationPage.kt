@@ -70,7 +70,7 @@ private fun NotificationContent(
 ) {
     OnboardingPageLayout(
         title = "Turn on\nnotifications",
-        description = "A little music, just for you. Get a daily nudge to pick up today's record. You can turn this off any time in Settings.",
+        description = "A little music, just for you. Get a daily nudge to open today's music cards. You can turn this off any time in Settings.",
         modifier = modifier,
         illustration = R.drawable.onboarding_notification,
         actions = {

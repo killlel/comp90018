@@ -1,5 +1,15 @@
 package com.example.vinyl
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import android.content.Intent
@@ -42,12 +52,14 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -101,6 +113,11 @@ import com.example.vinyl.ui.receive.CompassUiState
 import com.example.vinyl.ui.receive.CompassState
 import com.example.vinyl.ui.receive.rememberCompassHeading
 import com.example.vinyl.ui.receive.rememberSenderCityLabel
+import com.example.vinyl.ui.collection.CollectionViewModel
+import com.example.vinyl.data.model.VinylRecord
+import com.example.vinyl.data.model.RecordSource
+import com.example.vinyl.ui.daily.distanceLabelAndNote
+import com.example.vinyl.ui.daily.sentTimeLabel
 import com.example.vinyl.ui.theme.VinylPalette
 import com.example.vinyl.ui.theme.VinylTheme
 import com.example.vinyl.ui.write.WriteCardScreen
@@ -254,6 +271,11 @@ private sealed class ReceiveFlowStep {
     data class Direction(val option: ArrivedRecordOption) : ReceiveFlowStep()
 }
 
+/** Steps shown in the bottom sheet; the rest (Unopened, Direction) are full-screen. */
+private val ReceiveFlowStep.isSheet: Boolean
+    get() = this is ReceiveFlowStep.Questionnaire || this is ReceiveFlowStep.ArrivedToday ||
+        this is ReceiveFlowStep.Opened
+
 /**
  * Runs the onboarding flow once per account (`profiles.onboarding_completed`), then
  * hands over to the app. Replaces the old `LocationGate` wrapper — the location ask is now page 3
@@ -301,6 +323,12 @@ private fun VinylApp(
 
     val roomViewModel: RoomViewModel = viewModel()
 
+    // Activity-scoped, the same instance CollectionScreen draws its shelves from. A record opened
+    // there is shown below as a music card, over the bottom bar like the receive flow.
+    val collectionViewModel: CollectionViewModel = viewModel()
+    val collectionState by collectionViewModel.uiState.collectAsState()
+    var collectionCompassOpen by rememberSaveable { mutableStateOf(false) }
+
     // Same activity-scoped instance HomeScreen uses. Its "Recently collected" row reads the
     // shelf, so it reloads after the receive flow closes in case a record was kept there.
     val homeViewModel: HomeViewModel = viewModel()
@@ -322,7 +350,7 @@ private fun VinylApp(
     val dailyGenresViewModel: DailyGenresViewModel = viewModel()
     val dailyGenresState by dailyGenresViewModel.uiState.collectAsState()
 
-    // Tapping the daily reminder lands on the mood question, same as Home's "Open Today's Cards".
+    // Tapping the daily reminder lands on the mood question, same as Home's "Open today's music cards".
     LaunchedEffect(openReceiveRequested) {
         if (!openReceiveRequested) return@LaunchedEffect
         selectedTab = AppTab.Home
@@ -377,7 +405,7 @@ private fun VinylApp(
                 .padding(innerPadding),
         ) {
             when (selectedTab) {
-                AppTab.Collection -> CollectionScreen()
+                AppTab.Collection -> CollectionScreen(viewModel = collectionViewModel)
                 AppTab.Home -> HomeScreen(
                     onOpenReceive = {
                         dailyMood = null
@@ -400,17 +428,27 @@ private fun VinylApp(
     BackHandler(enabled = showSettings && !showLocationSettings) { showSettings = false }
 
     // The receive flow is the same kind of overlay. Each step goes where its own on-screen
-    // back or close button goes: only an unopened record steps back (to the picker); every
-    // other step closes the flow. Declared last so it wins while the flow is on top.
+    // back or close button goes: an unopened record steps back to the picker, the compass back
+    // to its card; every other step closes the flow. Declared last so it wins while the flow is on top.
+    BackHandler(enabled = collectionState.openRecord != null) {
+        if (collectionCompassOpen) collectionCompassOpen = false else collectionViewModel.closeRecord()
+    }
     BackHandler(enabled = receiveFlowStep != null) {
-        receiveFlowStep = when (receiveFlowStep) {
+        receiveFlowStep = when (val step = receiveFlowStep) {
             is ReceiveFlowStep.Unopened -> ReceiveFlowStep.ArrivedToday
+            // The compass's own back arrow returns to the card, so the system back does too.
+            is ReceiveFlowStep.Direction -> ReceiveFlowStep.Opened(step.option)
             else -> null
         }
     }
 
     if (showSettings) {
+        // Read each time Settings opens, so a re-rolled alias is never stale.
+        val displayName by produceState("") {
+            value = OnboardingRepository().getMyProfile().getOrNull()?.username.orEmpty()
+        }
         SettingsScreen(
+            displayName = displayName,
             locationValue = settingsLocationValue(locationState),
             onOpenLocation = { showLocationSettings = true },
             onSignOut = onSignOut,
@@ -422,13 +460,15 @@ private fun VinylApp(
         LocationSettingsScreen(onBack = { showLocationSettings = false })
     }
 
-    // The whole receive flow sits on top of everything (including the bottom bar) while active,
-    // like a stack of pushed screens. Only one step is ever shown at a time.
-    when (val step = receiveFlowStep) {
-        null -> Unit
-
-        ReceiveFlowStep.Questionnaire -> {
-            BottomSheetContainer(onDismiss = { receiveFlowStep = null }) {
+    // The receive flow sits on top of everything (including the bottom bar) while active, one
+    // step at a time. The sheet steps share one sheet: it slides up when the flow opens onto a
+    // sheet and back down when it closes or moves to a full-screen step, and between two sheet
+    // steps the content swaps in place. While sliding out it keeps drawing the step it's leaving.
+    val sheetStep = receiveFlowStep?.takeIf { it.isSheet }
+    val shownSheetStep = rememberLastNonNull(sheetStep)
+    AnimatedBottomSheet(visible = sheetStep != null, onDismiss = { receiveFlowStep = null }) {
+        when (val step = shownSheetStep) {
+            ReceiveFlowStep.Questionnaire -> {
                 MoodQuestionnaireScreen(
                     selectedMood = dailyMood,
                     genreOptions = dailyGenresState.options,
@@ -451,13 +491,11 @@ private fun VinylApp(
                     onBack = { receiveFlowStep = null },
                 )
             }
-        }
 
-        ReceiveFlowStep.ArrivedToday -> {
-            val moodLabel = MoodOptions.all.firstOrNull { it.tag == dailyMood }?.title ?: "Surprise"
-            val roomState by roomViewModel.uiState.collectAsState()
+            ReceiveFlowStep.ArrivedToday -> {
+                val moodLabel = MoodOptions.all.firstOrNull { it.tag == dailyMood }?.title ?: "Surprise"
+                val roomState by roomViewModel.uiState.collectAsState()
 
-            BottomSheetContainer(onDismiss = { receiveFlowStep = null }) {
                 if (roomState.isLoading) {
                     Box(
                         modifier = Modifier.fillMaxSize().background(VinylPalette.SheetSurface),
@@ -473,7 +511,7 @@ private fun VinylApp(
                             // would promise a filter that the records may not match.
                             fallbackNote = when {
                                 roomState.error != null ->
-                                    "Couldn't reach the crate. Check your connection and try again."
+                                    "Couldn't load today's music cards. Check your connection and try again."
                                 roomState.cards.isEmpty() -> "Nothing in the crate yet. Check back later."
                                 else -> null
                             },
@@ -486,26 +524,11 @@ private fun VinylApp(
                     )
                 }
             }
-        }
 
-        is ReceiveFlowStep.Unopened -> {
-            UnopenedRecordScreen(
-                state = UnopenedRecordUiState(
-                    distanceLabel = step.option.distanceLabel,
-                    moodLabel = step.option.moodLabel,
-                    sentTimeLabel = step.option.sentTimeLabel,
-                    distanceNote = step.option.distanceNote,
-                ),
-                onOpen = { receiveFlowStep = ReceiveFlowStep.Opened(step.option) },
-                onBack = { receiveFlowStep = ReceiveFlowStep.ArrivedToday },
-            )
-        }
+            is ReceiveFlowStep.Opened -> {
+                val roomState by roomViewModel.uiState.collectAsState()
+                val submissionId = step.option.submissionId
 
-        is ReceiveFlowStep.Opened -> {
-            val roomState by roomViewModel.uiState.collectAsState()
-            val submissionId = step.option.submissionId
-
-            BottomSheetContainer(onDismiss = { receiveFlowStep = null }) {
                 ReceivedCardScreen(
                     state = ReceivedCardUiState(
                         trackName = step.option.trackName,
@@ -526,9 +549,27 @@ private fun VinylApp(
                     onKeep = { submissionId?.let(roomViewModel::toggleKeep) },
                 )
             }
+
+            else -> Unit
+        }
+    }
+
+    // The full-screen steps, drawn over the sheet layer.
+    when (val step = receiveFlowStep) {
+        is ReceiveFlowStep.Unopened -> {
+            UnopenedRecordScreen(
+                state = UnopenedRecordUiState(
+                    distanceLabel = step.option.distanceLabel,
+                    moodLabel = step.option.moodLabel,
+                    sentTimeLabel = step.option.sentTimeLabel,
+                    distanceNote = step.option.distanceNote,
+                ),
+                onOpen = { receiveFlowStep = ReceiveFlowStep.Opened(step.option) },
+                onBack = { receiveFlowStep = ReceiveFlowStep.ArrivedToday },
+            )
         }
 
-        // Not wrapped in BottomSheetContainer - CompassScreen is full-screen with its own back
+        // Not in the sheet - CompassScreen is full-screen with its own back
         // arrow, the same style as UnopenedRecordScreen, not a bottom sheet.
         is ReceiveFlowStep.Direction -> {
             val compassState by rememberCompassHeading(
@@ -551,46 +592,198 @@ private fun VinylApp(
                 onBack = { receiveFlowStep = ReceiveFlowStep.Opened(step.option) },
             )
         }
+
+        else -> Unit
+    }
+
+    collectionState.openRecord.let { record ->
+        CollectionCardOverlay(
+            record = record,
+            actionError = collectionState.actionError,
+            readerLat = locationState.lat,
+            readerLng = locationState.lng,
+            compassOpen = collectionCompassOpen,
+            onOpenCompass = { collectionCompassOpen = true },
+            onCloseCompass = { collectionCompassOpen = false },
+            onToggleFavourite = { record?.let(collectionViewModel::toggleFavourite) },
+            onRemove = { record?.let(collectionViewModel::remove) },
+            onClose = {
+                collectionCompassOpen = false
+                collectionViewModel.closeRecord()
+            },
+        )
     }
 }
+
+/**
+ * A record opened from the Collection, shown as the same music card the receive flow ends on.
+ * Received cards can be starred, removed, and pointed at with the compass; a card you sent is
+ * only shown.
+ *
+ * [record] is null when nothing is open. It's still drawn then, so the sheet can slide out
+ * showing the card it's closing.
+ */
+@Composable
+private fun CollectionCardOverlay(
+    record: VinylRecord?,
+    actionError: String?,
+    readerLat: Double?,
+    readerLng: Double?,
+    compassOpen: Boolean,
+    onOpenCompass: () -> Unit,
+    onCloseCompass: () -> Unit,
+    onToggleFavourite: () -> Unit,
+    onRemove: () -> Unit,
+    onClose: () -> Unit,
+) {
+    // The card to draw: the open one, or while sliding out, the one just closed. Null only
+    // before the first open - the sheet is still composed then, so its first slide-up plays.
+    val shown = rememberLastNonNull(record)
+    val received = shown?.source == RecordSource.RECEIVED
+    // Removing is a delete on the server, so it's confirmed first.
+    var confirmRemove by rememberSaveable(shown?.id) { mutableStateOf(false) }
+    // Your own card has no distance to show, nor a reason for not showing one.
+    val (distanceLabel, distanceNote) = if (shown != null && received) {
+        distanceLabelAndNote(shown.senderLat, shown.senderLng, readerLat, readerLng)
+    } else {
+        null to null
+    }
+
+    val showCompass = record != null && compassOpen && distanceLabel != null
+
+    // The sheet slides down under the compass and back up when the compass closes.
+    AnimatedBottomSheet(visible = record != null && !showCompass, onDismiss = onClose) {
+        if (shown == null) return@AnimatedBottomSheet
+        ReceivedCardScreen(
+            state = ReceivedCardUiState(
+                trackName = shown.songName,
+                artistName = shown.artist,
+                artworkUrl = shown.coverUrl,
+                mood = shown.moodTag,
+                message = shown.message.orEmpty(),
+                senderDistanceLabel = distanceLabel,
+                senderDistanceNote = distanceNote,
+                sentTimeLabel = sentTimeLabel(shown.sentAt),
+                keepError = actionError,
+                isFavourite = if (received) shown.isFavourite else null,
+                isOwn = !received,
+            ),
+            onClose = onClose,
+            onKeep = null,
+            onRemove = if (received) ({ confirmRemove = true }) else null,
+            onToggleFavourite = onToggleFavourite,
+            onViewDirection = onOpenCompass,
+        )
+    }
+
+    if (showCompass && shown != null) {
+        val compassState by rememberCompassHeading(
+            enabled = true,
+            readerLat = readerLat,
+            readerLng = readerLng,
+            senderLat = shown.senderLat,
+            senderLng = shown.senderLng,
+        )
+        val senderCityLabel by rememberSenderCityLabel(shown.senderLat, shown.senderLng)
+        CompassScreen(
+            state = CompassUiState(distanceLabel = distanceLabel, cityLabel = senderCityLabel),
+            compassState = compassState,
+            onBack = onCloseCompass,
+        )
+    }
+
+    if (record != null && shown != null && confirmRemove) {
+        AlertDialog(
+            onDismissRequest = { confirmRemove = false },
+            containerColor = VinylPalette.SheetSurface,
+            titleContentColor = VinylPalette.TextPrimary,
+            textContentColor = VinylPalette.TextMuted,
+            title = { Text("Remove this music card?") },
+            text = { Text("“${shown.songName}” will be taken off your shelf. This can't be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmRemove = false
+                    onRemove()
+                }) { Text("Remove", color = RemoveConfirmFg) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRemove = false }) { Text("Cancel", color = VinylPalette.TextMuted) }
+            },
+        )
+    }
+}
+
+/** The same soft red the old Collection dialog and Settings' sign-out use for a destructive action. */
+private val RemoveConfirmFg = Color(0xFFE57373)
 
 /**
  * A manually-built bottom sheet — not Material3's ModalBottomSheet, to avoid depending on an
  * experimental API whose surface has shifted across Compose versions. Just a dimmed scrim behind
  * a rounded-top panel pinned to the bottom, sized to a fraction of the screen. Tapping the scrim
  * dismisses; tapping the panel itself does not.
+ *
+ * Showing it fades the scrim in and slides the panel up from the bottom edge; hiding it plays
+ * the reverse. [content] keeps being drawn while it slides out, so callers give it the last
+ * thing it showed (see [rememberLastNonNull]) rather than nothing.
  */
 @Composable
-private fun BottomSheetContainer(
+private fun AnimatedBottomSheet(
+    visible: Boolean,
     onDismiss: () -> Unit,
     heightFraction: Float = 0.88f,
     content: @Composable () -> Unit,
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.55f))
-            .clickable(
-                indication = null,
-                interactionSource = remember { MutableInteractionSource() },
-                onClick = onDismiss,
-            ),
-        contentAlignment = Alignment.BottomCenter,
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(heightFraction)
-                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-                .clickable(
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() },
-                    onClick = {}, // absorbs taps so they don't fall through to the scrim behind
-                ),
-        ) {
-            content()
+    // The parent itself doesn't animate; the scrim and the panel each bring their own motion.
+    AnimatedVisibility(visible = visible, enter = EnterTransition.None, exit = ExitTransition.None) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .animateEnterExit(
+                        enter = fadeIn(tween(SheetEnterMs)),
+                        exit = fadeOut(tween(SheetExitMs)),
+                    )
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() },
+                        onClick = onDismiss,
+                    ),
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(heightFraction)
+                    .animateEnterExit(
+                        enter = slideInVertically(tween(SheetEnterMs, easing = LinearOutSlowInEasing)) { it },
+                        exit = slideOutVertically(tween(SheetExitMs, easing = FastOutLinearInEasing)) { it },
+                    )
+                    .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() },
+                        onClick = {}, // absorbs taps so they don't fall through to the scrim behind
+                    ),
+            ) {
+                content()
+            }
         }
     }
+}
+
+/** Material's standard durations: entering a little slower than leaving. */
+private const val SheetEnterMs = 300
+private const val SheetExitMs = 250
+
+/**
+ * [value], or the last non-null value it had. Lets a closing sheet keep showing what it held
+ * while it slides out, after its state has already gone back to null.
+ */
+@Composable
+private fun <T : Any> rememberLastNonNull(value: T?): T? {
+    val last = remember { object { var value: T? = null } }
+    if (value != null) last.value = value
+    return last.value
 }
 
 /** Secondary line under "Location" on the settings list. */

@@ -53,6 +53,11 @@ android {
         compose = true
         buildConfig = true
     }
+    testOptions {
+        // Repositories log failures through android.util.Log, which throws "not mocked" on the
+        // JVM. Returning defaults lets unit tests drive those failure paths.
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
@@ -97,6 +102,7 @@ dependencies {
     implementation(libs.google.id)
 
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)
