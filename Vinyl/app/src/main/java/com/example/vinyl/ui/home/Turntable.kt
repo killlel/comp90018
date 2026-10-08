@@ -114,27 +114,37 @@ fun Turntable(
             modifier = Modifier.fillMaxWidth(),
         )
 
+        // Sized to the export's own aspect. A square box would letterbox the image and push it
+        // down by an eighth of its width, off the front of the mat.
+        val platterHeight = platterWidth * PLATTER_HEIGHT_RATIO
         Image(
             painter = painterResource(R.drawable.turntable_platter),
             contentDescription = null,
             modifier = Modifier
-                .size(platterWidth)
+                .size(width = platterWidth, height = platterHeight)
                 .offset(
                     x = plinthWidth * SPINDLE_X - platterWidth / 2,
-                    y = plinthHeight * SPINDLE_Y - platterWidth * PLATTER_HEIGHT_RATIO / 2,
-                ),
+                    y = plinthHeight * SPINDLE_Y - platterHeight / 2,
+                )
+                // The platter is shot from a little higher than the plinth; flattening it puts
+                // both under one camera. Pivots on the box centre, which is the spindle point.
+                .graphicsLayer { scaleY = PLATTER_SQUASH },
         )
 
+        // The record sits on the platter's top face, whose centre is a little above the middle
+        // of the export, and shares its flattening.
+        val surfaceCentreY = plinthHeight * SPINDLE_Y +
+            platterHeight * PLATTER_SQUASH * (PLATTER_SURFACE_CENTRE_Y - 0.5f)
         Box(
             modifier = Modifier
                 .size(recordSize)
-                // Centre the square on the spindle, then flatten. scaleY pivots on the box centre,
-                // so the spindle stays put while the disc squashes around it.
+                // Centre the square on the platter's face, then flatten. scaleY pivots on the box
+                // centre, so the disc squashes around its own spindle.
                 .offset(
                     x = plinthWidth * SPINDLE_X - recordSize / 2,
-                    y = plinthHeight * SPINDLE_Y - recordSize / 2,
+                    y = surfaceCentreY - recordSize / 2,
                 )
-                .graphicsLayer { scaleY = PERSPECTIVE_SQUASH },
+                .graphicsLayer { scaleY = PLATTER_SURFACE_ASPECT * PLATTER_SQUASH },
         ) {
             Image(
                 painter = painterResource(R.drawable.turntable_record),
@@ -211,17 +221,31 @@ private const val PLINTH_HEIGHT_RATIO = 619f / 1100f
 /** 1100x825 export. */
 private const val PLATTER_HEIGHT_RATIO = 825f / 1100f
 
-/** The platter's top surface is roughly 0.57 as tall as it is wide at this camera angle. */
-private const val PERSPECTIVE_SQUASH = 0.57f
+/**
+ * Measured off the platter export: its top face spans y 141–646 of 825 and x 112–984 of 1100, so
+ * the face is 0.58 as tall as it is wide and centred at 0.477 of the image height.
+ */
+private const val PLATTER_SURFACE_ASPECT = 0.58f
+private const val PLATTER_SURFACE_CENTRE_Y = 0.477f
 
-/** Where the spindle sits on the plinth, as a fraction of the plinth's width and height. */
-private const val SPINDLE_X = 0.45f
-private const val SPINDLE_Y = 0.48f
+/** Extra vertical flattening so the platter matches the plinth's lower camera angle. */
+private const val PLATTER_SQUASH = 0.88f
 
-private const val PLATTER_WIDTH_FRACTION = 0.56f
+/**
+ * Where the spindle sits on the plinth, as a fraction of the plinth's width and height. Chosen so
+ * the whole platter, rim included, sits inside the black mat (y 92–439 of the 619 export).
+ */
+private const val SPINDLE_X = 0.43f
+private const val SPINDLE_Y = 0.43f
 
-/** A record is a little smaller than the platter it sits on, so the metal rim stays visible. */
-private const val RECORD_WIDTH_FRACTION = 0.86f
+private const val PLATTER_WIDTH_FRACTION = 0.60f
+
+/**
+ * The record box as a fraction of the platter width. The disc fills only 83% of its export, so
+ * this makes the disc 96% of the platter's face — a thin ring of mat stays visible, as on a real
+ * deck.
+ */
+private const val RECORD_WIDTH_FRACTION = 0.917f
 
 /** Measured off the record export: the paper label, and the hole at its centre. */
 private const val LABEL_DIAMETER_FRACTION = 0.236f
@@ -239,9 +263,13 @@ private const val ARM_PIVOT_IN_IMAGE_Y = 0.30f
 private const val ARM_PIVOT_ON_PLINTH_X = 0.82f
 private const val ARM_PIVOT_ON_PLINTH_Y = 0.30f
 
-/** Parked clear of the disc; swung in over it. Positive is clockwise. */
-private const val ARM_PARKED_DEGREES = 14f
-private const val ARM_PLAYING_DEGREES = -2f
+/**
+ * Positive is clockwise, which swings the stylus in towards the spindle. Parked leaves it just off
+ * the disc's front-right edge; playing sets it down about four-fifths of the way out, in the
+ * grooves.
+ */
+private const val ARM_PARKED_DEGREES = 12f
+private const val ARM_PLAYING_DEGREES = 28f
 private const val ARM_SWING_MILLIS = 900
 
 /** 33 1/3 rpm. Slower reads as a stopped record; faster looks like a fan. */
