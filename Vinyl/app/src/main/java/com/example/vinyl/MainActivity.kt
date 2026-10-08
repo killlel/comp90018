@@ -699,19 +699,18 @@ private fun AuthScreen(
                             }
                         }
                     }
-                },
-            ) {
-                Image(painterResource(R.drawable.google_g), contentDescription = null, modifier = Modifier.size(24.dp))
-                Spacer(Modifier.width(12.dp))
-                Text(if (isSigningIn) "Signing in…" else "Continue with Google", fontSize = 18.sp, lineHeight = 24.sp, fontFamily = PoppinsFontFamily, fontWeight = FontWeight.Medium)
-            }
-            Spacer(Modifier.height(12.dp))
-            if (!isSigningIn && (showBrowserFallback || callbackError != null)) {
-                TextButton(onClick = {
-                    onClearCallbackError()
-                    scope.launch { startBrowserSignIn() }
-                }) { Text("Sign in with a browser instead") }
-            }
+                ) {
+                    Image(painterResource(R.drawable.google_g), contentDescription = null, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text(if (isSigningIn) "Signing in…" else "Continue with Google", fontSize = 18.sp, lineHeight = 24.sp, fontFamily = PoppinsFontFamily, fontWeight = FontWeight.Medium)
+                }
+                Spacer(Modifier.height(12.dp))
+                if (!isSigningIn && (showBrowserFallback || callbackError != null)) {
+                    TextButton(onClick = {
+                        onClearCallbackError()
+                        scope.launch { startBrowserSignIn() }
+                    }) { Text("Sign in with a browser instead") }
+                }
                 (errorMessage ?: callbackError)?.let {
                     Text(it, color = VinylPalette.TealAccent, textAlign = TextAlign.Center,
                         modifier = Modifier.padding(top = 12.dp), fontSize = 14.sp)
