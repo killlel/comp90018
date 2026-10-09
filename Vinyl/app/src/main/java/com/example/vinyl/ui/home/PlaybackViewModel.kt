@@ -34,16 +34,46 @@ data class NowPlaying(
  * Where the song is, for the progress bar: when the sound started, on the
  * `SystemClock.elapsedRealtime()` clock, and how long it runs. The bar works out the rest each
  * frame, so the player never has to publish a position.
+ *
+ * A paused song keeps the moment it was paused, so its position holds still; resuming moves the
+ * start later by however long it was paused, so the same sum carries on from where it stopped.
  */
-data class PlaybackClock(val startedAtMillis: Long, val durationMillis: Long)
+data class PlaybackClock(
+    val startedAtMillis: Long,
+    val durationMillis: Long,
+    /** When it was paused, on the same clock. Null while it plays. */
+    val pausedAtMillis: Long? = null,
+) {
+    val isPaused: Boolean get() = pausedAtMillis != null
+
+    /** How far into the song it is at [now], never past either end. */
+    fun elapsedAt(now: Long): Long =
+        ((pausedAtMillis ?: now) - startedAtMillis).coerceIn(0L, durationMillis)
+
+    fun pausedAt(now: Long): PlaybackClock = if (isPaused) this else copy(pausedAtMillis = now)
+
+    fun resumedAt(now: Long): PlaybackClock {
+        val pausedAt = pausedAtMillis ?: return this
+        return copy(startedAtMillis = startedAtMillis + (now - pausedAt), pausedAtMillis = null)
+    }
+
+    /**
+     * The same song moved to [positionMillis] at [now], kept between the start and the end. A
+     * paused song stays paused, now holding at the new position.
+     */
+    fun seekedTo(positionMillis: Long, now: Long): PlaybackClock {
+        val position = positionMillis.coerceIn(0L, durationMillis)
+        return copy(startedAtMillis = now - position, pausedAtMillis = pausedAtMillis?.let { now })
+    }
+}
 
 /**
  * What's playing on the Home turntable. Activity-scoped, so the card that starts a song (in the
  * receive flow or the Collection) and the Home screen that shows it share one instance.
  *
- * A song with a preview plays it and stops when it ends. One without a preview — every seeded
- * demo record — still "plays" for [SILENT_PLAY_MILLIS], so the turntable and the card behave the
- * same either way. [stop] ends either early.
+ * A song with a preview plays it and stops when it ends. One without a preview still "plays" for
+ * [SILENT_PLAY_MILLIS], so the turntable and the card behave the same either way. [togglePause]
+ * holds either where it is, [seekBy] skips either back or on, and [stop] ends either early.
  */
 class PlaybackViewModel : ViewModel() {
 
@@ -64,7 +94,49 @@ class PlaybackViewModel : ViewModel() {
             // Sound starts as the needle lands, not while the arm is still swinging over.
             delay(NEEDLE_LANDS_AFTER_MILLIS)
             val url = track.previewUrl
-            if (url != null) startAudio(url) else playSilently()
+            if (url != null) startAudio(url) else playOnSilently()
+        }
+    }
+
+    /**
+     * Pauses a playing song, or resumes a paused one. Does nothing until sound has started — while
+     * the needle is still dropping there is nothing to hold yet.
+     */
+    fun togglePause() {
+        val clock = _clock.value ?: return
+        val now = SystemClock.elapsedRealtime()
+        if (clock.isPaused) {
+            _clock.value = clock.resumedAt(now)
+            val mediaPlayer = player
+            if (mediaPlayer != null) mediaPlayer.start() else finishSilentlyAfter(clock.remaining())
+        } else {
+            _clock.value = clock.pausedAt(now)
+            // A preview pauses itself; a silent song's only moving part is its timer.
+            val mediaPlayer = player
+            if (mediaPlayer != null) mediaPlayer.pause() else session?.cancel()
+        }
+    }
+
+    /**
+     * Jumps [deltaMillis] forwards or back. Skipping past the end finishes the song, as letting it
+     * play out would. Does nothing until sound has started.
+     */
+    fun seekBy(deltaMillis: Long) {
+        val clock = _clock.value ?: return
+        val now = SystemClock.elapsedRealtime()
+        val target = clock.elapsedAt(now) + deltaMillis
+        if (target >= clock.durationMillis) {
+            stop()
+            return
+        }
+        val moved = clock.seekedTo(target, now)
+        _clock.value = moved
+        val mediaPlayer = player
+        if (mediaPlayer != null) {
+            mediaPlayer.seekTo(moved.elapsedAt(now).toInt())
+        } else if (!moved.isPaused) {
+            // A silent song's end is a timer, so it moves with the position.
+            finishSilentlyAfter(moved.remaining())
         }
     }
 
@@ -109,25 +181,30 @@ class PlaybackViewModel : ViewModel() {
     }
 
     /**
-     * A preview that won't load shouldn't cut the record off mid-spin: it plays on silently for
-     * whatever is left of a preview's length.
+     * Plays on with no sound, for a song without a preview or one whose preview won't load — that
+     * shouldn't cut the record off mid-spin. Runs for whatever is left of a preview's length, and
+     * stays paused if it was.
      */
     private fun playOnSilently() {
         releasePlayer()
-        val played = _clock.value?.let { SystemClock.elapsedRealtime() - it.startedAtMillis } ?: 0L
-        val remaining = (SILENT_PLAY_MILLIS - played).coerceAtLeast(0L)
-        _clock.value = PlaybackClock(SystemClock.elapsedRealtime() - played, SILENT_PLAY_MILLIS)
+        val now = SystemClock.elapsedRealtime()
+        val clock = _clock.value
+            ?.copy(durationMillis = SILENT_PLAY_MILLIS)
+            ?: PlaybackClock(now, SILENT_PLAY_MILLIS)
+        _clock.value = clock
+        if (!clock.isPaused) finishSilentlyAfter(clock.remaining())
+    }
+
+    private fun finishSilentlyAfter(millis: Long) {
+        session?.cancel()
         session = viewModelScope.launch {
-            delay(remaining)
+            delay(millis)
             stop()
         }
     }
 
-    private suspend fun playSilently() {
-        _clock.value = PlaybackClock(SystemClock.elapsedRealtime(), SILENT_PLAY_MILLIS)
-        delay(SILENT_PLAY_MILLIS)
-        stop()
-    }
+    private fun PlaybackClock.remaining(): Long =
+        durationMillis - elapsedAt(SystemClock.elapsedRealtime())
 
     private fun releasePlayer() {
         player?.release()

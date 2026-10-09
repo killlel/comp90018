@@ -48,7 +48,7 @@ import kotlinx.coroutines.delay
  *
  *     tonearm   parked beside the platter; swings in and lands when music plays
  *     record    only there while music plays: lowered on, turns once the needle
- *               lands, lifted off when it stops
+ *               lands, coasts to rest while paused, lifted off when it stops
  *     platter   static
  *     plinth    static
  *
@@ -70,10 +70,12 @@ fun Turntable(
     modifier: Modifier = Modifier,
     /** Music is playing. False keeps the record still and the arm parked beside it. */
     playing: Boolean = false,
+    /** The song is held. The record stays on with the needle in it, but stops turning. */
+    paused: Boolean = false,
     /** Painted onto the record label. Falls back to the accent colour when absent. */
     labelArtworkUrl: String? = null,
-    /** Tapping the deck while it plays lifts the needle. Null leaves the deck inert. */
-    onStop: (() -> Unit)? = null,
+    /** Tapping the deck while it plays pauses or resumes the song. Null leaves the deck inert. */
+    onTogglePause: (() -> Unit)? = null,
     /**
      * When the song began, on the `SystemClock.elapsedRealtime()` clock. The drop is only played
      * if it would still be under way; a turntable drawn later — after switching tabs and coming
@@ -127,8 +129,10 @@ fun Turntable(
         }
     }
 
-    LaunchedEffect(needleDown) {
-        if (needleDown) {
+    // A paused record sits still under the needle, like a deck with its motor switched off.
+    val turning = needleDown && !paused
+    LaunchedEffect(turning) {
+        if (turning) {
             // Spin up over the first turn rather than jumping to speed, then hold it. Skipped
             // when the record was already turning before this screen appeared.
             if (!skipSpinUp) {
@@ -139,18 +143,22 @@ fun Turntable(
                 spin.snapTo(spin.value % 360f)
                 spin.animateTo(spin.value + 360f, tween(REVOLUTION_MILLIS, easing = LinearEasing))
             }
-        } else if (spin.value % 360f != 0f) {
+        } else {
+            // Arriving mid-song but paused, the record is still; resuming spins it up from rest.
+            skipSpinUp = false
             // Coast to a stop instead of freezing mid-turn.
-            spin.animateTo(spin.value + COAST_DEGREES, tween(COAST_MILLIS, easing = LinearOutSlowInEasing))
+            if (spin.value % 360f != 0f) {
+                spin.animateTo(spin.value + COAST_DEGREES, tween(COAST_MILLIS, easing = LinearOutSlowInEasing))
+            }
         }
     }
 
-    val tapToStop = if (playing && onStop != null) {
+    val tapToPause = if (playing && onTogglePause != null) {
         Modifier.clickable(
             interactionSource = remember { MutableInteractionSource() },
             indication = null, // a ripple over a photo of a turntable looks like a glitch
-            onClickLabel = "Stop playing",
-            onClick = onStop,
+            onClickLabel = if (paused) "Resume" else "Pause",
+            onClick = onTogglePause,
         )
     } else {
         Modifier
@@ -170,7 +178,7 @@ fun Turntable(
                     placeable.place(0, -top)
                 }
             }
-            .then(tapToStop),
+            .then(tapToPause),
     ) {
         val plinthWidth = maxWidth
         val plinthHeight = plinthWidth * PLINTH_HEIGHT_RATIO
@@ -335,9 +343,13 @@ private const val PLATTER_SQUASH = 0.88f
  * the whole platter, rim included, sits inside the black mat (y 92–439 of the 619 export).
  */
 private const val SPINDLE_X = 0.39f
-private const val SPINDLE_Y = 0.43f
+private const val SPINDLE_Y = 0.435f
 
-private const val PLATTER_WIDTH_FRACTION = 0.56f
+/**
+ * As big as the mat allows. The mat's depth is the limit, not its width: any wider and the
+ * platter's rim runs off the front or back of it. What's left on the right is the arm's.
+ */
+private const val PLATTER_WIDTH_FRACTION = 0.68f
 
 /**
  * The record box as a fraction of the platter width. The disc fills only 83% of its export, so
@@ -350,8 +362,11 @@ private const val RECORD_WIDTH_FRACTION = 0.917f
 private const val LABEL_DIAMETER_FRACTION = 0.236f
 private const val SPINDLE_HOLE_OF_LABEL = 0.05f
 
-/** 950x964 export. */
-private const val TONEARM_WIDTH_FRACTION = 0.46f
+/**
+ * 950x964 export. Sized so the parked arm fits on the mat beside the platter, headshell and all,
+ * and still reaches the outer grooves when it swings in.
+ */
+private const val TONEARM_WIDTH_FRACTION = 0.40f
 private const val TONEARM_HEIGHT_RATIO = 964f / 950f
 
 /** The bearing inside the tonearm export — both the anchor and the rotation origin. */
@@ -359,16 +374,15 @@ private const val ARM_PIVOT_IN_IMAGE_X = 0.77f
 private const val ARM_PIVOT_IN_IMAGE_Y = 0.30f
 
 /** Where that bearing sits on the plinth. */
-private const val ARM_PIVOT_ON_PLINTH_X = 0.82f
-private const val ARM_PIVOT_ON_PLINTH_Y = 0.30f
+private const val ARM_PIVOT_ON_PLINTH_X = 0.86f
+private const val ARM_PIVOT_ON_PLINTH_Y = 0.28f
 
 /**
- * Positive is clockwise, which swings the stylus in towards the spindle. Parked leaves it just off
- * the disc's front-right edge; playing sets it down about four-fifths of the way out, in the
- * grooves.
+ * Positive is clockwise, which swings the stylus in towards the spindle. Parked rests it on the
+ * mat to the right of the platter; playing sets it down in the outer grooves.
  */
-private const val ARM_PARKED_DEGREES = 12f
-private const val ARM_PLAYING_DEGREES = 30f
+private const val ARM_PARKED_DEGREES = 2f
+private const val ARM_PLAYING_DEGREES = 27f
 private const val ARM_SWING_MILLIS = 900
 
 /** Lets the card sheet slide away before the arm moves, so the drop is seen. */
