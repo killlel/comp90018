@@ -93,5 +93,6 @@ internal fun RoomCard.toArrivedOption(readerLat: Double?, readerLng: Double?): A
         sentTimeLabel = sentTimeLabel(submittedAt),
         senderLat = lat,
         senderLng = lng,
+        previewUrl = previewUrl,
     )
 }

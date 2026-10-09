@@ -74,6 +74,8 @@ fun ReceivedCardScreen(
     /** The DISTANCE block calls this - only when a distance is actually known (see below), since
      *  there is nothing to show a bearing for otherwise. Intended target: CompassScreen. */
     onViewDirection: () -> Unit = {},
+    /** "Play this song": puts the record on the Home turntable. Null disables the button. */
+    onPlay: (() -> Unit)? = null,
 ) {
     val moodOption = MoodOptions.all.firstOrNull { it.tag == state.mood }
 
@@ -215,9 +217,10 @@ fun ReceivedCardScreen(
 
         Spacer(modifier = Modifier.weight(1f))
 
-        // Not wired to anything yet - same style as the row below it.
+        // Takes the reader back to Home, where the record goes on the turntable and plays.
         OutlinedButton(
-            onClick = {},
+            onClick = { onPlay?.invoke() },
+            enabled = onPlay != null,
             modifier = Modifier.fillMaxWidth().height(80.dp),
             shape = RoundedCornerShape(30),
             border = BorderStroke(1.5.dp, VinylPalette.Cream),
