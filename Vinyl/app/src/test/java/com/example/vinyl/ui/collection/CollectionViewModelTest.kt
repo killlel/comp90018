@@ -327,4 +327,80 @@ class CollectionViewModelTest {
         assertEquals("s1", state.openRecord?.id)
         assertNull(state.actionError)
     }
+
+    // ---------------------------------------------------------------- "See all" grid
+
+    private val gridIds get() = state.gridRecords.map { it.id }
+
+    @Test
+    fun `see all opens on the shelves' filter with no search`() = runTest {
+        viewModel.refresh()
+        advanceUntilIdle()
+        viewModel.selectFilter(CollectionFilter.SENT)
+
+        viewModel.openGrid()
+
+        assertTrue(state.isGridOpen)
+        assertFalse(state.isSearching)
+        assertEquals("", state.searchQuery)
+        assertEquals(listOf("s1"), gridIds)
+    }
+
+    @Test
+    fun `switching pills in the grid refilters it`() = runTest {
+        viewModel.refresh()
+        advanceUntilIdle()
+        viewModel.openGrid()
+
+        viewModel.selectFilter(CollectionFilter.RECEIVED)
+
+        assertEquals(listOf("r1"), gridIds)
+    }
+
+    @Test
+    fun `closing the search box clears the query`() = runTest {
+        viewModel.refresh()
+        advanceUntilIdle()
+        viewModel.openGrid()
+        viewModel.openSearch()
+        viewModel.search("nothing matches this")
+        assertEquals(emptyList<String>(), gridIds)
+
+        viewModel.closeSearch()
+
+        assertFalse(state.isSearching)
+        assertEquals("", state.searchQuery)
+        assertEquals(listOf("r1", "s1"), gridIds)
+    }
+
+    @Test
+    fun `removing the last record leaves the grid open and empty`() = runTest {
+        repository.records = listOf(received)
+        viewModel.refresh()
+        advanceUntilIdle()
+        viewModel.openGrid()
+        viewModel.openRecord(received)
+
+        viewModel.remove(received)
+        advanceUntilIdle()
+
+        assertTrue(state.isGridOpen)
+        assertNull(state.openRecord)
+        assertEquals(emptyList<String>(), gridIds)
+    }
+
+    @Test
+    fun `closing the grid resets its search`() = runTest {
+        viewModel.refresh()
+        advanceUntilIdle()
+        viewModel.openGrid()
+        viewModel.openSearch()
+        viewModel.search("r1")
+
+        viewModel.closeGrid()
+
+        assertFalse(state.isGridOpen)
+        assertFalse(state.isSearching)
+        assertEquals("", state.searchQuery)
+    }
 }
