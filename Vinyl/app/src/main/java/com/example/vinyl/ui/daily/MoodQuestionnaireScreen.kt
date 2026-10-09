@@ -279,8 +279,9 @@ private fun MoodCell(
     }
 }
 
+/** Also drawn on the envelope and the music card, so shared within the module. */
 @DrawableRes
-private fun moodIcon(tag: MoodTag): Int = when (tag) {
+internal fun moodIcon(tag: MoodTag): Int = when (tag) {
     MoodTag.Happy -> R.drawable.ic_mood_happy
     MoodTag.Sad -> R.drawable.ic_mood_sad
     MoodTag.Calm -> R.drawable.ic_mood_calm

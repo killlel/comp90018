@@ -1,28 +1,62 @@
 package com.example.vinyl.ui.daily
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.outlined.Vibration
+import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.vinyl.data.MoodTag
+import com.example.vinyl.haptics.vibrateOnce
 import com.example.vinyl.ui.theme.VinylPalette
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.roundToInt
 
 data class UnopenedRecordUiState(
     /** Null when either end has no location — see [distanceNote] for why. */
@@ -30,15 +64,19 @@ data class UnopenedRecordUiState(
     val moodLabel: String,
     val sentTimeLabel: String,
     val distanceNote: String? = null,
+    /** The sender's mood, drawn as a face above the envelope. Null draws no face. */
+    val mood: MoodTag? = null,
+    /** The day it was sent, for example "8 Oct". Null hides the "Sent" line. */
+    val sentDateLabel: String? = null,
 )
 
 /**
- * The sealed "you've got a record" reveal —  this is just the pre-open moment.
+ * Page 3 of the receive flow: the sealed envelope, full screen.
  *
- * Shake-to-open is real: [DetectShakeGesture] listens to the accelerometer for as long as this
- * screen is visible and calls [onOpen], the same callback the button uses. See ShakeDetector.kt
- * and ShakeAlgorithm.kt for the detection itself - deliberately not implemented here, so this
- * composable stays about layout, not sensor logic.
+ * Shaking the phone opens it: [DetectShakeGesture] listens to the accelerometer for as long as
+ * this screen is visible (see ShakeDetector.kt and ShakeAlgorithm.kt for the detection itself).
+ * Tapping the envelope does the same, as a quiet fallback with no hint on screen. Either way the
+ * flap flips up, the letter slides out, and then [onOpen] moves on to the music card.
  */
 @Composable
 fun UnopenedRecordScreen(
@@ -46,161 +84,327 @@ fun UnopenedRecordScreen(
     onOpen: () -> Unit,
     onBack: () -> Unit = {},
 ) {
-    DetectShakeGesture(onShake = onOpen)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val currentOnOpen by rememberUpdatedState(onOpen)
+
+    var opening by remember { mutableStateOf(false) }
+    val flip = remember { Animatable(0f) }
+    val letterLift = remember { Animatable(0f) }
+    val wobbleAmount = remember { Animatable(1f) }
+
+    val open: () -> Unit = {
+        if (!opening) {
+            opening = true
+            context.vibrateOnce()
+            scope.launch { wobbleAmount.animateTo(0f, tween(150)) }
+            scope.launch { flip.animateTo(1f, tween(FlapFlipMs, easing = FastOutSlowInEasing)) }
+            scope.launch {
+                // The letter starts rising as the flap clears the top of the envelope.
+                delay(LetterStartMs)
+                letterLift.animateTo(1f, tween(LetterSlideMs, easing = FastOutSlowInEasing))
+                delay(HoldBeforeCardMs)
+                currentOnOpen()
+            }
+        }
+    }
+
+    DetectShakeGesture(enabled = !opening, onShake = open)
+
+    val idle = rememberInfiniteTransition(label = "envelopeWobble")
+    val wobble by idle.animateFloat(
+        initialValue = -1f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(WobbleMs / 2, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "wobble",
+    )
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(VinylPalette.Background)
+            .background(VinylPalette.SheetSurface)
+            .statusBarsPadding()
+            .navigationBarsPadding()
             .padding(horizontal = 20.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().statusBarsPadding(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = VinylPalette.TextPrimary)
-            }
-            Text(
-                text = "UNOPENED MUSIC CARD",
-                color = VinylPalette.TextMuted,
-                fontSize = 11.sp,
-                letterSpacing = 1.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(modifier = Modifier.width(48.dp))
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
-
-        Box(
-            modifier = Modifier.align(Alignment.CenterHorizontally),
-            contentAlignment = Alignment.BottomStart,
-        ) {
-            Column(
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Box(
                 modifier = Modifier
-                    .width(220.dp)
-                    .aspectRatio(1f)
-                    .clip(RoundedCornerShape(10.dp))
-                    .border(1.dp, VinylPalette.TextMuted.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
-                    .background(VinylPalette.PanelDark),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onBack),
+                contentAlignment = Alignment.Center,
             ) {
-                Text("sleeve art", color = VinylPalette.TextMuted, fontSize = 13.sp)
-                Text(
-                    "or browse files",
-                    color = VinylPalette.TealAccent,
-                    fontSize = 12.sp,
-                    textDecoration = TextDecoration.Underline,
+                Icon(
+                    Icons.AutoMirrored.Rounded.ArrowBack,
+                    contentDescription = "Back",
+                    tint = VinylPalette.Cream,
+                    modifier = Modifier.size(24.dp),
                 )
             }
-
-            Row(
-                modifier = Modifier
-                    .padding(bottom = 14.dp, start = 8.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(VinylPalette.Background.copy(alpha = 0.92f))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Box(modifier = Modifier.size(14.dp).clip(CircleShape).background(VinylPalette.TealAccent))
-                Text("SEALED · DO NOT BEND", color = VinylPalette.TextMuted, fontSize = 10.sp, letterSpacing = 1.sp)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(28.dp))
-
-        Text(
-            text = state.distanceLabel
-                ?.let { "Someone $it away\nsent you a music card" }
-                ?: "Someone\nsent you a music card",
-            color = VinylPalette.TextPrimary,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.SemiBold,
-            lineHeight = 28.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        state.distanceNote?.let { note ->
-            Text(
-                text = note,
-                color = VinylPalette.TextMuted,
-                fontSize = 12.sp,
-                lineHeight = 17.sp,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 6.dp),
-            )
         }
 
         Spacer(modifier = Modifier.height(8.dp))
-
         Text(
-            text = "MOOD: ${state.moodLabel.uppercase()} · SENT ${state.sentTimeLabel}",
-            color = VinylPalette.TextMuted,
-            fontSize = 12.sp,
-            letterSpacing = 0.5.sp,
+            text = "Open your music card",
+            color = VinylPalette.Cream,
+            style = ReceiveFlowStyle.Title,
             textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
         )
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        Row(
-            modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .clip(RoundedCornerShape(50))
-                .background(VinylPalette.PanelDark)
-                .border(1.dp, VinylPalette.TextMuted.copy(alpha = 0.2f), RoundedCornerShape(50))
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(VinylPalette.TealAccent))
-            Text("Shake your phone to slide it out", color = VinylPalette.TextPrimary, fontSize = 13.sp)
-        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "Shake your phone to open it.",
+            color = VinylPalette.TextMuted,
+            style = ReceiveFlowStyle.Helper,
+            textAlign = TextAlign.Center,
+        )
 
         Spacer(modifier = Modifier.weight(1f))
 
-        Button(
-            onClick = onOpen,
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            shape = RoundedCornerShape(50),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = VinylPalette.Cream,
-                contentColor = VinylPalette.Background,
-            ),
-        ) {
-            Text("Open it now", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        // The open flap rises above the envelope into the face's space, so the face makes way.
+        state.mood?.let { mood ->
+            Icon(
+                painter = painterResource(moodIcon(mood)),
+                contentDescription = null,
+                tint = VinylPalette.Cream,
+                modifier = Modifier
+                    .size(60.dp)
+                    .graphicsLayer { alpha = 1f - flip.value },
+            )
+            Spacer(modifier = Modifier.height(GroupGap))
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Envelope(
+            flip = flip.value,
+            letterLift = LetterLiftDistance * letterLift.value,
+            modifier = Modifier
+                .graphicsLayer {
+                    rotationZ = wobble * WobbleDegrees * wobbleAmount.value
+                    transformOrigin = TransformOrigin(0.5f, 0.92f)
+                }
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = open,
+                ),
+        )
+
+        Spacer(modifier = Modifier.height(GroupGap))
 
         Text(
-            text = "Opening drops the needle and unfolds the message. It buzzes once when the record catches.",
-            color = VinylPalette.TextMuted,
-            fontSize = 11.sp,
-            lineHeight = 15.sp,
+            text = state.distanceLabel?.let { "Someone $it away" } ?: "Someone, somewhere",
+            color = VinylPalette.Cream,
+            style = ReceiveFlowStyle.text(16.sp, FontWeight.Medium, 24.sp),
             textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
         )
+        state.sentDateLabel?.let {
+            Text(
+                text = "Sent $it",
+                color = VinylPalette.Cream.copy(alpha = 0.55f),
+                style = ReceiveFlowStyle.text(13.sp, FontWeight.Light, 20.sp),
+                textAlign = TextAlign.Center,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(GroupGap))
+
+        Icon(
+            Icons.Outlined.Vibration,
+            contentDescription = null,
+            tint = VinylPalette.Cream.copy(alpha = 0.6f),
+            modifier = Modifier.size(30.dp),
+        )
+
+        Spacer(modifier = Modifier.weight(1f))
     }
 }
 
-@Preview(showBackground = true, backgroundColor = 0xFF0D0D0D, widthDp = 393, heightDp = 852)
+/**
+ * The envelope, drawn rather than imported so its parts can move independently.
+ *
+ * [flip] runs the flap from closed (0) to fully open (1), a 180 degree turn about its top edge.
+ * The turn is drawn as a flat vertical squash with no perspective, so the flap keeps the body's
+ * exact width the whole way and lands with its base on the body's top edge. As it opens the
+ * body's top corners square off, so the open flap meets them without a notch.
+ */
+@Composable
+private fun Envelope(flip: Float, letterLift: Dp, modifier: Modifier = Modifier) {
+    val turn = cos(Math.PI * flip).toFloat() // 1 closed, 0 edge-on, -1 open
+    val flapOpen = turn < 0f
+    // Square by the time the flap is edge-on, before its open side shows.
+    val bodyTopCorner = BodyCorner * (1f - 2f * flip).coerceIn(0f, 1f)
+
+    Box(modifier = modifier.size(EnvelopeWidth, EnvelopeHeight)) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawBack(bodyTopCorner.toPx(), BodyCorner.toPx())
+            if (flapOpen) drawFlap(turn, open = true)
+        }
+
+        // The letter sits between the back and the front pocket.
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(LetterInset.roundToPx(), (LetterTop - letterLift).roundToPx()) }
+                .size(EnvelopeWidth - LetterInset * 2, LetterHeight)
+                .clip(RoundedCornerShape(8.dp))
+                .background(LetterColor),
+        )
+
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawPocket(bodyTopCorner.toPx(), BodyCorner.toPx())
+            if (!flapOpen) drawFlap(turn, open = false)
+        }
+
+        // The seal rides on the flap's tip and fades as the flap lifts.
+        Box(
+            modifier = Modifier
+                .offset {
+                    val tipY = (EnvelopeHeight * FlapDepth).toPx() * turn
+                    IntOffset(
+                        ((EnvelopeWidth - SealSize) / 2).roundToPx(),
+                        (tipY - (SealSize / 2).toPx()).roundToInt(),
+                    )
+                }
+                .graphicsLayer { alpha = (1f - flip * 2.5f).coerceIn(0f, 1f) }
+                .size(SealSize)
+                .shadow(8.dp, CircleShape, ambientColor = Color.Black.copy(alpha = 0.25f), spotColor = Color.Black.copy(alpha = 0.25f))
+                .background(SealColor, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Rounded.MusicNote,
+                contentDescription = null,
+                tint = SealNoteColor,
+                modifier = Modifier.size(34.dp),
+            )
+        }
+    }
+}
+
+/** The back panel: rounded all round when closed, square on top once open. */
+private fun DrawScope.drawBack(topCorner: Float, bottomCorner: Float) {
+    val path = Path().apply {
+        addRoundRect(
+            RoundRect(
+                left = 0f, top = 0f, right = size.width, bottom = size.height,
+                topLeftCornerRadius = CornerRadius(topCorner),
+                topRightCornerRadius = CornerRadius(topCorner),
+                bottomRightCornerRadius = CornerRadius(bottomCorner),
+                bottomLeftCornerRadius = CornerRadius(bottomCorner),
+            ),
+        )
+    }
+    drawPath(path, BackColor)
+}
+
+/** The front pocket, its top edge cut into a V that dips to [PocketDip] of the height. */
+private fun DrawScope.drawPocket(topCorner: Float, bottomCorner: Float) {
+    val w = size.width
+    val h = size.height
+    val tip = Offset(w / 2f, h * PocketDip)
+    val path = Path().apply {
+        moveTo(0f, topCorner)
+        val leftStart = towards(Offset.Zero, tip, topCorner)
+        quadraticTo(0f, 0f, leftStart.x, leftStart.y)
+        lineTo(tip.x, tip.y)
+        val rightEnd = towards(Offset(w, 0f), tip, topCorner)
+        lineTo(rightEnd.x, rightEnd.y)
+        quadraticTo(w, 0f, w, topCorner)
+        lineTo(w, h - bottomCorner)
+        quadraticTo(w, h, w - bottomCorner, h)
+        lineTo(bottomCorner, h)
+        quadraticTo(0f, h, 0f, h - bottomCorner)
+        close()
+    }
+    drawPath(path, VinylPalette.Cream)
+}
+
+/**
+ * The flap, hinged on the top edge. [turn] squashes it vertically about that edge (negative
+ * flips it upward). Closed, its top corners are rounded off to sit inside the body's rounded
+ * corners; open, it is a plain triangle exactly as wide as the body.
+ */
+private fun DrawScope.drawFlap(turn: Float, open: Boolean) {
+    val w = size.width
+    val tip = Offset(w / 2f, size.height * FlapDepth)
+    val corner = if (open) 0f else FlapCorner.toPx()
+    val path = Path().apply {
+        val leftStart = towards(Offset.Zero, tip, corner)
+        moveTo(leftStart.x, leftStart.y)
+        quadraticTo(0f, 0f, corner, 0f)
+        lineTo(w - corner, 0f)
+        val rightEnd = towards(Offset(w, 0f), tip, corner)
+        quadraticTo(w, 0f, rightEnd.x, rightEnd.y)
+        lineTo(tip.x, tip.y)
+        close()
+    }
+    scale(scaleX = 1f, scaleY = turn, pivot = Offset(w / 2f, 0f)) {
+        drawPath(path, VinylPalette.TealAccent)
+    }
+}
+
+/** The point [distance] along the line from [from] to [to]. */
+private fun towards(from: Offset, to: Offset, distance: Float): Offset {
+    val dx = to.x - from.x
+    val dy = to.y - from.y
+    val length = hypot(dx, dy)
+    if (length == 0f) return from
+    return Offset(from.x + dx / length * distance, from.y + dy / length * distance)
+}
+
+private val EnvelopeWidth = 240.dp
+private val EnvelopeHeight = 160.dp
+private val BodyCorner = 16.dp
+private val FlapCorner = 14.dp
+
+/** How far down the body the flap's tip reaches, as a fraction of the height. */
+private const val FlapDepth = 0.56f
+
+/** Where the pocket's V bottoms out, as a fraction of the height. */
+private const val PocketDip = 0.54f
+
+// The letter is tall enough that, lifted, its bottom edge still sits below the V's tip
+// (12 + 140 - 60 = 92dp, against a tip at 86dp), so no back panel shows under it.
+private val LetterInset = 16.dp
+private val LetterTop = 12.dp
+private val LetterHeight = 140.dp
+private val LetterLiftDistance = 60.dp
+
+private val SealSize = 60.dp
+private val GroupGap = 28.dp
+
+private val BackColor = Color(0xFFCFC8BA)
+private val LetterColor = Color(0xFFFBF9F4)
+private val SealColor = Color(0xFFE9FBF9)
+private val SealNoteColor = Color(0xFF2FB8AF)
+
+private const val WobbleMs = 1800
+private const val WobbleDegrees = 2.5f
+private const val FlapFlipMs = 550
+private const val LetterStartMs = 400L
+private const val LetterSlideMs = 450
+private const val HoldBeforeCardMs = 750L
+
+@Preview(showBackground = true, backgroundColor = 0xFF1C1C1C, widthDp = 390, heightDp = 844)
 @Composable
 private fun UnopenedRecordScreenPreview() {
     UnopenedRecordScreen(
         state = UnopenedRecordUiState(
             distanceLabel = "2.4 km",
-            moodLabel = "Homesick",
-            sentTimeLabel = "6:20 AM",
+            moodLabel = "Romantic",
+            sentTimeLabel = "3 hr. ago",
+            mood = MoodTag.Romantic,
+            sentDateLabel = "8 Oct",
         ),
         onOpen = {},
     )
+}
+
+/** The envelope with its flap flipped and the letter lifted, to check the open geometry. */
+@Preview(showBackground = true, backgroundColor = 0xFF1C1C1C, widthDp = 320, heightDp = 360)
+@Composable
+private fun EnvelopeOpenPreview() {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Envelope(flip = 1f, letterLift = LetterLiftDistance)
+    }
 }

@@ -5,6 +5,8 @@ import com.example.vinyl.data.MoodOptions
 import com.example.vinyl.data.location.Distance
 import com.example.vinyl.repository.RoomCard
 import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 
 /** Shown in place of a distance when the reader hasn't stored a location. */
@@ -35,6 +37,19 @@ internal fun sentTimeLabel(submittedAt: String?, nowMillis: Long = System.curren
         DateUtils.MINUTE_IN_MILLIS,
         DateUtils.FORMAT_ABBREV_RELATIVE,
     ).toString()
+}
+
+/**
+ * The day a letter was sent, day first in English: "8 Oct", with the year added once it is
+ * from an earlier year ("8 Oct 2025"). Read from the same timestamp as [sentTimeLabel], in the
+ * phone's time zone. Null when the timestamp is missing or unreadable.
+ */
+internal fun sentDateLabel(submittedAt: String?, nowMillis: Long = System.currentTimeMillis()): String? {
+    val sentMillis = submittedAt?.let(::parseTimestamp) ?: return null
+    val sentYear = Calendar.getInstance().apply { timeInMillis = sentMillis }.get(Calendar.YEAR)
+    val thisYear = Calendar.getInstance().apply { timeInMillis = nowMillis }.get(Calendar.YEAR)
+    val pattern = if (sentYear == thisYear) "d MMM" else "d MMM yyyy"
+    return SimpleDateFormat(pattern, Locale.ENGLISH).format(Date(sentMillis))
 }
 
 /**
@@ -91,6 +106,7 @@ internal fun RoomCard.toArrivedOption(readerLat: Double?, readerLng: Double?): A
         mood = tag,
         submissionId = submissionId,
         sentTimeLabel = sentTimeLabel(submittedAt),
+        sentDateLabel = sentDateLabel(submittedAt),
         senderLat = lat,
         senderLng = lng,
         previewUrl = previewUrl,
