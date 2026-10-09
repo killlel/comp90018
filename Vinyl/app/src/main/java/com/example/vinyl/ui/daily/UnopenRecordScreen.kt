@@ -5,12 +5,15 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,6 +43,11 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -75,8 +83,10 @@ data class UnopenedRecordUiState(
  *
  * Shaking the phone opens it: [DetectShakeGesture] listens to the accelerometer for as long as
  * this screen is visible (see ShakeDetector.kt and ShakeAlgorithm.kt for the detection itself).
- * Tapping the envelope does the same, as a quiet fallback with no hint on screen. Either way the
- * flap flips up, the letter slides out, and then [onOpen] moves on to the music card.
+ * A tap on the envelope doesn't open it: the envelope jiggles and the helper line pulses, as a
+ * nudge to shake. As a backup, holding the envelope for [LongPressOpenMs] opens it, and so does
+ * the "Open card" accessibility action. Either way the flap flips up, the letter slides out, and
+ * then [onOpen] moves on to the music card.
  */
 @Composable
 fun UnopenedRecordScreen(
@@ -92,6 +102,9 @@ fun UnopenedRecordScreen(
     val flip = remember { Animatable(0f) }
     val letterLift = remember { Animatable(0f) }
     val wobbleAmount = remember { Animatable(1f) }
+    // A tap's nudge: an extra, stronger jiggle of the envelope and one pulse of the helper line.
+    val nudge = remember { Animatable(0f) }
+    val helperPulse = remember { Animatable(0f) }
 
     val open: () -> Unit = {
         if (!opening) {
@@ -105,6 +118,26 @@ fun UnopenedRecordScreen(
                 letterLift.animateTo(1f, tween(LetterSlideMs, easing = FastOutSlowInEasing))
                 delay(HoldBeforeCardMs)
                 currentOnOpen()
+            }
+        }
+    }
+
+    val remind: () -> Unit = {
+        if (!opening) {
+            scope.launch {
+                nudge.snapTo(0f)
+                nudge.animateTo(0f, keyframes {
+                    durationMillis = NudgeMs
+                    NudgeDegrees at 70
+                    -NudgeDegrees * 0.8f at 170
+                    NudgeDegrees * 0.5f at 280
+                    -NudgeDegrees * 0.25f at 380
+                })
+            }
+            scope.launch {
+                helperPulse.snapTo(0f)
+                helperPulse.animateTo(1f, tween(PulseMs / 2, easing = FastOutSlowInEasing))
+                helperPulse.animateTo(0f, tween(PulseMs / 2, easing = FastOutSlowInEasing))
             }
         }
     }
@@ -155,9 +188,15 @@ fun UnopenedRecordScreen(
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = "Shake your phone to open it.",
-            color = VinylPalette.TextMuted,
+            // Brightens from the usual 55% towards full cream at the top of a pulse.
+            color = VinylPalette.Cream.copy(alpha = 0.55f + 0.45f * helperPulse.value),
             style = ReceiveFlowStyle.Helper,
             textAlign = TextAlign.Center,
+            modifier = Modifier.graphicsLayer {
+                val scale = 1f + 0.06f * helperPulse.value
+                scaleX = scale
+                scaleY = scale
+            },
         )
 
         Spacer(modifier = Modifier.weight(1f))
@@ -180,14 +219,34 @@ fun UnopenedRecordScreen(
             letterLift = LetterLiftDistance * letterLift.value,
             modifier = Modifier
                 .graphicsLayer {
-                    rotationZ = wobble * WobbleDegrees * wobbleAmount.value
+                    rotationZ = wobble * WobbleDegrees * wobbleAmount.value + nudge.value
                     transformOrigin = TransformOrigin(0.5f, 0.92f)
                 }
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = open,
-                ),
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        var released = false
+                        // Null when the finger is still down once the time is up: a long press.
+                        val endedInTime = withTimeoutOrNull(LongPressOpenMs) {
+                            released = waitForUpOrCancellation() != null
+                        }
+                        when {
+                            endedInTime == null -> open()
+                            released -> remind()
+                            // Dragged off the envelope: neither a tap nor a hold.
+                            else -> Unit
+                        }
+                    }
+                }
+                .semantics {
+                    contentDescription = "Unopened music card"
+                    customActions = listOf(
+                        CustomAccessibilityAction("Open card") {
+                            open()
+                            true
+                        },
+                    )
+                },
         )
 
         Spacer(modifier = Modifier.height(GroupGap))
@@ -384,6 +443,13 @@ private const val FlapFlipMs = 550
 private const val LetterStartMs = 400L
 private const val LetterSlideMs = 450
 private const val HoldBeforeCardMs = 750L
+
+/** How long the envelope has to be held to open it without shaking. */
+private const val LongPressOpenMs = 1200L
+
+private const val NudgeMs = 460
+private const val NudgeDegrees = 7f
+private const val PulseMs = 700
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1C1C, widthDp = 390, heightDp = 844)
 @Composable

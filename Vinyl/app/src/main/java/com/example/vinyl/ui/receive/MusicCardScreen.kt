@@ -263,14 +263,17 @@ private fun PlayerCard(state: MusicCardUiState) {
                 )
             }
         }
-        // Progress along the card's bottom edge.
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth(elapsedMs.toFloat() / PreviewMs)
-                .height(3.dp)
-                .background(VinylPalette.TealAccent),
-        )
+        // Progress along the card's bottom edge. Not drawn at 0: a zero-width line still showed
+        // as a dot in the rounded corner.
+        if (elapsedMs > 0L) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth(elapsedMs.toFloat() / PreviewMs)
+                    .height(3.dp)
+                    .background(VinylPalette.TealAccent),
+            )
+        }
     }
 }
 
@@ -418,29 +421,27 @@ private fun BottomRow(trackName: String, artistName: String, onPlayOnTurntable: 
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Plain white until Apple's official icon is added to the project.
-        Box(
+        // Both official icons are the whole button, drawn as supplied: no backing shape, no tint.
+        Image(
+            painter = painterResource(R.drawable.ic_apple_music),
+            contentDescription = "Open in Apple Music",
             modifier = Modifier
-                .size(56.dp)
-                .clip(CircleShape)
-                .background(Color.White)
-                .clickable(onClickLabel = "Listen on Apple Music") {
-                    uriHandler.openUri("https://music.apple.com/search?term=$query")
-                },
+                .size(StreamingIconSize)
+                .clickable { uriHandler.openUri("https://music.apple.com/search?term=$query") },
         )
-        // Spotify's official black icon, unmodified, with half its height clear on every side.
         Box(
             modifier = Modifier
-                .size(56.dp)
-                .clip(CircleShape)
-                .background(SpotifyGreen)
+                .size(StreamingIconSize)
                 .clickable { uriHandler.openUri("https://open.spotify.com/search/$query") },
             contentAlignment = Alignment.Center,
         ) {
+            // The file keeps a little empty canvas around its circle, so it is drawn just larger
+            // than the button to make the circle itself the button's size. Only that transparent
+            // margin spills past the button's edge.
             Image(
                 painter = painterResource(R.drawable.ic_spotify),
-                contentDescription = "Listen on Spotify",
-                modifier = Modifier.size(28.dp),
+                contentDescription = "Open in Spotify",
+                modifier = Modifier.requiredSize(SpotifyCanvasWidth, SpotifyCanvasHeight),
             )
         }
         OutlinedButton(
@@ -486,7 +487,13 @@ private val LetterFooterInset = 14.dp
 
 private val ChipTeal = Color(0xFF0E8C85)
 private val ChipInk = Color(0xFF0A6F69)
-private val SpotifyGreen = Color(0xFF1ED760)
+/** Apple Music and Spotify buttons; smaller than "Play on turntable" and centred beside it. */
+private val StreamingIconSize = 44.dp
+
+// Icon_Spotify.svg is 236.05 x 225.25 with a circle about 218.7 across. Scaled so the circle
+// matches [StreamingIconSize], the whole canvas is this size.
+private val SpotifyCanvasWidth = StreamingIconSize * (236.05f / 218.7f)
+private val SpotifyCanvasHeight = StreamingIconSize * (225.25f / 218.7f)
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1C1C, widthDp = 390, heightDp = 844)
 @Composable
@@ -520,6 +527,7 @@ private fun MusicCardScreenKeptNoLocationPreview() {
             sentDateLabel = "8 Oct 2025",
             hasDirection = false,
             isKept = true,
+            keepError = "Couldn't update your shelf. Try again.",
         ),
         onToggleKeep = {},
         onOpenCompass = {},
