@@ -80,6 +80,7 @@ import com.example.vinyl.data.MoodTag
 import com.example.vinyl.data.Supabase
 import com.example.vinyl.data.onboarding.OnboardingRepository
 import com.example.vinyl.ui.collection.CollectionScreen
+import com.example.vinyl.ui.home.HomeAvatar
 import com.example.vinyl.ui.home.HomeScreen
 import com.example.vinyl.ui.home.HomeViewModel
 import com.example.vinyl.ui.home.NowPlaying
@@ -109,6 +110,7 @@ import com.example.vinyl.ui.location.LocationGateScreen
 import com.example.vinyl.ui.location.LocationSettingsScreen
 import com.example.vinyl.ui.location.LocationUiState
 import com.example.vinyl.ui.settings.SettingsScreen
+import com.example.vinyl.ui.settings.rememberAvatarAppearance
 import com.example.vinyl.ui.location.LocationViewModel
 import com.example.vinyl.ui.receive.MusicCardScreen
 import com.example.vinyl.ui.receive.MusicCardUiState
@@ -344,8 +346,8 @@ private fun VinylApp(
     val collectionState by collectionViewModel.uiState.collectAsState()
     var collectionCompassOpen by rememberSaveable { mutableStateOf(false) }
 
-    // Same activity-scoped instance HomeScreen uses. Its "Recently collected" row reads the
-    // shelf, so it reloads after the receive flow closes in case a record was kept there.
+    // Same activity-scoped instance HomeScreen uses. Its "Arrived today" shelf shows the latest
+    // hand, so it reloads after the receive flow closes in case a new one was dealt.
     val homeViewModel: HomeViewModel = viewModel()
 
     // What's on the Home turntable. "Play this song" on any music card starts it here and goes
@@ -367,6 +369,12 @@ private fun VinylApp(
     LaunchedEffect(receiveFlowStep == null) {
         if (receiveFlowStep == null && wasReceiving) homeViewModel.refresh()
         wasReceiving = receiveFlowStep != null
+    }
+
+    // The avatar is changed in Settings, so it's read again each time Settings opens or closes.
+    val avatarAppearance = rememberAvatarAppearance()
+    val homeAvatar = remember(showSettings) {
+        HomeAvatar(avatarAppearance.iconIndex, avatarAppearance.gradientIndex, avatarAppearance.imageUrl)
     }
 
     // Activity-scoped, so it's the same instance the onboarding pager and settings screen use
@@ -444,7 +452,19 @@ private fun VinylApp(
                         receiveFlowStep = ReceiveFlowStep.Questionnaire
                     },
                     onOpenSettings = { showSettings = true },
-                    onSeeCollection = { selectedTab = AppTab.Collection },
+                    avatar = homeAvatar,
+                    // Both replay the hand already dealt rather than dealing a new one. The picker
+                    // needs it loaded too: an unopened card's back button returns there.
+                    onOpenCard = { card ->
+                        roomViewModel.load(mood = null)
+                        receiveFlowStep = ReceiveFlowStep.Unopened(
+                            card.toArrivedOption(readerLat = locationState.lat, readerLng = locationState.lng),
+                        )
+                    },
+                    onSeeAllArrived = {
+                        roomViewModel.load(mood = null)
+                        receiveFlowStep = ReceiveFlowStep.ArrivedToday
+                    },
                 )
                 AppTab.Create -> WriteCardScreen()
             }

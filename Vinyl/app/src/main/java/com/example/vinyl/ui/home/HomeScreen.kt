@@ -2,8 +2,9 @@ package com.example.vinyl.ui.home
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,7 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,12 +34,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,21 +51,30 @@ import com.example.vinyl.data.repository.placeholderAccent
 import com.example.vinyl.repository.RoomCard
 import com.example.vinyl.ui.components.ShelfLedge
 import com.example.vinyl.ui.components.VinylSleeveThumbnail
+import com.example.vinyl.ui.settings.AvatarPreview
 import com.example.vinyl.ui.theme.VinylPalette
 import com.example.vinyl.ui.theme.VinylSectionTitleStyle
 
+/** The signed-in user's profile picture, as Settings draws it. */
+data class HomeAvatar(val iconIndex: Int, val gradientIndex: Int, val imageUrl: String?)
+
 /**
- * The "Today" tab — the turntable, what arrived, and a glance at the shelf.
+ * The Home tab — today's cards, the way in to them, and the turntable.
  *
- * Reads only. Picking a mood and being dealt letters is the receive flow, reached through the one
+ * Reads only. Picking a mood and being dealt cards is the receive flow, reached through the one
  * button; there is deliberately no mood or genre picker here, so the question has one home.
  */
 @Composable
 fun HomeScreen(
     onOpenReceive: () -> Unit,
     onOpenSettings: () -> Unit,
-    onSeeCollection: () -> Unit,
+    /** Opens one of today's cards, as picking it in Arrived Today would. */
+    onOpenCard: (RoomCard) -> Unit,
+    /** Opens the Arrived Today picker on the cards already dealt, without dealing new ones. */
+    onSeeAllArrived: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Shown top right, where it opens Settings. Null falls back to a generic profile icon. */
+    avatar: HomeAvatar? = null,
     viewModel: HomeViewModel = viewModel(),
     /** Activity-scoped: the same instance a music card's "Play this song" starts. */
     playback: PlaybackViewModel = viewModel(),
@@ -77,7 +89,11 @@ fun HomeScreen(
         playbackClock = playbackClock,
         onOpenReceive = onOpenReceive,
         onOpenSettings = onOpenSettings,
-        onSeeCollection = onSeeCollection,
+        onOpenCard = onOpenCard,
+        onSeeAllArrived = onSeeAllArrived,
+        avatar = avatar,
+        onTogglePause = playback::togglePause,
+        onSeekBy = playback::seekBy,
         onStopPlaying = playback::stop,
         onRefresh = viewModel::refresh,
         modifier = modifier,
@@ -91,17 +107,23 @@ fun HomeScreen(
     state: HomeUiState,
     onOpenReceive: () -> Unit,
     onOpenSettings: () -> Unit,
-    onSeeCollection: () -> Unit,
     modifier: Modifier = Modifier,
-    /** The song playing on the turntable, or null when the deck is idle. */
+    onOpenCard: (RoomCard) -> Unit = {},
+    onSeeAllArrived: () -> Unit = {},
+    avatar: HomeAvatar? = null,
+    /** The song on the turntable, or null when the deck is idle. */
     nowPlaying: NowPlaying? = null,
-    /** Where the song is, for the progress bar. Null until sound starts. */
+    /** Where the song is, for the progress bar and the pause state. Null until sound starts. */
     playbackClock: PlaybackClock? = null,
+    onTogglePause: () -> Unit = {},
+    onSeekBy: (Long) -> Unit = {},
     onStopPlaying: () -> Unit = {},
     onRefresh: () -> Unit = {},
 ) {
-    // The room only changes when the server hands out new letters, so there is nothing to poll
-    // for — but a user who has just sent one will pull to see if anything came back.
+    val paused = playbackClock?.isPaused == true
+
+    // The room only changes when the server hands out new cards, so there is nothing to poll
+    // for — but a user who has just pulled elsewhere will pull down to see them here.
     PullToRefreshBox(
         isRefreshing = state.isLoading,
         onRefresh = onRefresh,
@@ -110,54 +132,51 @@ fun HomeScreen(
             .background(VinylPalette.Background),
     ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
-            // The "Now playing" card takes whatever height is left, so the screen is filled to the
-            // bottom on a tall phone and nothing is pushed off it; a short phone scrolls instead.
-            FillViewportColumn(
+            // Top to bottom: today's cards, the button into them, the song, the deck. Whatever
+            // height the phone has spare is shared equally between the gaps, so nothing is
+            // crowded while a hole opens up somewhere else. A short phone scrolls instead.
+            EvenlySpacedColumn(
                 viewportHeight = maxHeight,
-                spacing = 18.dp,
-                minFill = NOW_PLAYING_MIN_HEIGHT,
-                maxFill = NOW_PLAYING_MAX_HEIGHT,
+                minSpacing = 18.dp,
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp),
-                above = {
-                    TopBar(onOpenSettings = onOpenSettings)
+            ) {
+                TopBar(avatar = avatar, onOpenSettings = onOpenSettings)
 
-                    RecentlyCollected(
-                        items = state.recentlyCollected,
-                        onSeeAll = onSeeCollection,
-                    )
-                },
-                // Directly above the deck it describes. Display only — the button below is the
-                // way into today's cards.
-                fill = {
-                    NowPlayingCard(record = nowPlaying)
-                },
-                below = {
-                    // The deck and its progress bar read as one unit, so they sit closer together
-                    // than the sections around them.
-                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                        // Bare, with the arm parked, unless music is playing. Tapping it then
-                        // lifts the needle and stops the song.
-                        Turntable(
-                            playing = nowPlaying != null,
-                            labelArtworkUrl = nowPlaying?.artworkUrl,
-                            onStop = onStopPlaying,
-                            startedAtMillis = nowPlaying?.startedAtMillis ?: 0L,
-                            // The hero of the screen: it runs closer to the edges than the text.
-                            modifier = Modifier.bleed(TURNTABLE_BLEED),
-                        )
-                        PlaybackProgressBar(clock = playbackClock)
-                    }
+                TodaysCardsShelf(
+                    cards = state.arrivedToday,
+                    onOpenCard = onOpenCard,
+                    onSeeAll = onSeeAllArrived,
+                )
 
-                    OpenCardsButton(arrivedCount = state.arrivedCount, onClick = onOpenReceive)
+                OpenCardsButton(arrivedCount = state.arrivedCount, onClick = onOpenReceive)
 
-                    // Zero-height end marker: the space above it is an ordinary gap, so the
-                    // bottom margin always matches the spacing between the sections.
-                    Spacer(Modifier)
-                },
-            )
+                NowPlayingPanel(
+                    record = nowPlaying,
+                    clock = playbackClock,
+                    onTogglePause = onTogglePause,
+                    onSeekBy = onSeekBy,
+                    onStop = onStopPlaying,
+                )
+
+                // Bare, with the arm parked, unless music is playing. Tapping it then pauses or
+                // resumes the song.
+                Turntable(
+                    playing = nowPlaying != null,
+                    paused = paused,
+                    labelArtworkUrl = nowPlaying?.artworkUrl,
+                    onTogglePause = onTogglePause,
+                    startedAtMillis = nowPlaying?.startedAtMillis ?: 0L,
+                    // The hero of the screen: it runs closer to the edges than the text.
+                    modifier = Modifier.bleed(TURNTABLE_BLEED),
+                )
+
+                // Zero-height end marker: the space above it is an ordinary gap, so the bottom
+                // margin always matches the spacing between the sections.
+                Spacer(Modifier)
+            }
         }
     }
 }
@@ -175,6 +194,7 @@ private fun OpenCardsButton(arrivedCount: Int, onClick: () -> Unit) {
         Text(
             text = if (arrivedCount > 0) "Open today's music cards" else "Find three music cards",
             color = VinylPalette.Cream,
+            fontSize = 17.sp,
             fontWeight = FontWeight.SemiBold,
         )
         Spacer(Modifier.width(8.dp))
@@ -186,13 +206,6 @@ private fun OpenCardsButton(arrivedCount: Int, onClick: () -> Unit) {
         )
     }
 }
-
-/**
- * Below this the card stops shrinking and the screen scrolls. Above it the card would outweigh
- * the turntable it only describes, so any extra height goes to the gaps instead.
- */
-private val NOW_PLAYING_MIN_HEIGHT = 80.dp
-private val NOW_PLAYING_MAX_HEIGHT = 120.dp
 
 /** How far the turntable reaches past the screen's side padding, on each side. */
 private val TURNTABLE_BLEED = 12.dp
@@ -210,8 +223,9 @@ private fun Modifier.bleed(amount: Dp) = layout { measurable, constraints ->
     }
 }
 
+/** The logo, and the user's avatar as the way into Settings. */
 @Composable
-private fun TopBar(onOpenSettings: () -> Unit) {
+private fun TopBar(avatar: HomeAvatar?, onOpenSettings: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -222,33 +236,44 @@ private fun TopBar(onOpenSettings: () -> Unit) {
         Image(
             painter = painterResource(R.drawable.vinyl_logo_white),
             contentDescription = "Vinyl",
-            modifier = Modifier.height(22.dp),
+            modifier = Modifier.height(26.dp),
         )
-        Text(
-            text = "Today",
-            color = VinylPalette.TextPrimary,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Medium,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.weight(1f),
-        )
+        Spacer(Modifier.weight(1f))
         IconButton(onClick = onOpenSettings) {
-            Icon(
-                imageVector = Icons.Filled.Settings,
-                contentDescription = "Settings",
-                tint = VinylPalette.TextPrimary,
-            )
+            if (avatar != null) {
+                AvatarPreview(
+                    iconIndex = avatar.iconIndex,
+                    gradientIndex = avatar.gradientIndex,
+                    size = AVATAR_SIZE,
+                    imageUrl = avatar.imageUrl,
+                    label = "Profile and settings",
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Filled.AccountCircle,
+                    contentDescription = "Profile and settings",
+                    tint = VinylPalette.TextPrimary,
+                    modifier = Modifier.size(AVATAR_SIZE),
+                )
+            }
         }
     }
 }
 
+private val AVATAR_SIZE = 36.dp
+
 /**
- * The newest kept records, on the same shelf as the Collection tab: the same header, three
- * sleeves filling the width, the same wooden ledge, and the same per-record sleeve colour.
- * Tapping a sleeve opens the Collection, where records can be played and starred.
+ * Today's three music cards as sleeves on a shelf, drawn like the Collection's: three sleeves
+ * filling the width over the same wooden ledge, each in its record's sleeve colour. A card not
+ * dealt yet keeps its place as an empty square, so the shelf looks the same before the first
+ * pull as after it. Tapping a sleeve opens that card; "See all" opens the Arrived Today picker.
  */
 @Composable
-private fun RecentlyCollected(items: List<RoomCard>, onSeeAll: () -> Unit) {
+private fun TodaysCardsShelf(
+    cards: List<RoomCard>,
+    onOpenCard: (RoomCard) -> Unit,
+    onSeeAll: () -> Unit,
+) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         // Three sleeves, each with its disc overhang, fill the width exactly — as in Collection.
         val sleeveSize = maxWidth / SLEEVES_PER_SHELF / SLEEVE_WITH_DISC
@@ -259,31 +284,30 @@ private fun RecentlyCollected(items: List<RoomCard>, onSeeAll: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Recently collected",
+                    text = "Today's cards",
                     style = VinylSectionTitleStyle,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.weight(1f),
                 )
-                Text(
-                    text = "See all",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clickable(onClick = onSeeAll),
-                )
+                // Nothing to see all of until a pull has dealt something.
+                if (cards.isNotEmpty()) {
+                    Text(
+                        text = "See all",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontSize = 16.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable(onClick = onSeeAll),
+                    )
+                }
             }
             Spacer(Modifier.height(12.dp))
 
-            if (items.isEmpty()) {
-                // Day one for every user, so it gets a real sentence rather than a bare ledge.
-                Text(
-                    text = "Nothing kept yet. Music cards you keep will line up here.",
-                    color = VinylPalette.TextMuted,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(bottom = 12.dp),
-                )
-            } else {
-                Row {
-                    items.take(SLEEVES_PER_SHELF).forEach { card ->
+            Row {
+                for (slot in 0 until SLEEVES_PER_SHELF) {
+                    val card = cards.getOrNull(slot)
+                    if (card != null) {
                         VinylSleeveThumbnail(
                             songName = card.trackTitle,
                             artist = card.trackArtist,
@@ -291,8 +315,10 @@ private fun RecentlyCollected(items: List<RoomCard>, onSeeAll: () -> Unit) {
                             // Same colour the record has in Collection, picked from its id.
                             accentColor = Color(placeholderAccent(card.submissionId)),
                             sleeveSize = sleeveSize,
-                            modifier = Modifier.clickable(onClick = onSeeAll),
+                            modifier = Modifier.clickable { onOpenCard(card) },
                         )
+                    } else {
+                        EmptySleeveSlot(sleeveSize)
                     }
                 }
             }
@@ -302,29 +328,67 @@ private fun RecentlyCollected(items: List<RoomCard>, onSeeAll: () -> Unit) {
     }
 }
 
+/** Where a card will stand once it's dealt: a faint square, in the same footprint as a sleeve. */
+@Composable
+private fun EmptySleeveSlot(sleeveSize: Dp) {
+    val shape = RoundedCornerShape(2.dp)
+    Box(Modifier.size(width = sleeveSize * SLEEVE_WITH_DISC, height = sleeveSize)) {
+        Box(
+            Modifier
+                .size(sleeveSize)
+                .clip(shape)
+                .background(VinylPalette.PanelDark)
+                .border(1.dp, VinylPalette.TextMuted.copy(alpha = 0.3f), shape),
+        )
+    }
+}
+
 private const val SLEEVES_PER_SHELF = 3
 
 /** A sleeve is drawn with its record poking out a quarter-width to the right. */
 private const val SLEEVE_WITH_DISC = 1.25f
 
-@Preview(showBackground = true, backgroundColor = 0xFF0D0D0D, widthDp = 393, heightDp = 900)
+/**
+ * A column whose children are spread down the whole screen with equal gaps between them, so a
+ * tall phone has no blank strip at the bottom and no single hole in the middle. The gaps never
+ * shrink below [minSpacing]; once they would, the column grows past the screen and scrolls.
+ *
+ * A plain `Column` can't do this: inside `verticalScroll` its height is unbounded, so
+ * `Arrangement.SpaceBetween` has no height to spread.
+ */
 @Composable
-private fun HomeScreenPreview() {
-    HomeScreen(
-        state = HomeUiState(arrivedCount = 3),
-        onOpenReceive = {},
-        onOpenSettings = {},
-        onSeeCollection = {},
-    )
+private fun EvenlySpacedColumn(
+    viewportHeight: Dp,
+    minSpacing: Dp,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Layout(content = content, modifier = modifier) { measurables, constraints ->
+        val placeables = measurables.map { it.measure(Constraints(maxWidth = constraints.maxWidth)) }
+        val gaps = (placeables.size - 1).coerceAtLeast(0)
+        val contentHeight = placeables.sumOf { it.height }
+        val gap = if (gaps == 0) 0 else maxOf(
+            minSpacing.roundToPx(),
+            (viewportHeight.roundToPx() - contentHeight) / gaps,
+        )
+
+        val height = contentHeight + gap * gaps
+        layout(constraints.maxWidth, maxOf(height, constraints.minHeight)) {
+            var y = 0
+            placeables.forEach {
+                it.placeRelative(0, y)
+                y += it.height + gap
+            }
+        }
+    }
 }
 
 @Preview(showBackground = true, backgroundColor = 0xFF0D0D0D, widthDp = 393, heightDp = 900)
 @Composable
-private fun HomeScreenEmptyPreview() {
+private fun HomeScreenPreview() {
     HomeScreen(
-        state = HomeUiState(arrivedCount = 0),
+        state = HomeUiState(),
         onOpenReceive = {},
         onOpenSettings = {},
-        onSeeCollection = {},
     )
 }

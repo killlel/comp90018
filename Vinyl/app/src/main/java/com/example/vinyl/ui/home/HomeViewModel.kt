@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.vinyl.repository.RoomCard
 import com.example.vinyl.repository.RoomRepository
-import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,11 +12,15 @@ import kotlinx.coroutines.launch
 
 data class HomeUiState(
     val isLoading: Boolean = false,
-    /** Letters already delivered today and not yet opened. Zero is a normal state, not an error. */
-    val arrivedCount: Int = 0,
-    val recentlyCollected: List<RoomCard> = emptyList(),
+    /**
+     * The latest hand of music cards, newest first — what the Arrived Today picker shows. Empty
+     * until the user has pulled once, which is a normal state, not an error.
+     */
+    val arrivedToday: List<RoomCard> = emptyList(),
     val error: String? = null,
-)
+) {
+    val arrivedCount: Int get() = arrivedToday.size
+}
 
 /**
  * The home screen reads, it never matches. `get_room` replays what the server has already handed
@@ -36,31 +39,18 @@ class HomeViewModel(private val repository: RoomRepository = RoomRepository()) :
     fun refresh() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
-
-            // Independent RPCs, so they overlap rather than queue.
-            val roomCall = async { repository.getRoom() }
-            val shelfCall = async { repository.getShelf(limit = RECENT_COUNT) }
-
-            val roomResult = roomCall.await()
-            val shelfResult = shelfCall.await()
-
-            val room = roomResult.getOrNull().orEmpty()
-
-            // A failed shelf shouldn't blank the card count, or the other way round: each half of
-            // the screen falls back to empty on its own.
+            val result = repository.getRoom(limit = HAND_SIZE)
             _uiState.update {
                 HomeUiState(
-                    arrivedCount = room.size,
-                    recentlyCollected = shelfResult.getOrNull().orEmpty(),
-                    error = roomResult.exceptionOrNull()?.message
-                        ?: shelfResult.exceptionOrNull()?.message,
+                    arrivedToday = result.getOrNull().orEmpty(),
+                    error = result.exceptionOrNull()?.message,
                 )
             }
         }
     }
 
     private companion object {
-        /** The design shows three sleeves on the shelf. */
-        const val RECENT_COUNT = 3
+        /** A pull deals three cards, and the shelf holds three sleeves. */
+        const val HAND_SIZE = 3
     }
 }
