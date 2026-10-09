@@ -544,7 +544,10 @@ private fun VinylApp(
                     },
                     onLetCrateDecide = {
                         reminderPrefs.markPulledToday()
-                        roomViewModel.load(mood = null)
+                        // Deals a fresh hand on a random mood; kept in dailyMood so "Try again" reuses it.
+                        val randomMood = MoodTag.entries.random()
+                        dailyMood = randomMood
+                        roomViewModel.load(randomMood, dailyGenresState.selected)
                         receiveFlowStep = ReceiveFlowStep.ArrivedToday
                     },
                     onBack = { receiveFlowStep = null },
@@ -575,7 +578,7 @@ private fun VinylApp(
                         fallbackNote = when {
                             roomState.error != null ->
                                 "Couldn't load today's music cards. Check your connection and try again."
-                            roomState.cards.isEmpty() -> "Nothing in the crate yet. Check back later."
+                            roomState.cards.isEmpty() -> "No music cards yet. Check back later."
                             else -> null
                         },
                         options = roomState.cards.map {
@@ -589,6 +592,11 @@ private fun VinylApp(
                         selectedTab = AppTab.Home
                     },
                     animateIn = animateIn,
+                    onRetry = if (roomState.error != null) {
+                        { roomViewModel.load(dailyMood, dailyGenresState.selected) }
+                    } else {
+                        null
+                    },
                 )
             }
         }

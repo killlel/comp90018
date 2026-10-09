@@ -39,6 +39,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -87,6 +88,7 @@ data class ArrivedTodayUiState(
  * Page 2 of the receive flow, full screen: today's music cards, all of them openable.
  * [onNotNow] is the "Back to Home" button.
  *
+ * @param onRetry shows a "Try again" button under the note; pass it only when the load failed.
  * @param animateIn true the first time a new set of cards is shown, so they rise in one by one.
  *   Coming back to the same cards from the envelope shows them already in place.
  */
@@ -96,8 +98,9 @@ fun ArrivedTodayScreen(
     onSelect: (ArrivedRecordOption) -> Unit,
     onNotNow: () -> Unit,
     animateIn: Boolean = true,
+    onRetry: (() -> Unit)? = null,
 ) {
-    ArrivedTodayLayout {
+    ArrivedTodayLayout(helper = if (onRetry == null) helperFor(state.options.size) else null) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -107,6 +110,17 @@ fun ArrivedTodayScreen(
             state.fallbackNote?.let {
                 Spacer(modifier = Modifier.height(12.dp))
                 FallbackChip(text = it)
+            }
+
+            onRetry?.let {
+                Spacer(modifier = Modifier.height(12.dp))
+                TextButton(onClick = it, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text(
+                        "Try again",
+                        color = VinylPalette.TealAccent,
+                        style = ReceiveFlowStyle.text(14.sp, FontWeight.Medium),
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(20.dp))
@@ -146,7 +160,7 @@ fun ArrivedTodayLoading() {
             .fillMaxSize()
             .background(VinylPalette.SheetSurface),
     ) {
-        ArrivedTodayLayout {}
+        ArrivedTodayLayout(helper = null) {}
         Box(
             modifier = Modifier.align(Alignment.Center).size(LoadingSize),
             contentAlignment = Alignment.Center,
@@ -198,9 +212,22 @@ private fun LoadingRecord(modifier: Modifier = Modifier) {
     }
 }
 
-/** The full-screen background and header shared by the loaded and loading states. */
+/** The line under the title, matched to how many cards came; none when nothing came. */
+private fun helperFor(count: Int): String? = when (count) {
+    0 -> null
+    1 -> "It's yours to open."
+    2 -> "Both are yours to open."
+    3 -> "All three are yours to open."
+    else -> "All of them are yours to open."
+}
+
+/**
+ * The full-screen background and header shared by the loaded and loading states.
+ *
+ * @param helper the line under the title; null hides it (loading, empty and error)
+ */
 @Composable
-private fun ArrivedTodayLayout(content: @Composable BoxScope.() -> Unit) {
+private fun ArrivedTodayLayout(helper: String?, content: @Composable BoxScope.() -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -216,13 +243,15 @@ private fun ArrivedTodayLayout(content: @Composable BoxScope.() -> Unit) {
             style = ReceiveFlowStyle.Title,
             textAlign = TextAlign.Center,
         )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "All three are yours to open.",
-            color = VinylPalette.TextMuted,
-            style = ReceiveFlowStyle.Helper,
-            textAlign = TextAlign.Center,
-        )
+        if (helper != null) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = helper,
+                color = VinylPalette.TextMuted,
+                style = ReceiveFlowStyle.Helper,
+                textAlign = TextAlign.Center,
+            )
+        }
         Box(modifier = Modifier.fillMaxWidth().weight(1f), content = content)
     }
 }
@@ -276,7 +305,7 @@ private fun ArrivedRecordCard(option: ArrivedRecordOption, onClick: () -> Unit) 
             .clip(ReceiveFlowStyle.PanelShape)
             .background(ReceiveFlowStyle.PanelBrush)
             .border(1.dp, ReceiveFlowStyle.PanelBorder, ReceiveFlowStyle.PanelShape)
-            .clickable(onClick = onClick)
+            .clickable(role = Role.Button, onClick = onClick)
             .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -299,7 +328,7 @@ private fun ArrivedRecordCard(option: ArrivedRecordOption, onClick: () -> Unit) 
             )
             Text(
                 text = option.messagePreview,
-                color = VinylPalette.Cream.copy(alpha = 0.55f),
+                color = VinylPalette.Cream.copy(alpha = 0.65f),
                 style = ReceiveFlowStyle.text(12.sp, FontWeight.Light, 18.sp, italic = true),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -389,11 +418,26 @@ private fun ArrivedTodayFallbackPreview() {
     ArrivedTodayScreen(
         state = ArrivedTodayUiState(
             moodLabel = "Nostalgic",
-            fallbackNote = "Nothing in the crate yet. Check back later.",
+            fallbackNote = "No music cards yet. Check back later.",
             options = emptyList(),
         ),
         onSelect = {},
         onNotNow = {},
+    )
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF1C1C1C, widthDp = 390, heightDp = 844)
+@Composable
+private fun ArrivedTodayErrorPreview() {
+    ArrivedTodayScreen(
+        state = ArrivedTodayUiState(
+            moodLabel = "Nostalgic",
+            fallbackNote = "Couldn't load today's music cards. Check your connection and try again.",
+            options = emptyList(),
+        ),
+        onSelect = {},
+        onNotNow = {},
+        onRetry = {},
     )
 }
 

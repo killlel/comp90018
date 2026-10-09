@@ -21,11 +21,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -59,6 +65,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -78,6 +87,9 @@ private val AccentColors = listOf(
     Color(0xFFF4C27A),
     Color(0xFF8FA8FF),
 )
+
+/** What TalkBack calls each of [AccentColors], in the same order. */
+private val AccentNames = listOf("Teal", "Red", "Amber", "Blue")
 
 private enum class SettingsPage { List, Account, IconMaker, Preferences, Appearance, About, Help }
 
@@ -286,7 +298,7 @@ private fun SettingsHome(
         }
         Row(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(GroupRadius)).background(SignOutBg)
-                .clickable(onClick = onSignOut).padding(horizontal = 18.dp, vertical = 16.dp),
+                .clickable(role = Role.Button, onClick = onSignOut).padding(horizontal = 18.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(Icons.AutoMirrored.Filled.Logout, null, tint = SignOutFg, modifier = Modifier.size(20.dp))
@@ -304,7 +316,7 @@ private fun ProfileHeader(
     onClick: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(GroupRadius)).clickable(onClick = onClick)
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(GroupRadius)).clickable(role = Role.Button, onClick = onClick)
             .padding(vertical = 8.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -345,7 +357,7 @@ private fun IconNavRow(
     onClick: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 18.dp, vertical = 16.dp),
+        Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(horizontal = 18.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
@@ -364,13 +376,19 @@ private fun IconNavRow(
 
 @Composable
 private fun SwitchRow(icon: ImageVector, title: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    // The whole row is the toggle, so TalkBack reads the label and the state together.
+    Row(
+        Modifier.fillMaxWidth()
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Icon(icon, null, tint = VinylPalette.TextMuted, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(14.dp))
         Text(title, color = VinylPalette.TextPrimary, fontSize = 16.sp, modifier = Modifier.weight(1f))
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
+            onCheckedChange = null,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.White,
                 checkedTrackColor = VinylPalette.TealAccent,
@@ -401,7 +419,7 @@ private fun AppearancePage(
     ) {
         Text("Theme", color = VinylPalette.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(14.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             options.forEach { (id, icon, label) ->
                 val on = themeMode == id
                 Column(
@@ -415,7 +433,7 @@ private fun AppearancePage(
                             color = if (on) VinylPalette.TealAccent else Color(0xFF2E2E2E),
                             shape = RoundedCornerShape(16.dp),
                         )
-                        .clickable { onThemeModeChange(id) }
+                        .selectable(selected = on, role = Role.RadioButton) { onThemeModeChange(id) }
                         .padding(vertical = 18.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
@@ -429,13 +447,21 @@ private fun AppearancePage(
         Spacer(Modifier.height(32.dp))
         Text("Accent", color = VinylPalette.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(14.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        // Each 28dp swatch sits in a 48dp touch target; the offset keeps the first swatch
+        // lined up with the "Accent" label.
+        Row(Modifier.offset(x = (-10).dp).selectableGroup()) {
             AccentColors.forEachIndexed { i, color ->
                 Box(
-                    Modifier.size(28.dp).clip(CircleShape).background(color)
-                        .border(if (accentIndex == i) 2.dp else 0.dp, VinylPalette.TextPrimary, CircleShape)
-                        .clickable { onAccentChange(i) },
-                )
+                    Modifier.size(48.dp).clip(CircleShape)
+                        .selectable(selected = accentIndex == i, role = Role.RadioButton) { onAccentChange(i) }
+                        .semantics { contentDescription = AccentNames[i] },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        Modifier.size(28.dp).clip(CircleShape).background(color)
+                            .border(if (accentIndex == i) 2.dp else 0.dp, VinylPalette.TextPrimary, CircleShape),
+                    )
+                }
             }
         }
     }
@@ -454,15 +480,15 @@ private fun AccountPage(
     ) {
         Spacer(Modifier.height(12.dp))
         AvatarPreview(iconIndex, gradientIndex, size = 88.dp, onClick = onEditIcon)
-        Spacer(Modifier.height(12.dp))
-        Text(
-            "Edit",
-            color = VinylPalette.TealAccent,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.clickable(onClick = onEditIcon),
-        )
-        Spacer(Modifier.height(16.dp))
+        // 48dp touch target around the link; the spacer below shrinks to keep the name in place.
+        Box(
+            Modifier.heightIn(min = 48.dp).widthIn(min = 48.dp).clip(RoundedCornerShape(12.dp))
+                .clickable(role = Role.Button, onClick = onEditIcon),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("Edit", color = VinylPalette.TealAccent, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        }
+        Spacer(Modifier.height(2.dp))
         Text(displayName, color = VinylPalette.TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(24.dp))
         SettingsGroup {
@@ -493,19 +519,26 @@ private fun PreferencesPage(selected: Set<String>, onToggle: (String) -> Unit) {
         )
         Spacer(Modifier.height(20.dp))
         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(GroupRadius)).background(CardBg).padding(16.dp)) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Each chip sits in a 48dp-tall touch target; the row gap shrinks by the same amount
+            // so the chips keep their spacing.
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 PreviewGenres.forEach { genre ->
                     val on = genre in selected
-                    Text(
-                        genre,
-                        color = if (on) VinylPalette.Background else VinylPalette.TextPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.clip(RoundedCornerShape(50))
-                            .background(if (on) VinylPalette.TealAccent else Color(0xFF2A2A2A))
-                            .clickable { onToggle(genre) }
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                    )
+                    Box(
+                        Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(50))
+                            .toggleable(value = on, role = Role.Checkbox, onValueChange = { onToggle(genre) }),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            genre,
+                            color = if (on) VinylPalette.Background else VinylPalette.TextPrimary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.clip(RoundedCornerShape(50))
+                                .background(if (on) VinylPalette.TealAccent else Color(0xFF2A2A2A))
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                        )
+                    }
                 }
             }
         }

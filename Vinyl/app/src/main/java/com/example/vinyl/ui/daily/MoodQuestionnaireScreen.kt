@@ -17,6 +17,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -51,6 +54,9 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -64,14 +70,12 @@ import com.example.vinyl.data.MoodOption
 import com.example.vinyl.data.MoodOptions
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.data.onboarding.GenreOption
+import com.example.vinyl.ui.daily.ReceiveFlowStyle.IconWell
+import com.example.vinyl.ui.daily.ReceiveFlowStyle.PanelBorder
+import com.example.vinyl.ui.daily.ReceiveFlowStyle.PanelBrush
+import com.example.vinyl.ui.daily.ReceiveFlowStyle.PanelShape
 import com.example.vinyl.ui.theme.PoppinsFontFamily
 import com.example.vinyl.ui.theme.VinylPalette
-
-// Mood panel / genre row styling from the sheet mockup. Local to this screen on purpose.
-private val PanelBrush = Brush.verticalGradient(listOf(Color(0xFF111413), Color(0xFF2E3938)))
-private val PanelBorder = Color(0xFF3E4A49)
-private val IconWell = Color(0xFF242A2A)
-private val PanelShape = RoundedCornerShape(20.dp)
 
 private fun poppins(size: TextUnit, weight: FontWeight, lineHeight: TextUnit = TextUnit.Unspecified) =
     TextStyle(fontFamily = PoppinsFontFamily, fontSize = size, fontWeight = weight, lineHeight = lineHeight)
@@ -198,6 +202,7 @@ private fun MoodPanel(selectedMood: MoodTag?, onMoodSelected: (MoodTag) -> Unit)
             .fillMaxWidth()
             .background(PanelBrush, PanelShape)
             .border(1.dp, PanelBorder, PanelShape)
+            .selectableGroup()
             .padding(horizontal = 6.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -225,9 +230,11 @@ private fun MoodCell(
 ) {
     Column(
         modifier = modifier
-            .clickable(
+            .selectable(
+                selected = selected,
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null, // the ring and glow are the feedback
+                role = Role.RadioButton,
                 onClick = onClick,
             )
             .padding(vertical = 4.dp),
@@ -328,7 +335,8 @@ private fun GenrePicker(
             .clip(PanelShape)
             .background(PanelBrush)
             .border(1.dp, if (highlighted) VinylPalette.TealAccent else PanelBorder, PanelShape)
-            .clickable { onOpenChange(!open) }
+            .clickable(role = Role.Button) { onOpenChange(!open) }
+            .semantics { stateDescription = if (open) "Expanded" else "Collapsed" }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -398,11 +406,11 @@ private fun GenreCell(label: String, selected: Boolean, onClick: () -> Unit, mod
     val shape = RoundedCornerShape(12.dp)
     Box(
         modifier = modifier
-            .height(38.dp)
+            .heightIn(min = 48.dp)
             .clip(shape)
             .background(if (selected) VinylPalette.TealAccent.copy(alpha = 0.16f) else Color.Transparent)
             .border(1.dp, if (selected) VinylPalette.TealAccent else Color.Transparent, shape)
-            .clickable(onClick = onClick)
+            .toggleable(value = selected, role = Role.Checkbox, onValueChange = { onClick() })
             .padding(horizontal = 6.dp),
         contentAlignment = Alignment.Center,
     ) {

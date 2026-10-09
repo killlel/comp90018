@@ -28,6 +28,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -39,6 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,6 +52,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.example.vinyl.R
+import com.example.vinyl.data.MoodOptions
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.network.AudioPreviewController
 import com.example.vinyl.network.rememberAudioPreviewController
@@ -132,7 +135,7 @@ fun MusicCardScreen(
 private fun TopBar(isKept: Boolean, onToggleKeep: () -> Unit) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         // Balances the bookmark so the title stays centred.
-        Spacer(modifier = Modifier.size(40.dp))
+        Spacer(modifier = Modifier.size(48.dp))
         Text(
             text = "Card details",
             color = VinylPalette.Cream,
@@ -141,10 +144,11 @@ private fun TopBar(isKept: Boolean, onToggleKeep: () -> Unit) {
             modifier = Modifier.weight(1f),
         )
         Box(
+            // 48dp touch target; the bookmark itself stays 24dp.
             modifier = Modifier
-                .size(40.dp)
+                .size(48.dp)
                 .clip(CircleShape)
-                .clickable(onClick = onToggleKeep),
+                .clickable(role = Role.Button, onClick = onToggleKeep),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -227,19 +231,24 @@ private fun PlayerCard(state: MusicCardUiState) {
                     .border(1.dp, VinylPalette.Cream.copy(alpha = 0.5f), coverShape),
                 contentAlignment = Alignment.Center,
             ) {
-                if (state.artworkUrl != null) {
-                    AsyncImage(
-                        model = state.artworkUrl,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
+                // The note stands in while the artwork loads, if it fails, and when there is none.
+                var artworkShown by remember(state.artworkUrl) { mutableStateOf(false) }
+                if (!artworkShown) {
                     Icon(
                         Icons.Rounded.MusicNote,
                         contentDescription = null,
                         tint = VinylPalette.Cream.copy(alpha = 0.55f),
                         modifier = Modifier.size(24.dp),
+                    )
+                }
+                if (state.artworkUrl != null) {
+                    AsyncImage(
+                        model = state.artworkUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        onSuccess = { artworkShown = true },
+                        onError = { artworkShown = false },
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
             }
@@ -265,7 +274,7 @@ private fun PlayerCard(state: MusicCardUiState) {
             // from shifting as they count.
             Text(
                 text = countdown(PreviewMs - elapsedMs),
-                color = VinylPalette.Cream.copy(alpha = 0.55f),
+                color = VinylPalette.Cream.copy(alpha = 0.65f),
                 style = ReceiveFlowStyle.text(12.sp, FontWeight.Light, 18.sp)
                     .copy(fontFeatureSettings = "tnum"),
             )
@@ -276,7 +285,7 @@ private fun PlayerCard(state: MusicCardUiState) {
                     .size(48.dp)
                     .clip(CircleShape)
                     .background(VinylPalette.TealAccent.copy(alpha = if (enabled) 1f else 0.35f))
-                    .clickable(enabled = enabled, onClick = onPlayPause),
+                    .clickable(enabled = enabled, role = Role.Button, onClick = onPlayPause),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -396,9 +405,10 @@ private fun Letter(state: MusicCardUiState, onOpenCompass: () -> Unit, modifier:
             verticalAlignment = Alignment.CenterVertically,
         ) {
             state.mood?.let { mood ->
+                val moodLabel = MoodOptions.all.firstOrNull { it.tag == mood }?.title ?: mood.name
                 Icon(
                     painter = painterResource(moodIcon(mood)),
-                    contentDescription = null,
+                    contentDescription = "Sender's mood: $moodLabel",
                     tint = VinylPalette.Background,
                     modifier = Modifier.size(36.dp),
                 )
@@ -418,8 +428,8 @@ private fun CompassChip(onClick: () -> Unit) {
             .height(48.dp)
             .clip(CircleShape)
             .background(ChipTeal.copy(alpha = 0.1f))
-            .border(1.5.dp, ChipTeal, CircleShape)
-            .clickable(onClick = onClick)
+            .border(1.5.dp, ChipInk, CircleShape)
+            .clickable(role = Role.Button, onClick = onClick)
             .padding(start = 10.dp, end = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -459,22 +469,33 @@ private fun BottomRow(trackName: String, artistName: String, onPlayOnTurntable: 
                 .clip(CircleShape)
                 .background(ReceiveFlowStyle.PanelBrush)
                 .border(1.5.dp, ReceiveFlowStyle.PanelBorder, CircleShape)
-                .padding(horizontal = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(horizontal = 3.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Both official icons are drawn as supplied: no backing shape, no tint.
-            Image(
-                painter = painterResource(R.drawable.ic_apple_music),
-                contentDescription = "Open in Apple Music",
-                modifier = Modifier
-                    .size(StreamingIconSize)
-                    .clickable { uriHandler.openUri("https://music.apple.com/search?term=$query") },
-            )
+            // Both official icons are drawn as supplied: no backing shape, no tint. Each sits in
+            // a 48dp touch target; the padding keeps the pill and the icons where they were.
             Box(
                 modifier = Modifier
-                    .size(StreamingIconSize)
-                    .clickable { uriHandler.openUri("https://open.spotify.com/search/$query") },
+                    .size(StreamingTouchSize)
+                    .clip(CircleShape)
+                    .clickable(role = Role.Button) {
+                        uriHandler.openUri("https://music.apple.com/search?term=$query")
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.ic_apple_music),
+                    contentDescription = "Open in Apple Music",
+                    modifier = Modifier.size(StreamingIconSize),
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .size(StreamingTouchSize)
+                    .clip(CircleShape)
+                    .clickable(role = Role.Button) {
+                        uriHandler.openUri("https://open.spotify.com/search/$query")
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 // The file keeps a little empty canvas around its circle, so it is drawn just
@@ -531,6 +552,7 @@ private val ChipTeal = Color(0xFF0E8C85)
 private val ChipInk = Color(0xFF0A6F69)
 /** Apple Music and Spotify icons inside their shared pill. */
 private val StreamingIconSize = 36.dp
+private val StreamingTouchSize = 48.dp
 
 // Icon_Spotify.svg is 236.05 x 225.25 with a circle about 218.7 across. Scaled so the circle
 // matches [StreamingIconSize], the whole canvas is this size.

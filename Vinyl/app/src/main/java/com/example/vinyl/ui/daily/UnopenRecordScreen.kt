@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
@@ -162,11 +163,12 @@ fun UnopenedRecordScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
+            // 48dp touch target; the arrow itself stays 24dp.
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
-                    .clickable(onClick = onBack),
+                    .clickable(role = Role.Button, onClick = onBack),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -187,7 +189,7 @@ fun UnopenedRecordScreen(
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "Shake your phone to open it.",
+            text = "Shake your phone, or press and hold, to open it.",
             // Brightens from the usual 55% towards full cream at the top of a pulse.
             color = VinylPalette.Cream.copy(alpha = 0.55f + 0.45f * helperPulse.value),
             style = ReceiveFlowStyle.Helper,
@@ -205,7 +207,7 @@ fun UnopenedRecordScreen(
         state.mood?.let { mood ->
             Icon(
                 painter = painterResource(moodIcon(mood)),
-                contentDescription = null,
+                contentDescription = "Sender's mood: ${state.moodLabel}",
                 tint = VinylPalette.Cream,
                 modifier = Modifier
                     .size(60.dp)
