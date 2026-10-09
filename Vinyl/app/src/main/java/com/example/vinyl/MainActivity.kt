@@ -81,6 +81,8 @@ import com.example.vinyl.data.onboarding.OnboardingRepository
 import com.example.vinyl.ui.collection.CollectionScreen
 import com.example.vinyl.ui.home.HomeScreen
 import com.example.vinyl.ui.home.HomeViewModel
+import com.example.vinyl.ui.home.NowPlaying
+import com.example.vinyl.ui.home.PlaybackViewModel
 import com.example.vinyl.ui.daily.ArrivedRecordOption
 import com.example.vinyl.ui.daily.ArrivedTodayScreen
 import com.example.vinyl.ui.daily.ArrivedTodayUiState
@@ -332,6 +334,18 @@ private fun VinylApp(
     // Same activity-scoped instance HomeScreen uses. Its "Recently collected" row reads the
     // shelf, so it reloads after the receive flow closes in case a record was kept there.
     val homeViewModel: HomeViewModel = viewModel()
+
+    // What's on the Home turntable. "Play this song" on any music card starts it here and goes
+    // to Home, so the needle drop is seen; HomeScreen reads the same instance.
+    val playbackViewModel: PlaybackViewModel = viewModel()
+    val playOnHome: (NowPlaying) -> Unit = { track ->
+        receiveFlowStep = null
+        collectionCompassOpen = false
+        collectionViewModel.closeRecord()
+        selectedTab = AppTab.Home
+        playbackViewModel.play(track)
+    }
+
     var wasReceiving by remember { mutableStateOf(false) }
     LaunchedEffect(receiveFlowStep == null) {
         if (receiveFlowStep == null && wasReceiving) homeViewModel.refresh()
@@ -547,6 +561,17 @@ private fun VinylApp(
                         receiveFlowStep = ReceiveFlowStep.Direction(step.option)
                     },
                     onKeep = { submissionId?.let(roomViewModel::toggleKeep) },
+                    onPlay = {
+                        playOnHome(
+                            NowPlaying(
+                                submissionId = submissionId,
+                                title = step.option.trackName,
+                                artist = step.option.artistName,
+                                artworkUrl = step.option.artworkUrl,
+                                previewUrl = step.option.previewUrl,
+                            ),
+                        )
+                    },
                 )
             }
 
@@ -607,6 +632,19 @@ private fun VinylApp(
             onCloseCompass = { collectionCompassOpen = false },
             onToggleFavourite = { record?.let(collectionViewModel::toggleFavourite) },
             onRemove = { record?.let(collectionViewModel::remove) },
+            onPlay = {
+                record?.let {
+                    playOnHome(
+                        NowPlaying(
+                            submissionId = it.id,
+                            title = it.songName,
+                            artist = it.artist,
+                            artworkUrl = it.coverUrl,
+                            previewUrl = it.previewUrl,
+                        ),
+                    )
+                }
+            },
             onClose = {
                 collectionCompassOpen = false
                 collectionViewModel.closeRecord()
@@ -634,6 +672,7 @@ private fun CollectionCardOverlay(
     onCloseCompass: () -> Unit,
     onToggleFavourite: () -> Unit,
     onRemove: () -> Unit,
+    onPlay: () -> Unit,
     onClose: () -> Unit,
 ) {
     // The card to draw: the open one, or while sliding out, the one just closed. Null only
@@ -673,6 +712,7 @@ private fun CollectionCardOverlay(
             onRemove = if (received) ({ confirmRemove = true }) else null,
             onToggleFavourite = onToggleFavourite,
             onViewDirection = onOpenCompass,
+            onPlay = onPlay,
         )
     }
 

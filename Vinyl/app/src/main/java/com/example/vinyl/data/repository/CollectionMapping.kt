@@ -46,6 +46,7 @@ internal fun RoomCard.toVinylRecord(entry: ShelfEntry?): VinylRecord = VinylReco
     senderLat = lat,
     senderLng = lng,
     sentAt = submittedAt,
+    previewUrl = previewUrl,
 )
 
 internal fun SentCard.toVinylRecord(): VinylRecord = VinylRecord(

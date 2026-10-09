@@ -31,4 +31,6 @@ data class VinylRecord(
     val senderLng: Double? = null,
     /** When the card was sent, as the server's ISO timestamp. Shown as "3 hr. ago" on the card. */
     val sentAt: String? = null,
+    /** The song's 30-second preview, for "Play this song". Null when the track has none. */
+    val previewUrl: String? = null,
 )

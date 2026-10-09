@@ -47,6 +47,8 @@ data class ArrivedRecordOption(
     /** Where the letter was sent from — needed to compute which way to point the compass arrow. */
     val senderLat: Double? = null,
     val senderLng: Double? = null,
+    /** The song's 30-second preview, for "Play this song". Null when the track has none. */
+    val previewUrl: String? = null,
 )
 
 data class ArrivedTodayUiState(
