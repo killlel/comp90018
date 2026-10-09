@@ -1,10 +1,6 @@
 package com.example.vinyl
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.FastOutLinearInEasing
@@ -61,6 +57,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -290,9 +287,9 @@ private sealed class ReceiveFlowStep {
     data class Direction(val option: ArrivedRecordOption) : ReceiveFlowStep()
 }
 
-/** Steps shown in the bottom sheet; the rest (Unopened, Opened, Direction) are full-screen. */
+/** The step shown in the bottom sheet; the rest (ArrivedToday, Unopened, Opened, Direction) are full-screen. */
 private val ReceiveFlowStep.isSheet: Boolean
-    get() = this is ReceiveFlowStep.Questionnaire || this is ReceiveFlowStep.ArrivedToday
+    get() = this is ReceiveFlowStep.Questionnaire
 
 /**
  * Runs the onboarding flow once per account (`profiles.onboarding_completed`), then
@@ -361,6 +358,10 @@ private fun VinylApp(
         selectedTab = AppTab.Home
         playbackViewModel.play(track)
     }
+
+    // The hand of cards Arrived Today last showed, so its rise-in plays once per hand. A plain
+    // holder rather than state: updating it must not trigger another recomposition.
+    val risenHand = remember { object { var cards: Any? = null } }
 
     var wasReceiving by remember { mutableStateOf(false) }
     LaunchedEffect(receiveFlowStep == null) {
@@ -464,8 +465,10 @@ private fun VinylApp(
         if (collectionCompassOpen) collectionCompassOpen = false else collectionViewModel.closeRecord()
     }
     BackHandler(enabled = receiveFlowStep != null) {
-        // The music card has no back button: back from it goes to Home.
-        if (receiveFlowStep is ReceiveFlowStep.Opened) selectedTab = AppTab.Home
+        // Arrived Today and the music card have no back arrow: back from them goes to Home.
+        if (receiveFlowStep is ReceiveFlowStep.ArrivedToday || receiveFlowStep is ReceiveFlowStep.Opened) {
+            selectedTab = AppTab.Home
+        }
         receiveFlowStep = when (val step = receiveFlowStep) {
             is ReceiveFlowStep.Unopened -> ReceiveFlowStep.ArrivedToday
             // The compass's own back arrow returns to the card, so the system back does too.
@@ -493,9 +496,8 @@ private fun VinylApp(
     }
 
     // The receive flow sits on top of everything (including the bottom bar) while active, one
-    // step at a time. The sheet steps share one sheet: it slides up when the flow opens onto a
-    // sheet and back down when it closes or moves to a full-screen step, and between two sheet
-    // steps the content swaps in place. While sliding out it keeps drawing the step it's leaving.
+    // step at a time. Only the mood question is a sheet: it slides up when the flow opens and
+    // back down when it closes or moves on. While sliding out it keeps drawing what it held.
     val sheetStep = receiveFlowStep?.takeIf { it.isSheet }
     val shownSheetStep = rememberLastNonNull(sheetStep)
     AnimatedBottomSheet(
@@ -503,85 +505,74 @@ private fun VinylApp(
         onDismiss = { receiveFlowStep = null },
         dismissOnSwipe = shownSheetStep == ReceiveFlowStep.Questionnaire,
     ) {
-        // Moving on from the mood question slides the next page in from the right; "Done" slides
-        // it back. Any other change of content swaps in place.
-        AnimatedContent(
-            targetState = shownSheetStep,
-            transitionSpec = {
-                when {
-                    initialState == ReceiveFlowStep.Questionnaire && targetState == ReceiveFlowStep.ArrivedToday ->
-                        slideInHorizontally(tween(SheetEnterMs)) { it } togetherWith
-                            slideOutHorizontally(tween(SheetEnterMs)) { -it / 3 } + fadeOut(tween(SheetEnterMs))
-                    initialState == ReceiveFlowStep.ArrivedToday && targetState == ReceiveFlowStep.Questionnaire ->
-                        slideInHorizontally(tween(SheetEnterMs)) { -it / 3 } + fadeIn(tween(SheetEnterMs)) togetherWith
-                            slideOutHorizontally(tween(SheetEnterMs)) { it }
-                    else -> EnterTransition.None togetherWith ExitTransition.None
-                }
-            },
-            label = "sheetPage",
-        ) { animatedStep ->
-            when (val step = animatedStep) {
-                ReceiveFlowStep.Questionnaire -> {
-                    MoodQuestionnaireScreen(
-                        selectedMood = dailyMood,
-                        genreOptions = dailyGenresState.options,
-                        selectedGenres = dailyGenresState.selected,
-                        // Tapping the selected mood again clears it.
-                        onMoodSelected = { dailyMood = if (dailyMood == it) null else it },
-                        onGenreToggled = dailyGenresViewModel::toggle,
-                        // Load here rather than on entering Arrived Today: Unopened's back button
-                        // returns there, and request_recommendations records new matches on every
-                        // call — loading on entry would deal a fresh hand each time.
-                        onSubmit = {
-                            reminderPrefs.markPulledToday()
-                            roomViewModel.load(dailyMood, dailyGenresState.selected)
-                            receiveFlowStep = ReceiveFlowStep.ArrivedToday
-                        },
-                        onLetCrateDecide = {
-                            reminderPrefs.markPulledToday()
-                            roomViewModel.load(mood = null)
-                            receiveFlowStep = ReceiveFlowStep.ArrivedToday
-                        },
-                        onBack = { receiveFlowStep = null },
-                    )
-                }
-
-                ReceiveFlowStep.ArrivedToday -> {
-                    val moodLabel = MoodOptions.all.firstOrNull { it.tag == dailyMood }?.title ?: "Surprise"
-                    val roomState by roomViewModel.uiState.collectAsState()
-
-                    if (roomState.isLoading) {
-                        ArrivedTodayLoading()
-                    } else {
-                        ArrivedTodayScreen(
-                            state = ArrivedTodayUiState(
-                                moodLabel = moodLabel,
-                                // No genre label: genre only nudges the ranking, so naming it here
-                                // would promise a filter that the records may not match.
-                                fallbackNote = when {
-                                    roomState.error != null ->
-                                        "Couldn't load today's music cards. Check your connection and try again."
-                                    roomState.cards.isEmpty() -> "Nothing in the crate yet. Check back later."
-                                    else -> null
-                                },
-                                options = roomState.cards.map {
-                                    it.toArrivedOption(readerLat = locationState.lat, readerLng = locationState.lng)
-                                },
-                            ),
-                            onSelect = { option -> receiveFlowStep = ReceiveFlowStep.Unopened(option) },
-                            // "Done" turns the sheet back to the mood question.
-                            onNotNow = { receiveFlowStep = ReceiveFlowStep.Questionnaire },
-                        )
-                    }
-                }
-
-                else -> Unit
+        when (shownSheetStep) {
+            ReceiveFlowStep.Questionnaire -> {
+                MoodQuestionnaireScreen(
+                    selectedMood = dailyMood,
+                    genreOptions = dailyGenresState.options,
+                    selectedGenres = dailyGenresState.selected,
+                    // Tapping the selected mood again clears it.
+                    onMoodSelected = { dailyMood = if (dailyMood == it) null else it },
+                    onGenreToggled = dailyGenresViewModel::toggle,
+                    // Load here rather than on entering Arrived Today: Unopened's back button
+                    // returns there, and request_recommendations records new matches on every
+                    // call — loading on entry would deal a fresh hand each time.
+                    onSubmit = {
+                        reminderPrefs.markPulledToday()
+                        roomViewModel.load(dailyMood, dailyGenresState.selected)
+                        receiveFlowStep = ReceiveFlowStep.ArrivedToday
+                    },
+                    onLetCrateDecide = {
+                        reminderPrefs.markPulledToday()
+                        roomViewModel.load(mood = null)
+                        receiveFlowStep = ReceiveFlowStep.ArrivedToday
+                    },
+                    onBack = { receiveFlowStep = null },
+                )
             }
+
+            else -> Unit
         }
     }
 
     // The full-screen steps, drawn over the sheet layer.
     when (val step = receiveFlowStep) {
+        ReceiveFlowStep.ArrivedToday -> {
+            val moodLabel = MoodOptions.all.firstOrNull { it.tag == dailyMood }?.title ?: "Surprise"
+            val roomState by roomViewModel.uiState.collectAsState()
+
+            if (roomState.isLoading) {
+                ArrivedTodayLoading()
+            } else {
+                // The cards rise in once per hand; coming back from the envelope shows them in place.
+                val animateIn = roomState.cards !== risenHand.cards
+                SideEffect { risenHand.cards = roomState.cards }
+                ArrivedTodayScreen(
+                    state = ArrivedTodayUiState(
+                        moodLabel = moodLabel,
+                        // No genre label: genre only nudges the ranking, so naming it here
+                        // would promise a filter that the records may not match.
+                        fallbackNote = when {
+                            roomState.error != null ->
+                                "Couldn't load today's music cards. Check your connection and try again."
+                            roomState.cards.isEmpty() -> "Nothing in the crate yet. Check back later."
+                            else -> null
+                        },
+                        options = roomState.cards.map {
+                            it.toArrivedOption(readerLat = locationState.lat, readerLng = locationState.lng)
+                        },
+                    ),
+                    onSelect = { option -> receiveFlowStep = ReceiveFlowStep.Unopened(option) },
+                    // "Back to Home": closes the flow without pulling again or reopening the mood sheet.
+                    onNotNow = {
+                        receiveFlowStep = null
+                        selectedTab = AppTab.Home
+                    },
+                    animateIn = animateIn,
+                )
+            }
+        }
+
         is ReceiveFlowStep.Unopened -> {
             UnopenedRecordScreen(
                 state = UnopenedRecordUiState(

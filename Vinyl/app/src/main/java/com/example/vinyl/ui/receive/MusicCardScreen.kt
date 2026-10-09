@@ -153,8 +153,8 @@ private fun TopBar(isKept: Boolean, onToggleKeep: () -> Unit) {
 }
 
 /**
- * The song, with its preview playable in place. The time counts up while it plays and the
- * preview stops at 0:30.
+ * The song, with its preview playable in place. The line along the bottom edge fills while it
+ * plays, and the preview stops at 0:30.
  */
 @Composable
 private fun PlayerCard(state: MusicCardUiState) {
@@ -229,21 +229,16 @@ private fun PlayerCard(state: MusicCardUiState) {
                 Text(
                     text = state.trackName,
                     color = VinylPalette.Cream,
-                    style = ReceiveFlowStyle.text(16.sp, FontWeight.Medium, 22.sp),
+                    style = ReceiveFlowStyle.text(18.sp, FontWeight.Medium, 26.sp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = state.artistName,
                     color = VinylPalette.Cream.copy(alpha = 0.65f),
-                    style = ReceiveFlowStyle.text(13.sp, FontWeight.Light, 18.sp),
+                    style = ReceiveFlowStyle.text(14.sp, FontWeight.Light, 20.sp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = "${clock(elapsedMs)} / ${clock(PreviewMs)}",
-                    color = VinylPalette.Cream.copy(alpha = 0.55f),
-                    style = ReceiveFlowStyle.text(12.sp, FontWeight.Light, 18.sp),
                 )
             }
             Spacer(modifier = Modifier.width(12.dp))
@@ -288,11 +283,6 @@ private fun AudioPreviewController.restartFromTop(url: String?) {
     toggle(url)
 }
 
-private fun clock(ms: Long): String {
-    val seconds = (ms / 1000).toInt()
-    return "%d:%02d".format(seconds / 60, seconds % 60)
-}
-
 /** The sender's message on a cream letter, signed like a real one, with the mood and compass below. */
 @Composable
 private fun Letter(state: MusicCardUiState, onOpenCompass: () -> Unit, modifier: Modifier = Modifier) {
@@ -302,31 +292,52 @@ private fun Letter(state: MusicCardUiState, onOpenCompass: () -> Unit, modifier:
             .background(VinylPalette.Cream)
             .padding(top = 30.dp, bottom = 18.dp),
     ) {
-        Column(
+        // The writing area. A short note is set large in the middle of it; a longer one reads
+        // like a letter, from the top left, and scrolls inside the card.
+        Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
                 .padding(horizontal = LetterTextInset),
+            contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = state.message,
-                color = VinylPalette.Background,
-                style = ReceiveFlowStyle.text(16.sp, FontWeight.Normal, 29.sp),
-            )
-            Spacer(modifier = Modifier.height(18.dp))
+            if (state.message.length <= ShortMessageMaxChars) {
+                Text(
+                    text = state.message,
+                    color = VinylPalette.Background,
+                    style = ReceiveFlowStyle.text(24.sp, FontWeight.Normal, 36.sp),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                )
+            } else {
+                Text(
+                    text = state.message,
+                    color = VinylPalette.Background,
+                    style = ReceiveFlowStyle.text(16.sp, FontWeight.Normal, 29.sp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState()),
+                )
+            }
+        }
+
+        // The signature stays put at the bottom right, whatever the message does.
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = LetterTextInset, end = LetterTextInset, top = 14.dp),
+            horizontalAlignment = Alignment.End,
+        ) {
             Text(
                 text = "- someone, somewhere",
                 color = VinylPalette.Background.copy(alpha = 0.75f),
-                style = ReceiveFlowStyle.text(14.sp, FontWeight.Light, 20.sp),
-                modifier = Modifier.align(Alignment.End),
+                style = ReceiveFlowStyle.text(15.sp, FontWeight.Light, 22.sp),
             )
             state.sentDateLabel?.let {
                 Text(
                     text = "Sent $it",
-                    color = VinylPalette.Background.copy(alpha = 0.5f),
-                    style = ReceiveFlowStyle.text(12.sp, FontWeight.Light, 18.sp),
-                    modifier = Modifier.align(Alignment.End),
+                    color = VinylPalette.Background.copy(alpha = 0.6f),
+                    style = ReceiveFlowStyle.text(13.sp, FontWeight.Light, 20.sp),
                 )
             }
         }
@@ -413,7 +424,9 @@ private fun BottomRow(trackName: String, artistName: String, onPlayOnTurntable: 
                 .size(56.dp)
                 .clip(CircleShape)
                 .background(Color.White)
-                .clickable { uriHandler.openUri("https://music.apple.com/search?term=$query") },
+                .clickable(onClickLabel = "Listen on Apple Music") {
+                    uriHandler.openUri("https://music.apple.com/search?term=$query")
+                },
         )
         // Spotify's official black icon, unmodified, with half its height clear on every side.
         Box(
@@ -464,6 +477,9 @@ private fun BottomRow(trackName: String, artistName: String, onPlayOnTurntable: 
 }
 
 private const val PreviewMs = 30_000L
+
+/** Messages this long or shorter are set large and centred on the letter. */
+private const val ShortMessageMaxChars = 80
 
 private val LetterTextInset = 28.dp
 private val LetterFooterInset = 14.dp

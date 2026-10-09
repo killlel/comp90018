@@ -20,7 +20,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.foundation.Canvas
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -30,7 +34,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
@@ -81,37 +84,50 @@ data class ArrivedTodayUiState(
 )
 
 /**
- * Page 2 of the receive flow, inside the sheet: today's music cards, all of them openable.
- * [onNotNow] is the "Done" button, which the caller takes back to the mood sheet.
+ * Page 2 of the receive flow, full screen: today's music cards, all of them openable.
+ * [onNotNow] is the "Back to Home" button.
+ *
+ * @param animateIn true the first time a new set of cards is shown, so they rise in one by one.
+ *   Coming back to the same cards from the envelope shows them already in place.
  */
 @Composable
 fun ArrivedTodayScreen(
     state: ArrivedTodayUiState,
     onSelect: (ArrivedRecordOption) -> Unit,
     onNotNow: () -> Unit,
+    animateIn: Boolean = true,
 ) {
     ArrivedTodayLayout {
-        state.fallbackNote?.let {
-            Spacer(modifier = Modifier.height(12.dp))
-            FallbackChip(text = it)
-        }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            state.fallbackNote?.let {
+                Spacer(modifier = Modifier.height(12.dp))
+                FallbackChip(text = it)
+            }
 
-        Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            state.options.forEachIndexed { index, option ->
-                RiseIn(index = index) {
-                    ArrivedRecordCard(option = option, onClick = { onSelect(option) })
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                state.options.forEachIndexed { index, option ->
+                    RiseIn(index = index, animate = animateIn) {
+                        ArrivedRecordCard(option = option, onClick = { onSelect(option) })
+                    }
                 }
             }
+
+            Spacer(modifier = Modifier.height(24.dp))
         }
 
-        Spacer(modifier = Modifier.weight(1f))
-        Spacer(modifier = Modifier.height(24.dp))
-
-        TextButton(onClick = onNotNow, modifier = Modifier.height(44.dp)) {
+        TextButton(
+            onClick = onNotNow,
+            modifier = Modifier.align(Alignment.BottomCenter).height(44.dp),
+        ) {
             Text(
-                "Done",
+                "Back to Home",
                 color = VinylPalette.TealAccent,
                 style = ReceiveFlowStyle.text(14.sp, FontWeight.Medium),
             )
@@ -119,63 +135,95 @@ fun ArrivedTodayScreen(
     }
 }
 
-/** What page 2 shows while today's cards are still being fetched: a spinning record. */
+/**
+ * What page 2 shows while today's cards are still being fetched: a record turning in the centre
+ * of the screen, inside the teal progress ring the loading state has always had.
+ */
 @Composable
 fun ArrivedTodayLoading() {
-    val spin = rememberInfiniteTransition(label = "loadingRecord")
-    val rotation by spin.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Restart),
-        label = "rotation",
-    )
-    ArrivedTodayLayout {
-        Spacer(modifier = Modifier.weight(1f))
-        Image(
-            painter = painterResource(R.drawable.turntable_record),
-            contentDescription = "Loading today's music cards",
-            modifier = Modifier.size(140.dp).rotate(rotation),
-        )
-        Spacer(modifier = Modifier.weight(1.4f))
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(VinylPalette.SheetSurface),
+    ) {
+        ArrivedTodayLayout {}
+        Box(
+            modifier = Modifier.align(Alignment.Center).size(LoadingSize),
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator(
+                color = VinylPalette.TealAccent,
+                strokeWidth = 2.dp,
+                modifier = Modifier.fillMaxSize(),
+            )
+            LoadingRecord(modifier = Modifier.size(LoadingSize - 24.dp))
+        }
     }
 }
 
 /**
- * The sheet background, header and scrolling column shared by the loaded and loading states.
- * The header sits at the same height as the mood sheet's, so the swap between them reads as
- * one sheet turning its page.
+ * A record drawn from circles rather than the turntable photo. The photo's sheen is lit by the
+ * room and its disc sits slightly off the image centre, so turning it reads as a wobble; this one
+ * is centred exactly and only its highlight and label mark show the turn.
  */
 @Composable
-private fun ArrivedTodayLayout(content: @Composable ColumnScope.() -> Unit) {
-    BoxWithConstraints(
+private fun LoadingRecord(modifier: Modifier = Modifier) {
+    val spin = rememberInfiniteTransition(label = "loadingRecord")
+    val rotation = spin.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Restart),
+        label = "rotation",
+    )
+    Canvas(
+        // Read at draw time, so each frame of the spin redraws without recomposing.
+        modifier = modifier.graphicsLayer { rotationZ = rotation.value },
+    ) {
+        val radius = size.minDimension / 2f
+        drawCircle(VinylPalette.RecordDark, radius)
+        var groove = radius * 0.45f
+        while (groove < radius * 0.95f) {
+            drawCircle(VinylPalette.Cream.copy(alpha = 0.07f), groove, style = Stroke(width = 1.dp.toPx()))
+            groove += radius * 0.07f
+        }
+        drawArc(
+            color = VinylPalette.Cream.copy(alpha = 0.10f),
+            startAngle = -70f,
+            sweepAngle = 40f,
+            useCenter = true,
+        )
+        drawCircle(VinylPalette.TealAccent, radius * 0.32f)
+        drawCircle(VinylPalette.RecordDark, radius * 0.05f, center = center + Offset(0f, -radius * 0.2f))
+        drawCircle(VinylPalette.SheetSurface, radius * 0.035f)
+    }
+}
+
+/** The full-screen background and header shared by the loaded and loading states. */
+@Composable
+private fun ArrivedTodayLayout(content: @Composable BoxScope.() -> Unit) {
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
-            .background(VinylPalette.SheetSurface),
+            .background(VinylPalette.SheetSurface)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(start = 20.dp, end = 20.dp, top = 28.dp, bottom = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Column(
-            modifier = Modifier
-                .verticalScroll(rememberScrollState())
-                .heightIn(min = maxHeight)
-                // Top padding matches the mood sheet's handle plus its gap, so the titles line up.
-                .padding(start = 20.dp, end = 20.dp, top = 34.dp, bottom = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                text = "Arrived today",
-                color = VinylPalette.Cream,
-                style = ReceiveFlowStyle.Title,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "All three are yours to open.",
-                color = VinylPalette.TextMuted,
-                style = ReceiveFlowStyle.Helper,
-                textAlign = TextAlign.Center,
-            )
-            content()
-        }
+        Text(
+            text = "Arrived today",
+            color = VinylPalette.Cream,
+            style = ReceiveFlowStyle.Title,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "All three are yours to open.",
+            color = VinylPalette.TextMuted,
+            style = ReceiveFlowStyle.Helper,
+            textAlign = TextAlign.Center,
+        )
+        Box(modifier = Modifier.fillMaxWidth().weight(1f), content = content)
     }
 }
 
@@ -192,15 +240,20 @@ private fun FallbackChip(text: String) {
     )
 }
 
-/** Fades and lifts [content] into place, each card a beat after the one above it. */
+/**
+ * Fades and lifts [content] into place, each card a beat after the one above it. With [animate]
+ * false it is simply shown.
+ */
 @Composable
-private fun RiseIn(index: Int, content: @Composable () -> Unit) {
+private fun RiseIn(index: Int, animate: Boolean, content: @Composable () -> Unit) {
     // Previews don't run effects, so they start settled rather than invisible.
-    val inPreview = LocalInspectionMode.current
-    val progress = remember { Animatable(if (inPreview) 1f else 0f) }
+    val settled = !animate || LocalInspectionMode.current
+    val progress = remember { Animatable(if (settled) 1f else 0f) }
     LaunchedEffect(Unit) {
-        delay(index * 120L)
-        progress.animateTo(1f, tween(420, easing = FastOutSlowInEasing))
+        if (progress.value < 1f) {
+            delay(index * 120L)
+            progress.animateTo(1f, tween(420, easing = FastOutSlowInEasing))
+        }
     }
     val lift = with(LocalDensity.current) { 24.dp.toPx() }
     Box(
@@ -212,6 +265,8 @@ private fun RiseIn(index: Int, content: @Composable () -> Unit) {
         content()
     }
 }
+
+private val LoadingSize = 150.dp
 
 @Composable
 private fun ArrivedRecordCard(option: ArrivedRecordOption, onClick: () -> Unit) {
@@ -311,7 +366,7 @@ private val DiscSize = 60.dp
 /** How far the record shows past the cover's right edge. */
 private val DiscPeek = 20.dp
 
-@Preview(showBackground = true, backgroundColor = 0xFF0D0D0D, widthDp = 390, heightDp = 744)
+@Preview(showBackground = true, backgroundColor = 0xFF1C1C1C, widthDp = 390, heightDp = 844)
 @Composable
 private fun ArrivedTodayScreenPreview() {
     ArrivedTodayScreen(
@@ -328,7 +383,7 @@ private fun ArrivedTodayScreenPreview() {
     )
 }
 
-@Preview(showBackground = true, backgroundColor = 0xFF0D0D0D, widthDp = 390, heightDp = 744)
+@Preview(showBackground = true, backgroundColor = 0xFF1C1C1C, widthDp = 390, heightDp = 844)
 @Composable
 private fun ArrivedTodayFallbackPreview() {
     ArrivedTodayScreen(
@@ -342,7 +397,7 @@ private fun ArrivedTodayFallbackPreview() {
     )
 }
 
-@Preview(showBackground = true, backgroundColor = 0xFF0D0D0D, widthDp = 390, heightDp = 744)
+@Preview(showBackground = true, backgroundColor = 0xFF1C1C1C, widthDp = 390, heightDp = 844)
 @Composable
 private fun ArrivedTodayLoadingPreview() {
     ArrivedTodayLoading()
