@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Shuffle
@@ -293,8 +294,8 @@ private fun moodIcon(tag: MoodTag): Int = when (tag) {
 }
 
 /**
- * Single-choice genre picker on top of the parent's toggle. The selection starts on the user's
- * onboarding favourites, which can be several; that shows as "Your favourites" until they pick.
+ * Multi-choice genre picker. The selection starts on the user's onboarding favourites; each cell
+ * toggles one genre, and "Any genre" clears them all.
  */
 @Composable
 private fun GenrePicker(
@@ -304,20 +305,20 @@ private fun GenrePicker(
     onOpenChange: (Boolean) -> Unit,
     onToggle: (String) -> Unit,
 ) {
-    val single = selected.singleOrNull()
+    // Labels in the dropdown's order; a slug no longer on offer falls back to itself.
+    val labels = options.filter { it.slug in selected }.map { it.label } +
+        selected.filter { slug -> options.none { it.slug == slug } }
     val value = when {
-        selected.isEmpty() -> "Any"
-        single != null -> options.firstOrNull { it.slug == single }?.label ?: single
-        else -> "Your favourites"
+        labels.isEmpty() -> "Any"
+        labels.size <= 2 -> labels.joinToString(", ")
+        else -> labels.take(2).joinToString(", ") + " +${labels.size - 2}"
     }
-    val highlighted = open || single != null
+    val highlighted = open || selected.isNotEmpty()
     val chevronRotation by animateFloatAsState(if (open) 180f else 0f, label = "chevron")
 
-    // The parent only toggles, so switching genres means toggling the others off first.
+    // Stays open so several can be picked; "Any genre" (null) toggles off everything selected.
     fun pick(slug: String?) {
-        selected.filter { it != slug }.forEach(onToggle)
-        if (slug != null && slug !in selected) onToggle(slug)
-        onOpenChange(false)
+        if (slug == null) selected.forEach(onToggle) else onToggle(slug)
     }
 
     Row(
@@ -366,7 +367,7 @@ private fun GenrePicker(
             modifier = Modifier
                 .padding(top = 8.dp)
                 .fillMaxWidth()
-                .heightIn(max = 200.dp)
+                .heightIn(max = 180.dp)
                 .background(PanelBrush, PanelShape)
                 .border(1.dp, PanelBorder, PanelShape)
                 .clip(PanelShape)
@@ -379,7 +380,7 @@ private fun GenrePicker(
                     row.forEach { genre ->
                         GenreCell(
                             label = genre?.label ?: "Any genre",
-                            selected = if (genre == null) selected.isEmpty() else single == genre.slug,
+                            selected = if (genre == null) selected.isEmpty() else genre.slug in selected,
                             onClick = { pick(genre?.slug) },
                             modifier = Modifier.weight(1f),
                         )
@@ -404,13 +405,25 @@ private fun GenreCell(label: String, selected: Boolean, onClick: () -> Unit, mod
             .padding(horizontal = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = label,
-            color = if (selected) VinylPalette.TealAccent else VinylPalette.Cream,
-            style = poppins(13.sp, if (selected) FontWeight.Medium else FontWeight.Normal),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (selected) {
+                Icon(
+                    Icons.Rounded.Check,
+                    contentDescription = null,
+                    tint = VinylPalette.TealAccent,
+                    modifier = Modifier.size(14.dp),
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+            }
+            Text(
+                text = label,
+                color = if (selected) VinylPalette.TealAccent else VinylPalette.Cream,
+                style = poppins(13.sp, if (selected) FontWeight.Medium else FontWeight.Normal),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+        }
     }
 }
 
