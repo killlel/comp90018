@@ -32,20 +32,21 @@ import com.example.vinyl.ui.theme.VinylPalette
  *
  * Idle it still looks like a player — "0:00", a grey knob at the start, "--:--" — rather than a
  * bare line that reads as a divider. It stays at the start while the needle is still dropping or
- * the preview is still loading: [clock] only starts once sound does. The track is redrawn each
- * frame without recomposing; the times change once a second.
+ * the preview is still loading: [clock] only starts once sound does, and it holds still while the
+ * song is paused. The track is redrawn each frame without recomposing; the times change once a
+ * second.
  */
 @Composable
 fun PlaybackProgressBar(clock: PlaybackClock?, modifier: Modifier = Modifier) {
     val now = remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
-    // Ticks once a frame while a song runs; with nothing playing, nothing is scheduled.
+    // Ticks once a frame while a song runs; idle or paused, nothing is scheduled.
     LaunchedEffect(clock) {
-        if (clock == null) return@LaunchedEffect
+        if (clock == null || clock.isPaused) return@LaunchedEffect
         while (true) withFrameMillis { now.longValue = SystemClock.elapsedRealtime() }
     }
 
     val elapsedSeconds by remember(clock) {
-        derivedStateOf { clock?.let { elapsedMillis(it, now.longValue) / 1000 } ?: 0L }
+        derivedStateOf { clock?.let { it.elapsedAt(now.longValue) / 1000 } ?: 0L }
     }
 
     val active = clock != null
@@ -78,7 +79,7 @@ fun PlaybackProgressBar(clock: PlaybackClock?, modifier: Modifier = Modifier) {
                 cornerRadius = corner,
             )
             val fraction = clock?.let {
-                elapsedMillis(it, now.longValue).toFloat() / it.durationMillis
+                it.elapsedAt(now.longValue).toFloat() / it.durationMillis
             } ?: 0f
             if (fraction > 0f) {
                 drawRoundRect(
@@ -110,9 +111,6 @@ private fun TimeLabel(text: String, active: Boolean, align: TextAlign) {
         modifier = Modifier.width(TIME_WIDTH),
     )
 }
-
-private fun elapsedMillis(clock: PlaybackClock, now: Long): Long =
-    (now - clock.startedAtMillis).coerceIn(0L, clock.durationMillis)
 
 /** 0:07, 0:30, 3:05. */
 private fun formatTime(seconds: Long): String = "%d:%02d".format(seconds / 60, seconds % 60)
