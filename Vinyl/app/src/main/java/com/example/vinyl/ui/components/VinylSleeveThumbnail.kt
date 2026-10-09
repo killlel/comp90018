@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -110,6 +111,46 @@ fun VinylSleeveThumbnail(
 }
 
 /** Mimics the printed-sleeve look of the real artwork: a disc motif over a rule and a tiny caption. */
+/**
+ * Just the sleeve, square and without the disc: the "See all" grid's tile. Same artwork and
+ * placeholder as [VinylSleeveThumbnail], so a record looks the same on the shelf and in the grid.
+ */
+@Composable
+fun VinylCoverTile(
+    songName: String,
+    artist: String,
+    coverUrl: String?,
+    accentColor: Color,
+    modifier: Modifier = Modifier,
+    localCoverRes: Int? = null,
+) {
+    val shape = RoundedCornerShape(6.dp)
+    Box(
+        modifier = modifier
+            .aspectRatio(1f)
+            .clip(shape)
+            .background(if (localCoverRes != null || coverUrl != null) VinylColors.Ink else accentColor),
+    ) {
+        when {
+            localCoverRes != null -> Image(
+                painter = painterResource(localCoverRes),
+                contentDescription = songName,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+
+            coverUrl != null -> AsyncImage(
+                model = itunesArtworkAt(coverUrl, SLEEVE_ARTWORK_PX),
+                contentDescription = songName,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+
+            else -> PlaceholderSleeveArt(songName = songName, artist = artist, accentColor = accentColor)
+        }
+    }
+}
+
 @Composable
 private fun PlaceholderSleeveArt(songName: String, artist: String, accentColor: Color) {
     // Light sleeves (the cream one) need dark ink printed on them, dark sleeves need light.
