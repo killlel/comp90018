@@ -8,10 +8,10 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 /** Shown in place of a distance when the reader hasn't stored a location. */
-internal const val NO_READER_LOCATION_NOTE = "Update your location in Settings to view distance"
+internal const val NO_READER_LOCATION_NOTE = "Add your city in Settings to see the distance"
 
 /** Shown in place of a distance when the letter was sent without one. */
-internal const val NO_SENDER_LOCATION_NOTE = "The sender did not attach their location"
+internal const val NO_SENDER_LOCATION_NOTE = "The sender didn't share their city"
 
 /**
  * How long ago a letter was sent, in the phone's language: "Just now", "12 min. ago", "3 hr. ago",
@@ -48,6 +48,27 @@ private fun parseTimestamp(value: String): Long? = runCatching {
 }.getOrNull()
 
 /**
+ * The distance band between a card's sender and the reader, or the reason there isn't one.
+ *
+ * Exactly one of the pair is non-null. When both ends are missing the reader's note wins — it's
+ * the one they can actually do something about.
+ */
+internal fun distanceLabelAndNote(
+    senderLat: Double?,
+    senderLng: Double?,
+    readerLat: Double?,
+    readerLng: Double?,
+): Pair<String?, String?> {
+    val label = Distance.labelOrNull(senderLat, senderLng, readerLat, readerLng)
+    val note = when {
+        label != null -> null
+        readerLat == null || readerLng == null -> NO_READER_LOCATION_NOTE
+        else -> NO_SENDER_LOCATION_NOTE
+    }
+    return label to note
+}
+
+/**
  * Turns a room card into a picker option, working out the distance from the letter's centroid to
  * the reader's own.
  *
@@ -55,12 +76,7 @@ private fun parseTimestamp(value: String): Long? = runCatching {
  * missing the reader's note wins — it's the one they can actually do something about.
  */
 internal fun RoomCard.toArrivedOption(readerLat: Double?, readerLng: Double?): ArrivedRecordOption {
-    val label = Distance.labelOrNull(lat, lng, readerLat, readerLng)
-    val note = when {
-        label != null -> null
-        readerLat == null || readerLng == null -> NO_READER_LOCATION_NOTE
-        else -> NO_SENDER_LOCATION_NOTE
-    }
+    val (label, note) = distanceLabelAndNote(lat, lng, readerLat, readerLng)
     val tag = moodTag
 
     return ArrivedRecordOption(
@@ -77,5 +93,6 @@ internal fun RoomCard.toArrivedOption(readerLat: Double?, readerLng: Double?): A
         sentTimeLabel = sentTimeLabel(submittedAt),
         senderLat = lat,
         senderLng = lng,
+        previewUrl = previewUrl,
     )
 }

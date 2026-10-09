@@ -1,13 +1,15 @@
 package com.example.vinyl.ui.home
 
+import android.os.SystemClock
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,9 +19,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,6 +31,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
+import kotlin.math.roundToInt
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -41,8 +46,9 @@ import kotlinx.coroutines.delay
  *
  * Four layers, because each one moves differently:
  *
- *     tonearm   swings in over the record, then parks
- *     record    turns continuously around its own centre
+ *     tonearm   parked beside the platter; swings in and lands when music plays
+ *     record    only there while music plays: lowered on, turns once the needle
+ *               lands, lifted off when it stops
  *     platter   static
  *     plinth    static
  *
@@ -62,45 +68,110 @@ import kotlinx.coroutines.delay
 @Composable
 fun Turntable(
     modifier: Modifier = Modifier,
-    playing: Boolean = true,
+    /** Music is playing. False keeps the record still and the arm parked beside it. */
+    playing: Boolean = false,
     /** Painted onto the record label. Falls back to the accent colour when absent. */
     labelArtworkUrl: String? = null,
+    /** Tapping the deck while it plays lifts the needle. Null leaves the deck inert. */
+    onStop: (() -> Unit)? = null,
+    /**
+     * When the song began, on the `SystemClock.elapsedRealtime()` clock. The drop is only played
+     * if it would still be under way; a turntable drawn later — after switching tabs and coming
+     * back — starts with the needle down and the record already at speed.
+     */
+    startedAtMillis: Long = 0L,
 ) {
     val haptics = rememberTurntableHaptics()
 
-    val spin by rememberInfiniteTransition(label = "platter").animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(REVOLUTION_MILLIS, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart,
-        ),
-        label = "spin",
-    )
-    val spinAngle = if (playing) spin else 0f
+    // Decided once, when this turntable first appears. Mid-song it appears in the playing pose;
+    // otherwise at rest, so "Play this song" shows the full drop.
+    val arrivedMidSong = remember {
+        playing && SystemClock.elapsedRealtime() - startedAtMillis >= NEEDLE_LANDS_AFTER_MILLIS
+    }
+    val arm = remember { Animatable(if (arrivedMidSong) ARM_PLAYING_DEGREES else ARM_PARKED_DEGREES) }
+    val spin = remember { Animatable(0f) }
+    // 0 = no record on the deck, 1 = sitting on the platter. In between it is being lowered on or
+    // lifted off: it rises and fades as it goes.
+    val recordOn = remember { Animatable(if (arrivedMidSong) 1f else 0f) }
+    var needleDown by remember { mutableStateOf(arrivedMidSong) }
 
-    val armAngle by animateFloatAsState(
-        targetValue = if (playing) ARM_PLAYING_DEGREES else ARM_PARKED_DEGREES,
-        animationSpec = tween(ARM_SWING_MILLIS, easing = LinearEasing),
-        label = "arm",
-    )
+    // The song is cleared the moment it stops, but its record is still on view as it's lifted
+    // off; keep its label until then rather than flashing the default.
+    var lastPlayingLabel by remember { mutableStateOf(labelArtworkUrl) }
+    SideEffect { if (playing) lastPlayingLabel = labelArtworkUrl }
+    val shownLabel = if (playing) labelArtworkUrl else lastPlayingLabel
 
-    // Delayed to land with the arm rather than fire as it sets off. Keyed on `playing` so it
-    // happens once per transition, not on every recomposition the spin animation causes.
-    //
-    // The first pass is skipped deliberately: opening the tab is not a needle drop, and buzzing
-    // on arrival at a screen the user merely navigated to feels like a malfunction.
-    var settled by rememberSaveable { mutableStateOf(false) }
+    // Only the very first spin can skip the spin-up; a later replay starts from rest again.
+    var skipSpinUp by remember { mutableStateOf(arrivedMidSong) }
+
+    // The order is the point. Playing: the record goes on, the arm swings over and lands, *then*
+    // the record turns. Stopping: the record slows as the arm returns, *then* it comes off. A real
+    // deck can't spin a record it isn't touching, or lift one the needle is still in.
     LaunchedEffect(playing) {
-        if (!settled) {
-            settled = true
-            return@LaunchedEffect
+        if (playing) {
+            if (needleDown) return@LaunchedEffect // already down: arrived mid-song
+            // A beat for the card sheet to slide away, so the drop isn't hidden behind it —
+            // less whatever of it has already passed.
+            val sinceStart = SystemClock.elapsedRealtime() - startedAtMillis
+            delay((NEEDLE_DROP_DELAY_MILLIS - sinceStart).coerceAtLeast(0L))
+            recordOn.animateTo(1f, tween(RECORD_PLACE_MILLIS, easing = FastOutSlowInEasing))
+            arm.animateTo(ARM_PLAYING_DEGREES, tween(ARM_SWING_MILLIS, easing = FastOutSlowInEasing))
+            haptics.needleDrop()
+            needleDown = true
+        } else if (needleDown || arm.value != ARM_PARKED_DEGREES || recordOn.value != 0f) {
+            val wasDown = needleDown || arm.value != ARM_PARKED_DEGREES
+            needleDown = false
+            arm.animateTo(ARM_PARKED_DEGREES, tween(ARM_SWING_MILLIS, easing = FastOutSlowInEasing))
+            if (wasDown) haptics.needleLift()
+            recordOn.animateTo(0f, tween(RECORD_PLACE_MILLIS, easing = FastOutSlowInEasing))
         }
-        delay(ARM_SWING_MILLIS.toLong())
-        if (playing) haptics.needleDrop() else haptics.needleLift()
     }
 
-    BoxWithConstraints(modifier.fillMaxWidth()) {
+    LaunchedEffect(needleDown) {
+        if (needleDown) {
+            // Spin up over the first turn rather than jumping to speed, then hold it. Skipped
+            // when the record was already turning before this screen appeared.
+            if (!skipSpinUp) {
+                spin.animateTo(spin.value + 360f, tween(SPIN_UP_MILLIS, easing = FastOutLinearInEasing))
+            }
+            skipSpinUp = false
+            while (true) {
+                spin.snapTo(spin.value % 360f)
+                spin.animateTo(spin.value + 360f, tween(REVOLUTION_MILLIS, easing = LinearEasing))
+            }
+        } else if (spin.value % 360f != 0f) {
+            // Coast to a stop instead of freezing mid-turn.
+            spin.animateTo(spin.value + COAST_DEGREES, tween(COAST_MILLIS, easing = LinearOutSlowInEasing))
+        }
+    }
+
+    val tapToStop = if (playing && onStop != null) {
+        Modifier.clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null, // a ripple over a photo of a turntable looks like a glitch
+            onClickLabel = "Stop playing",
+            onClick = onStop,
+        )
+    } else {
+        Modifier
+    }
+
+    BoxWithConstraints(
+        modifier
+            .fillMaxWidth()
+            // The plinth export carries clear rows above and below the wood. Reporting only the
+            // drawn part keeps the gap to its neighbours the gap the layout asked for. Not
+            // clipped, so the arm's counterweight can still rise a little past the top edge.
+            .layout { measurable, constraints ->
+                val placeable = measurable.measure(constraints)
+                val top = (placeable.height * PLINTH_CLEAR_TOP).roundToInt()
+                val bottom = (placeable.height * PLINTH_CLEAR_BOTTOM).roundToInt()
+                layout(placeable.width, placeable.height - top - bottom) {
+                    placeable.place(0, -top)
+                }
+            }
+            .then(tapToStop),
+    ) {
         val plinthWidth = maxWidth
         val plinthHeight = plinthWidth * PLINTH_HEIGHT_RATIO
         val platterWidth = plinthWidth * PLATTER_WIDTH_FRACTION
@@ -135,6 +206,8 @@ fun Turntable(
         // of the export, and shares its flattening.
         val surfaceCentreY = plinthHeight * SPINDLE_Y +
             platterHeight * PLATTER_SQUASH * (PLATTER_SURFACE_CENTRE_Y - 0.5f)
+        // How high above the platter the record starts as it's lowered on.
+        val recordLift = recordSize * RECORD_LIFT_FRACTION
         Box(
             modifier = Modifier
                 .size(recordSize)
@@ -144,18 +217,26 @@ fun Turntable(
                     x = plinthWidth * SPINDLE_X - recordSize / 2,
                     y = surfaceCentreY - recordSize / 2,
                 )
+                // Lowered on and lifted off: drawn higher and fainter the less it's on. Read at
+                // draw time, so the move doesn't recompose. Off entirely, it isn't drawn at all.
+                .graphicsLayer {
+                    val on = recordOn.value
+                    alpha = on
+                    translationY = -(1f - on) * recordLift.toPx()
+                }
                 .graphicsLayer { scaleY = PLATTER_SURFACE_ASPECT * PLATTER_SQUASH },
         ) {
+            // Held still on purpose: the photo's sheen is lit by the room, so it must not turn with
+            // the disc. Grooves are circles and look the same at any angle - the label below is
+            // what shows the record spinning.
             Image(
                 painter = painterResource(R.drawable.turntable_record),
                 contentDescription = null,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer { rotationZ = spinAngle },
+                modifier = Modifier.fillMaxSize(),
             )
 
             // The export has a plain white label. Today's artwork goes there when there is any,
-            // the accent colour when there isn't — both turn with the disc.
+            // the accent colour when there isn't. It's the only part that turns.
             val labelSize = recordSize * LABEL_DIAMETER_FRACTION
             Box(
                 modifier = Modifier
@@ -164,21 +245,32 @@ fun Turntable(
                         x = (recordSize - labelSize) / 2,
                         y = (recordSize - labelSize) / 2,
                     )
-                    .graphicsLayer { rotationZ = spinAngle }
+                    // Read at draw time, so each frame of the spin redraws without recomposing.
+                    .graphicsLayer { rotationZ = spin.value }
                     .clip(CircleShape),
             ) {
-                if (labelArtworkUrl != null) {
+                if (shownLabel != null) {
                     AsyncImage(
-                        model = labelArtworkUrl,
+                        model = shownLabel,
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
+                    // A plain disc looks the same at every angle, so a spinning one would look
+                    // stopped. The printed wedge is what the eye follows round.
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .drawBehind { drawRect(VinylPalette.TealAccent) },
+                            .drawBehind {
+                                drawRect(VinylPalette.TealAccent)
+                                drawArc(
+                                    color = VinylPalette.Background.copy(alpha = 0.28f),
+                                    startAngle = -30f,
+                                    sweepAngle = 60f,
+                                    useCenter = true,
+                                )
+                            },
                     )
                 }
 
@@ -208,7 +300,7 @@ fun Turntable(
                     y = plinthHeight * ARM_PIVOT_ON_PLINTH_Y - tonearmHeight * ARM_PIVOT_IN_IMAGE_Y,
                 )
                 .graphicsLayer {
-                    rotationZ = armAngle
+                    rotationZ = arm.value
                     transformOrigin = TransformOrigin(ARM_PIVOT_IN_IMAGE_X, ARM_PIVOT_IN_IMAGE_Y)
                 },
         )
@@ -217,6 +309,13 @@ fun Turntable(
 
 /** 1100x619 export. */
 private const val PLINTH_HEIGHT_RATIO = 619f / 1100f
+
+/**
+ * Clear rows in the plinth export: the wood starts at row 79 and the feet end at row 559. A few
+ * rows are left above, where the arm's counterweight stands slightly proud of the plinth.
+ */
+private const val PLINTH_CLEAR_TOP = 70f / 619f
+private const val PLINTH_CLEAR_BOTTOM = 56f / 619f
 
 /** 1100x825 export. */
 private const val PLATTER_HEIGHT_RATIO = 825f / 1100f
@@ -235,10 +334,10 @@ private const val PLATTER_SQUASH = 0.88f
  * Where the spindle sits on the plinth, as a fraction of the plinth's width and height. Chosen so
  * the whole platter, rim included, sits inside the black mat (y 92–439 of the 619 export).
  */
-private const val SPINDLE_X = 0.43f
+private const val SPINDLE_X = 0.39f
 private const val SPINDLE_Y = 0.43f
 
-private const val PLATTER_WIDTH_FRACTION = 0.60f
+private const val PLATTER_WIDTH_FRACTION = 0.56f
 
 /**
  * The record box as a fraction of the platter width. The disc fills only 83% of its export, so
@@ -269,11 +368,31 @@ private const val ARM_PIVOT_ON_PLINTH_Y = 0.30f
  * grooves.
  */
 private const val ARM_PARKED_DEGREES = 12f
-private const val ARM_PLAYING_DEGREES = 28f
+private const val ARM_PLAYING_DEGREES = 30f
 private const val ARM_SWING_MILLIS = 900
+
+/** Lets the card sheet slide away before the arm moves, so the drop is seen. */
+private const val NEEDLE_DROP_DELAY_MILLIS = 400L
+
+/** Lowering the record onto the platter, and lifting it off again. */
+private const val RECORD_PLACE_MILLIS = 550
+
+/** How far above the platter the record starts, as a fraction of its width. */
+private const val RECORD_LIFT_FRACTION = 0.18f
+
+/** When the needle touches the record after playing starts — the player waits this long. */
+internal const val NEEDLE_LANDS_AFTER_MILLIS =
+    NEEDLE_DROP_DELAY_MILLIS + RECORD_PLACE_MILLIS + ARM_SWING_MILLIS
 
 /** 33 1/3 rpm. Slower reads as a stopped record; faster looks like a fan. */
 private const val REVOLUTION_MILLIS = 1800
+
+/** The first turn, accelerating from rest. */
+private const val SPIN_UP_MILLIS = 2400
+
+/** How far and how long the record turns on after the music stops. */
+private const val COAST_DEGREES = 120f
+private const val COAST_MILLIS = 900
 
 @Preview(showBackground = true, backgroundColor = 0xFF0D0D0D, widthDp = 393, heightDp = 260)
 @Composable

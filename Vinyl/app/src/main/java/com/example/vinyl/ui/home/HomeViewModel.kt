@@ -16,12 +16,6 @@ data class HomeUiState(
     /** Letters already delivered today and not yet opened. Zero is a normal state, not an error. */
     val arrivedCount: Int = 0,
     val recentlyCollected: List<RoomCard> = emptyList(),
-    /**
-     * Artwork for the record on the deck. The newest letter waiting, so the turntable shows what
-     * is actually about to be opened rather than a generic disc. Null until something arrives,
-     * or when the sender's track had no cover.
-     */
-    val nowOnDeckArtworkUrl: String? = null,
     val error: String? = null,
 )
 
@@ -58,7 +52,6 @@ class HomeViewModel(private val repository: RoomRepository = RoomRepository()) :
                 HomeUiState(
                     arrivedCount = room.size,
                     recentlyCollected = shelfResult.getOrNull().orEmpty(),
-                    nowOnDeckArtworkUrl = room.firstNotNullOfOrNull { card -> card.artworkUrl },
                     error = roomResult.exceptionOrNull()?.message
                         ?: shelfResult.exceptionOrNull()?.message,
                 )

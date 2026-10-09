@@ -43,7 +43,31 @@ class CollectionViewModel(
     }
 
     fun selectFilter(filter: CollectionFilter) {
-        _uiState.update { it.copy(selectedFilter = filter, sections = buildSections(allRecords, filter)) }
+        _uiState.update {
+            it.copy(
+                selectedFilter = filter,
+                sections = buildSections(allRecords, filter),
+                gridRecords = filterRecords(allRecords, filter, it.searchQuery),
+            )
+        }
+    }
+
+    /** Opens "See all" on the filter the shelves were showing, with no search carried over. */
+    fun openGrid() = _uiState.update {
+        it.copy(isGridOpen = true, isSearching = false, searchQuery = "", gridRecords = filterRecords(allRecords, it.selectedFilter, ""))
+    }
+
+    fun closeGrid() = _uiState.update { it.copy(isGridOpen = false, isSearching = false, searchQuery = "") }
+
+    fun openSearch() = _uiState.update { it.copy(isSearching = true) }
+
+    /** Closing the search box also clears it, so the grid goes back to the whole filter. */
+    fun closeSearch() = _uiState.update {
+        it.copy(isSearching = false, searchQuery = "", gridRecords = filterRecords(allRecords, it.selectedFilter, ""))
+    }
+
+    fun search(query: String) = _uiState.update {
+        it.copy(searchQuery = query, gridRecords = filterRecords(allRecords, it.selectedFilter, query))
     }
 
     fun openRecord(record: VinylRecord) = _uiState.update { it.copy(openRecord = record, actionError = null) }
@@ -75,7 +99,7 @@ class CollectionViewModel(
                     publish()
                 }
                 .onFailure {
-                    _uiState.update { it.copy(actionError = "Couldn't remove this record. Try again.") }
+                    _uiState.update { it.copy(actionError = "Couldn't remove this music card. Try again.") }
                 }
         }
     }
@@ -93,8 +117,28 @@ class CollectionViewModel(
                 error = null,
                 totalCount = allRecords.size,
                 sections = buildSections(allRecords, it.selectedFilter),
+                gridRecords = filterRecords(allRecords, it.selectedFilter, it.searchQuery),
             )
         }
+    }
+}
+
+/** The records one filter tab covers, in the order given. */
+private fun scope(records: List<VinylRecord>, filter: CollectionFilter): List<VinylRecord> = when (filter) {
+    CollectionFilter.ALL -> records
+    CollectionFilter.RECEIVED -> records.filter { it.source == RecordSource.RECEIVED }
+    CollectionFilter.SENT -> records.filter { it.source == RecordSource.SENT }
+    CollectionFilter.FAVOURITES -> records.filter { it.isFavourite }
+}
+
+/**
+ * The "See all" grid: [filter]'s records whose song, artist or mood contains [query], ignoring
+ * case. A blank query matches everything.
+ */
+internal fun filterRecords(records: List<VinylRecord>, filter: CollectionFilter, query: String): List<VinylRecord> {
+    val q = query.trim()
+    return scope(records, filter).filter { record ->
+        q.isEmpty() || listOfNotNull(record.songName, record.artist, record.mood).any { it.contains(q, ignoreCase = true) }
     }
 }
 
@@ -104,11 +148,7 @@ internal fun buildSections(records: List<VinylRecord>, filter: CollectionFilter)
         return listOf(CollectionSection("Favourites", records.filter { it.isFavourite }))
     }
 
-    val scoped = when (filter) {
-        CollectionFilter.RECEIVED -> records.filter { it.source == RecordSource.RECEIVED }
-        CollectionFilter.SENT -> records.filter { it.source == RecordSource.SENT }
-        else -> records
-    }
+    val scoped = scope(records, filter)
 
     val sections = mutableListOf<CollectionSection>()
     if (scoped.isNotEmpty()) {

@@ -17,8 +17,7 @@ directly.
 | `supabase/migrations/20261004000002_split_matchmaker.sql` | The split path: `candidate_card`, `get_candidates`, `get_genre_weights`, `commit_recommendations` |
 | `supabase/migrations/20261005000001_shelf_favourites.sql` | `shelf_items.is_favourite`, for the Collection's Favourites filter |
 | `supabase/migrations/20261008000001_cap_genre_weight.sql` | Scales genre rarity to 0–1 in `request_recommendations` and `get_genre_weights`, so genre can never outweigh mood |
-| `supabase/seed.sql` | 24 demo submissions across every mood |
-| `supabase/seed_demo_users.sql` | Optional fake "stranger" accounts |
+| `supabase/seed.sql` | 10 demo accounts and 60 demo records — real iTunes tracks with covers and previews |
 | `supabase/tests/smoke_test.sql` | CRUD + privacy checks, self-asserting (30 checks) |
 | `docs/matching.md` | How the matchmaker scores and picks, and why |
 
@@ -405,9 +404,8 @@ a hassle on Windows). Open the project's SQL editor and run, in order:
 2. `20260904000002_rls.sql`
 3. `20260904000003_functions.sql`
 4. the later migrations, in filename order
-5. `seed_demo_users.sql` *(optional)*
-6. `seed.sql`
-7. `tests/smoke_test.sql`
+5. `seed.sql`
+6. `tests/smoke_test.sql`
 
 Every file is idempotent, so re-running one while you iterate is safe. Commit
 the files either way — the migration files are the schema's source of truth.
@@ -433,12 +431,11 @@ Install it with `npx` as above, or `scoop install supabase` on Windows.
 A global `npm install -g supabase` is **not** supported by the CLI.
 
 `db push` applies migrations **only**. Seeds and the smoke test are not run
-against a linked remote project, so finish in the SQL editor (or with `psql`):
+against a linked remote project. Run the seed through the Management API (no
+database password involved), or paste it into the SQL editor:
 
 ```bash
-psql "$DATABASE_URL" -f supabase/seed_demo_users.sql   # optional
-psql "$DATABASE_URL" -f supabase/seed.sql
-psql "$DATABASE_URL" -f supabase/tests/smoke_test.sql
+npx supabase db query --linked -f supabase/seed.sql
 ```
 
 If you already applied a migration by hand in the SQL editor, either let
@@ -447,10 +444,26 @@ re-running: `npx supabase migration repair --status applied 20260904000001`.
 
 ### Before you run the seed
 
-Every submission needs a real account behind it, and the matchmaker never
-recommends you your own song. **Have all four of us sign in through the app
-once** before running `seed.sql`, or run `seed_demo_users.sql` first — otherwise
-the only signed-in account will own all 24 songs and see an empty room.
+`seed.sql` brings its own senders: ten demo accounts
+(`vinyl-demo-N@example.invalid`) that can never sign in, each with a home city
+(Melbourne x2, Sydney, Brisbane, Perth, Adelaide, Hobart, Auckland, Tokyo,
+London) and an avatar. They send 60 records — 6 per mood, 60 different artists,
+22 genres, sent over the past 20 days — so every real account is a recipient and
+can pull about 20 times before the room runs dry.
+
+Every record is a real iTunes track (US storefront, like the app's search),
+stored the way the app stores one: the 100px artwork URL and the iTunes genre on
+`tracks`; the sender's mood, genres and message on `submissions`. Preview URLs
+can change over time — if one stops playing, search iTunes for that song again
+and update its row in the VALUES list.
+
+Running it also deletes the Sprint 1 hand-typed seed (`tracks.provider =
+'manual'`, ids `seed-NN`), which had no covers or previews. That cascades to any
+room, shelf item or reaction pointing at those records. Records sent from the
+app are never touched.
+
+The demo accounts keep `onboarding_completed = false` on purpose: the smoke test
+rerolls a record sender's username, which only works while onboarding is open.
 
 ### Verifying
 
@@ -465,7 +478,7 @@ back, so it leaves nothing behind. A clean run ends with
 ```
 throwaway postgres:16 container, with a stubbed auth schema
   → every migration from scratch    (catches breakage in OLD migrations)
-  → seed_demo_users.sql, seed.sql
+  → seed.sql
   → tests/smoke_test.sql
   → only then: npx supabase db push
 ```

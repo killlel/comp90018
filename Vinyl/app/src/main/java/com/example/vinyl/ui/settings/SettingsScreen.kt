@@ -93,13 +93,10 @@ fun SettingsScreen(
     onOpenLocation: () -> Unit = {},
     onBack: () -> Unit,
     onSignOut: () -> Unit,
-    displayName: String = "Music Explorer",
-    handle: String = "@18402937",
+    /** The server-generated alias ("Happy Giraffe"). Blank until the profile read returns. */
+    displayName: String = "",
     modifier: Modifier = Modifier,
 ) {
-
-    val displayName = "UserName"
-    val handle = "@vinyl"
 
     var page by rememberSaveable { mutableStateOf(SettingsPage.List) }
     // The daily reminder: on only if the user wants it AND Android allows notifications. Re-read
@@ -158,7 +155,6 @@ fun SettingsScreen(
             when (page) {
                 SettingsPage.List -> SettingsHome(
                     displayName = displayName,
-                    handle = handle,
                     iconIndex = avatarIcon,
                     gradientIndex = avatarGradient,
                     locationValue = locationValue,
@@ -183,7 +179,6 @@ fun SettingsScreen(
                 )
                 SettingsPage.Account -> AccountPage(
                     displayName = displayName,
-                    handle = handle,
                     iconIndex = avatarIcon,
                     gradientIndex = avatarGradient,
                     onEditIcon = { page = SettingsPage.IconMaker },
@@ -224,7 +219,7 @@ fun SettingsScreen(
             titleContentColor = VinylPalette.TextPrimary,
             textContentColor = VinylPalette.TextMuted,
             title = { Text("Sign out") },
-            text = { Text("You’ll need to sign in again to send or receive letters.") },
+            text = { Text("You’ll need to sign in again to send or receive music cards.") },
             confirmButton = {
                 TextButton(onClick = {
                     signedOutNote = false
@@ -254,7 +249,6 @@ private fun SettingsTopBar(title: String, onBack: () -> Unit) {
 @Composable
 private fun SettingsHome(
     displayName: String,
-    handle: String,
     iconIndex: Int,
     gradientIndex: Int,
     locationValue: String?,
@@ -274,7 +268,7 @@ private fun SettingsHome(
             .padding(horizontal = PagePad).padding(bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        ProfileHeader(displayName, handle, iconIndex, gradientIndex, onOpenProfile)
+        ProfileHeader(displayName, iconIndex, gradientIndex, onOpenProfile)
         SettingsGroup {
             IconNavRow(Icons.Outlined.MusicNote, "Music Preferences", onClick = onOpenPreferences)
             GroupDivider()
@@ -297,7 +291,7 @@ private fun SettingsHome(
         ) {
             Icon(Icons.AutoMirrored.Filled.Logout, null, tint = SignOutFg, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(14.dp))
-            Text("Sign Out", color = SignOutFg, fontSize = 16.sp)
+            Text("Sign out", color = SignOutFg, fontSize = 16.sp)
         }
     }
 }
@@ -305,7 +299,6 @@ private fun SettingsHome(
 @Composable
 private fun ProfileHeader(
     displayName: String,
-    handle: String,
     iconIndex: Int,
     gradientIndex: Int,
     onClick: () -> Unit,
@@ -319,7 +312,6 @@ private fun ProfileHeader(
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f)) {
             Text(displayName, color = VinylPalette.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-            Text(handle, color = VinylPalette.TextMuted, fontSize = 14.sp)
         }
         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = VinylPalette.TextMuted)
     }
@@ -452,7 +444,6 @@ private fun AppearancePage(
 @Composable
 private fun AccountPage(
     displayName: String,
-    handle: String,
     iconIndex: Int,
     gradientIndex: Int,
     onEditIcon: () -> Unit,
@@ -473,12 +464,9 @@ private fun AccountPage(
         )
         Spacer(Modifier.height(16.dp))
         Text(displayName, color = VinylPalette.TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Medium)
-        Text(handle, color = VinylPalette.TextMuted, fontSize = 14.sp)
         Spacer(Modifier.height(24.dp))
         SettingsGroup {
             IconNavRow(title = "Name", subtitle = displayName, showChevron = false, onClick = {})
-            GroupDivider()
-            IconNavRow(title = "ID", subtitle = handle, showChevron = false, onClick = {})
         }
     }
 }
@@ -541,19 +529,15 @@ private fun HelpPage() {
     ) {
         InfoCard(
             "Is my real name visible?",
-            "No. Letters show an alias only. The name on your Google account is used to sign in, and is not attached to anything you send or receive.",
+            "No. Music cards are anonymous and never show a name. Your Google account is only used to sign in, and is not attached to anything you send or receive.",
         )
         InfoCard(
             "Why do you ask for a city?",
-            "So a letter can feel like it came from somewhere in the world, without anyone seeing your street or exact pin. We only keep the city. Precise location is not stored.",
+            "So a music card can feel like it came from somewhere in the world, without anyone seeing your street or exact pin. We only keep the city. Precise location is not stored.",
         )
         InfoCard(
             "Who can see what I send?",
-            "A stranger may receive your letter. They will not see your name, your ID, or how to find you.",
-        )
-        InfoCard(
-            "Need more help?",
-            "For account or delivery issues, email support@vinyl.app. We typically reply within one business day.",
+            "A stranger may receive your music card. They will not see your name or how to find you.",
         )
     }
 }

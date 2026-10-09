@@ -1,5 +1,9 @@
 package com.example.vinyl.ui.collection
 
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -15,18 +19,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.outlined.StarBorder
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -34,9 +32,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -50,37 +52,54 @@ import com.example.vinyl.ui.theme.VinylPalette
 import com.example.vinyl.ui.theme.VinylSectionTitleStyle
 import com.example.vinyl.ui.theme.VinylTheme
 
-private val ScreenPadding = 24.dp
+internal val ScreenPadding = 24.dp
 
 @Composable
 fun CollectionScreen(
     modifier: Modifier = Modifier,
-    onProfileClick: () -> Unit = {},
     viewModel: CollectionViewModel = viewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
     // Every time the tab opens: a record kept in the receive flow should already be here.
     LaunchedEffect(Unit) { viewModel.refresh() }
+    // Leaving the tab leaves "See all" too, so coming back (or Home's own "See all") lands on
+    // the shelves rather than wherever the grid was left.
+    DisposableEffect(Unit) { onDispose { viewModel.closeGrid() } }
 
-    CollectionScreenContent(
-        uiState = uiState,
-        modifier = modifier,
-        onFilterSelected = viewModel::selectFilter,
-        onEditClick = onProfileClick,
-        onRefresh = viewModel::refresh,
-        onRecordClick = viewModel::openRecord,
-    )
+    // Hoisted so the shelves keep their scroll position while the grid is on top of them.
+    val shelvesState = rememberLazyListState()
 
-    uiState.openRecord?.let { record ->
-        RecordDialog(
-            record = record,
-            error = uiState.actionError,
-            onToggleFavourite = { viewModel.toggleFavourite(record) },
-            onRemove = { viewModel.remove(record) },
-            onDismiss = viewModel::closeRecord,
+    // An open music card handles back itself (MainActivity); otherwise back closes the search
+    // box first, then the grid.
+    BackHandler(enabled = uiState.isGridOpen && uiState.openRecord == null) {
+        if (uiState.isSearching) viewModel.closeSearch() else viewModel.closeGrid()
+    }
+
+    if (uiState.isGridOpen) {
+        CollectionGridScreen(
+            uiState = uiState,
+            modifier = modifier,
+            onBack = viewModel::closeGrid,
+            onFilterSelected = viewModel::selectFilter,
+            onOpenSearch = viewModel::openSearch,
+            onCloseSearch = viewModel::closeSearch,
+            onSearch = viewModel::search,
+            onRecordClick = viewModel::openRecord,
+        )
+    } else {
+        CollectionScreenContent(
+            uiState = uiState,
+            modifier = modifier,
+            listState = shelvesState,
+            onFilterSelected = viewModel::selectFilter,
+            onRefresh = viewModel::refresh,
+            onRecordClick = viewModel::openRecord,
+            onSeeAll = viewModel::openGrid,
         )
     }
+
+    // The opened record is drawn by MainActivity as a music card, over the bottom bar too.
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -88,10 +107,11 @@ fun CollectionScreen(
 private fun CollectionScreenContent(
     uiState: CollectionUiState,
     modifier: Modifier = Modifier,
+    listState: LazyListState = rememberLazyListState(),
     onFilterSelected: (CollectionFilter) -> Unit = {},
-    onEditClick: () -> Unit = {},
     onRefresh: () -> Unit = {},
     onRecordClick: (VinylRecord) -> Unit = {},
+    onSeeAll: () -> Unit = {},
 ) {
     // Three shelf tiles fill the content width exactly, as in the exported design.
     val contentWidth = LocalConfiguration.current.screenWidthDp.dp - ScreenPadding * 2
@@ -107,13 +127,15 @@ private fun CollectionScreenContent(
             .background(MaterialTheme.colorScheme.background),
     ) {
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = 32.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
                 CollectionTopBar(
-                    onEditClick = onEditClick,
+                    // Nothing to see all of until something has loaded.
+                    onSeeAll = onSeeAll.takeIf { uiState.totalCount > 0 },
                     modifier = Modifier.padding(horizontal = ScreenPadding),
                 )
             }
@@ -147,35 +169,37 @@ private fun CollectionScreenContent(
     }
 }
 
-private fun emptyMessage(filter: CollectionFilter): String = when (filter) {
-    CollectionFilter.SENT -> "Records you send will show up here."
-    CollectionFilter.FAVOURITES -> "No favourites yet. Open a record you kept and tap the star."
+internal fun emptyMessage(filter: CollectionFilter): String = when (filter) {
+    CollectionFilter.SENT -> "Music cards you send will show up here."
+    CollectionFilter.FAVOURITES -> "No favourites yet. Open a music card you kept and tap the star."
     else -> "Your shelf is empty. Music cards you keep will show up here."
 }
 
 @Composable
-private fun CollectionTopBar(onEditClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun CollectionTopBar(onSeeAll: (() -> Unit)?, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "My Collections",
+            text = "My Collection",
             style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.weight(1f),
         )
-        Text(
-            text = "Edit",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.clickable(onClick = onEditClick),
-        )
+        if (onSeeAll != null) {
+            Text(
+                text = "See all",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clickable(onClick = onSeeAll),
+            )
+        }
     }
 }
 
 @Composable
-private fun FilterTabs(
+internal fun FilterTabs(
     selected: CollectionFilter,
     totalCount: Int,
     onFilterSelected: (CollectionFilter) -> Unit,
@@ -215,26 +239,27 @@ private fun CollectionSectionRow(
     onRecordClick: (VinylRecord) -> Unit,
 ) {
     Column {
-        Row(
+        Text(
+            text = "${section.title} (${section.records.size})",
+            style = VinylSectionTitleStyle,
+            color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = ScreenPadding),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "${section.title} (${section.records.size})",
-                style = VinylSectionTitleStyle,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = "See all",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
+        )
         Spacer(modifier = Modifier.height(12.dp))
-        LazyRow(contentPadding = PaddingValues(horizontal = ScreenPadding)) {
+        val listState = rememberLazyListState()
+        // Each end fades only while there's more to scroll that way; animated so the edge eases
+        // in and out instead of popping.
+        val startFade by animateFloatAsState(if (listState.canScrollBackward) 1f else 0f, label = "startFade")
+        val endFade by animateFloatAsState(if (listState.canScrollForward) 1f else 0f, label = "endFade")
+        LazyRow(
+            state = listState,
+            modifier = Modifier
+                // Same inset as the ShelfLedge below, so records never pass the shelf's ends.
+                .padding(horizontal = ScreenPadding)
+                .shelfEdgeFade(startFade, endFade),
+        ) {
             items(section.records, key = { it.id }) { record ->
                 VinylSleeveThumbnail(
                     songName = record.songName,
@@ -251,64 +276,32 @@ private fun CollectionSectionRow(
     }
 }
 
+private val ShelfFadeWidth = 24.dp
+
 /**
- * A record opened from the shelf. Received records can be starred or taken off the shelf; sent
- * ones are your own, so they're only shown.
+ * Fades the row's content out over [ShelfFadeWidth] at each end. [start]/[end] are 0..1:
+ * 0 leaves that edge crisp, 1 is a full fade.
  */
-@Composable
-private fun RecordDialog(
-    record: VinylRecord,
-    error: String?,
-    onToggleFavourite: () -> Unit,
-    onRemove: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val received = record.source == RecordSource.RECEIVED
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = DialogBg,
-        titleContentColor = VinylPalette.TextPrimary,
-        textContentColor = VinylPalette.TextMuted,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(record.songName, fontWeight = FontWeight.SemiBold)
-                    Text(record.artist, style = MaterialTheme.typography.bodyMedium, color = VinylPalette.TextMuted)
-                }
-                if (received) {
-                    IconButton(onClick = onToggleFavourite) {
-                        Icon(
-                            if (record.isFavourite) Icons.Filled.Star else Icons.Outlined.StarBorder,
-                            contentDescription = if (record.isFavourite) "Remove from favourites" else "Add to favourites",
-                            tint = if (record.isFavourite) VinylPalette.TealAccent else VinylPalette.TextMuted,
-                        )
-                    }
-                }
-            }
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(listOfNotNull(if (received) "Received" else "Sent", record.mood).joinToString(" · "))
-                record.message?.let { Text("“$it”", color = VinylPalette.TextPrimary) }
-                error?.let { Text(it, color = RemoveFg) }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close", color = VinylPalette.TealAccent) }
-        },
-        dismissButton = if (received) {
-            { TextButton(onClick = onRemove) { Text("Remove from shelf", color = RemoveFg) } }
-        } else {
-            null
-        },
-    )
-}
+private fun Modifier.shelfEdgeFade(start: Float, end: Float): Modifier = this
+    // Offscreen so the DstIn mask cuts this row only, not the screen behind it.
+    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        val fade = (ShelfFadeWidth.toPx() / size.width).coerceIn(0f, 0.5f)
+        drawRect(
+            brush = Brush.horizontalGradient(
+                0f to Color.Black.copy(alpha = 1f - start),
+                fade to Color.Black,
+                1f - fade to Color.Black,
+                1f to Color.Black.copy(alpha = 1f - end),
+            ),
+            blendMode = BlendMode.DstIn,
+        )
+    }
 
-private val DialogBg = Color(0xFF1C1C1C)
-private val RemoveFg = Color(0xFFE57373)
 
 @Composable
-private fun CollectionMessage(text: String, modifier: Modifier = Modifier) {
+internal fun CollectionMessage(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text,
         style = MaterialTheme.typography.bodyMedium,

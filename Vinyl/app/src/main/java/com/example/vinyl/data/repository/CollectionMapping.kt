@@ -42,6 +42,11 @@ internal fun RoomCard.toVinylRecord(entry: ShelfEntry?): VinylRecord = VinylReco
     mood = moodLabel(moodTag, mood),
     message = message.ifBlank { null },
     collectedAtMs = parseTimestampMs(entry?.savedAt),
+    moodTag = moodTag,
+    senderLat = lat,
+    senderLng = lng,
+    sentAt = submittedAt,
+    previewUrl = previewUrl,
 )
 
 internal fun SentCard.toVinylRecord(): VinylRecord = VinylRecord(
@@ -54,6 +59,8 @@ internal fun SentCard.toVinylRecord(): VinylRecord = VinylRecord(
     mood = moodLabel(moodTag, mood),
     message = message.ifBlank { null },
     collectedAtMs = parseTimestampMs(createdAt),
+    moodTag = moodTag,
+    sentAt = createdAt,
 )
 
 /**

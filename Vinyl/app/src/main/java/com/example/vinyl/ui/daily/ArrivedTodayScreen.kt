@@ -47,6 +47,8 @@ data class ArrivedRecordOption(
     /** Where the letter was sent from — needed to compute which way to point the compass arrow. */
     val senderLat: Double? = null,
     val senderLng: Double? = null,
+    /** The song's 30-second preview, for "Play this song". Null when the track has none. */
+    val previewUrl: String? = null,
 )
 
 data class ArrivedTodayUiState(
@@ -89,7 +91,7 @@ fun ArrivedTodayScreen(
         }
 
         Text(
-            text = "One at a time. Choosing a record puts it on the player and unfolds the letter that came with it.",
+            text = "One at a time. Choosing a music card puts its song on the player and unfolds the message that came with it.",
             color = VinylPalette.TextMuted,
             fontSize = 13.sp,
             lineHeight = 18.sp,
@@ -163,7 +165,7 @@ private fun ArrivedRecordCard(option: ArrivedRecordOption, onClick: () -> Unit) 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(VinylPalette.TealAccent))
                 Text(
-                    text = "${option.moodLabel.uppercase()} · ${option.distanceLabel ?: "N/A"}",
+                    text = listOfNotNull(option.moodLabel.uppercase(), option.distanceLabel).joinToString(" · "),
                     color = VinylPalette.TextMuted,
                     fontSize = 10.sp,
                     letterSpacing = 0.5.sp,

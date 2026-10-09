@@ -114,7 +114,7 @@ class WriteCardViewModel(
                 _uiState.update {
                     it.copy(
                         isSubmitting = false,
-                        submissionError = "Couldn't send your record. Check your connection, then try again.",
+                        submissionError = "Couldn't send your music card. Check your connection, then try again.",
                     )
                 }
             }
