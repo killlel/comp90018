@@ -24,10 +24,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
@@ -43,6 +45,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.example.vinyl.R
 import com.example.vinyl.data.MoodTag
@@ -153,8 +158,8 @@ private fun TopBar(isKept: Boolean, onToggleKeep: () -> Unit) {
 }
 
 /**
- * The song, with its preview playable in place. The line along the bottom edge fills while it
- * plays, and the preview stops at 0:30.
+ * The song, with its preview playable in place. The countdown runs from 0:30 and the line
+ * along the bottom edge fills while it plays; the preview stops at 0:30.
  */
 @Composable
 private fun PlayerCard(state: MusicCardUiState) {
@@ -176,6 +181,20 @@ private fun PlayerCard(state: MusicCardUiState) {
                 break
             }
         }
+    }
+
+    // Leaving the app (the Home button, another app on top) pauses the preview; it stays paused,
+    // at the same point, until the play button is pressed again.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val currentUrl by rememberUpdatedState(url)
+    DisposableEffect(lifecycleOwner, audio) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP && audio.isPlaying && audio.currentUrl == currentUrl) {
+                audio.toggle(currentUrl) // pauses
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     val onPlayPause: () -> Unit = {
@@ -230,7 +249,7 @@ private fun PlayerCard(state: MusicCardUiState) {
                     text = state.trackName,
                     color = VinylPalette.Cream,
                     style = ReceiveFlowStyle.text(18.sp, FontWeight.Medium, 26.sp),
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
@@ -242,6 +261,15 @@ private fun PlayerCard(state: MusicCardUiState) {
                 )
             }
             Spacer(modifier = Modifier.width(12.dp))
+            // Time left in the preview, "0:30" down to "0:00". Tabular figures keep the digits
+            // from shifting as they count.
+            Text(
+                text = countdown(PreviewMs - elapsedMs),
+                color = VinylPalette.Cream.copy(alpha = 0.55f),
+                style = ReceiveFlowStyle.text(12.sp, FontWeight.Light, 18.sp)
+                    .copy(fontFeatureSettings = "tnum"),
+            )
+            Spacer(modifier = Modifier.width(10.dp))
             val enabled = url != null
             Box(
                 modifier = Modifier
@@ -275,6 +303,12 @@ private fun PlayerCard(state: MusicCardUiState) {
             )
         }
     }
+}
+
+/** Whole seconds left, rounded up so it reads "0:30" at the start and "0:00" only at the end. */
+private fun countdown(remainingMs: Long): String {
+    val seconds = ((remainingMs.coerceAtLeast(0L) + 999L) / 1000L).toInt()
+    return "%d:%02d".format(seconds / 60, seconds % 60)
 }
 
 /**
@@ -347,10 +381,9 @@ private fun Letter(state: MusicCardUiState, onOpenCompass: () -> Unit, modifier:
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // The footer sits 14dp further out than the text, lining up with the bottom row below.
         Box(
             modifier = Modifier
-                .padding(horizontal = LetterFooterInset)
+                .padding(horizontal = LetterTextInset)
                 .fillMaxWidth()
                 .height(1.dp)
                 .background(VinylPalette.Background.copy(alpha = 0.1f)),
@@ -359,7 +392,7 @@ private fun Letter(state: MusicCardUiState, onOpenCompass: () -> Unit, modifier:
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = LetterFooterInset),
+                .padding(horizontal = LetterTextInset),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             state.mood?.let { mood ->
@@ -406,8 +439,9 @@ private fun CompassChip(onClick: () -> Unit) {
 }
 
 /**
- * Apple Music and Spotify, then "Play on turntable". Each service opens a search for this song,
- * the same links the Collection's card uses: the card only knows the title and artist.
+ * Apple Music and Spotify together in one pill, then "Play on turntable". Each service opens a
+ * search for this song, the same links the Collection's card uses: the card only knows the title
+ * and artist. The row spans exactly the letter card's width.
  */
 @Composable
 private fun BottomRow(trackName: String, artistName: String, onPlayOnTurntable: () -> Unit) {
@@ -415,34 +449,43 @@ private fun BottomRow(trackName: String, artistName: String, onPlayOnTurntable: 
     val query = Uri.encode("$trackName $artistName")
 
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 14.dp),
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Both official icons are the whole button, drawn as supplied: no backing shape, no tint.
-        Image(
-            painter = painterResource(R.drawable.ic_apple_music),
-            contentDescription = "Open in Apple Music",
+        Row(
             modifier = Modifier
-                .size(StreamingIconSize)
-                .clickable { uriHandler.openUri("https://music.apple.com/search?term=$query") },
-        )
-        Box(
-            modifier = Modifier
-                .size(StreamingIconSize)
-                .clickable { uriHandler.openUri("https://open.spotify.com/search/$query") },
-            contentAlignment = Alignment.Center,
+                .height(56.dp)
+                .clip(CircleShape)
+                .background(ReceiveFlowStyle.PanelBrush)
+                .border(1.5.dp, ReceiveFlowStyle.PanelBorder, CircleShape)
+                .padding(horizontal = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            // The file keeps a little empty canvas around its circle, so it is drawn just larger
-            // than the button to make the circle itself the button's size. Only that transparent
-            // margin spills past the button's edge.
+            // Both official icons are drawn as supplied: no backing shape, no tint.
             Image(
-                painter = painterResource(R.drawable.ic_spotify),
-                contentDescription = "Open in Spotify",
-                modifier = Modifier.requiredSize(SpotifyCanvasWidth, SpotifyCanvasHeight),
+                painter = painterResource(R.drawable.ic_apple_music),
+                contentDescription = "Open in Apple Music",
+                modifier = Modifier
+                    .size(StreamingIconSize)
+                    .clickable { uriHandler.openUri("https://music.apple.com/search?term=$query") },
             )
+            Box(
+                modifier = Modifier
+                    .size(StreamingIconSize)
+                    .clickable { uriHandler.openUri("https://open.spotify.com/search/$query") },
+                contentAlignment = Alignment.Center,
+            ) {
+                // The file keeps a little empty canvas around its circle, so it is drawn just
+                // larger than its slot to make the circle itself the slot's size. Only that
+                // transparent margin spills past the slot's edge.
+                Image(
+                    painter = painterResource(R.drawable.ic_spotify),
+                    contentDescription = "Open in Spotify",
+                    modifier = Modifier.requiredSize(SpotifyCanvasWidth, SpotifyCanvasHeight),
+                )
+            }
         }
         OutlinedButton(
             onClick = onPlayOnTurntable,
@@ -483,12 +526,11 @@ private const val PreviewMs = 30_000L
 private const val ShortMessageMaxChars = 80
 
 private val LetterTextInset = 28.dp
-private val LetterFooterInset = 14.dp
 
 private val ChipTeal = Color(0xFF0E8C85)
 private val ChipInk = Color(0xFF0A6F69)
-/** Apple Music and Spotify buttons; smaller than "Play on turntable" and centred beside it. */
-private val StreamingIconSize = 44.dp
+/** Apple Music and Spotify icons inside their shared pill. */
+private val StreamingIconSize = 36.dp
 
 // Icon_Spotify.svg is 236.05 x 225.25 with a circle about 218.7 across. Scaled so the circle
 // matches [StreamingIconSize], the whole canvas is this size.
@@ -520,7 +562,7 @@ private fun MusicCardScreenPreview() {
 private fun MusicCardScreenKeptNoLocationPreview() {
     MusicCardScreen(
         state = MusicCardUiState(
-            trackName = "A Very Long Song Title That Will Not Fit On One Line",
+            trackName = "A Very Long Song Title That Wraps Onto a Second Line Here",
             artistName = "Somebody",
             mood = MoodTag.Calm,
             message = "Short one.",
