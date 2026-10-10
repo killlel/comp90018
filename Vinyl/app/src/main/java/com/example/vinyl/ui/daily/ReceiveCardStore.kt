@@ -1,6 +1,7 @@
 package com.example.vinyl.ui.daily
 
 import android.content.Context
+import com.example.vinyl.BuildConfig
 import com.example.vinyl.data.Supabase
 import com.example.vinyl.repository.RoomCard
 import io.github.jan.supabase.auth.auth
@@ -24,13 +25,14 @@ internal class ReceiveCardStore(context: Context) {
     fun todayCards(): List<RoomCard> =
         if (prefs.getString("day", null) == LocalDate.now().toString()) storedCards() else emptyList()
 
-    fun saveToday(cards: List<RoomCard>): List<RoomCard> {
+    fun saveToday(cards: List<RoomCard>, shelfVisible: Boolean = false): List<RoomCard> {
         val existing = todayCards()
         if (existing.isNotEmpty() || cards.isEmpty()) return existing
         val hand = cards.take(3)
         prefs.edit()
             .putString("day", LocalDate.now().toString())
             .putString("cards", json.encodeToString(hand))
+            .putBoolean("hand_pending", !shelfVisible)
             .apply()
         return hand
     }
@@ -40,7 +42,21 @@ internal class ReceiveCardStore(context: Context) {
         val today = todayCards()
         if (today.isNotEmpty()) return today
         val fresh = unseenDeliveries(cards, storedCards())
-        return saveToday(fresh)
+        return saveToday(fresh, shelfVisible = true)
+    }
+
+    fun isShelfVisible(): Boolean = todayCards().isNotEmpty() && !prefs.getBoolean("hand_pending", false)
+
+    fun publishToday() {
+        if (todayCards().isNotEmpty()) prefs.edit().putBoolean("hand_pending", false).apply()
+    }
+
+    /** Only an external emulator test script sets this; release builds never read it. */
+    fun manuallyPreparedTestHand(): List<RoomCard>? {
+        if (!BuildConfig.DEBUG || prefs.getString("manual_test_day", null) != LocalDate.now().toString()) return null
+        return runCatching {
+            json.decodeFromString<List<RoomCard>>(prefs.getString("manual_test_cards", null) ?: "[]")
+        }.getOrNull()?.takeIf { it.isNotEmpty() }
     }
 
     fun setKept(id: String, kept: Boolean) {

@@ -392,6 +392,7 @@ private fun VinylApp(
 
     // "Play on turntable" on a received card, from page 4 or the shelf's details sheet.
     val playCardOnTurntable: (ArrivedRecordOption) -> Unit = { option ->
+        homeViewModel.publishToday()
         val track = NowPlaying(
             submissionId = option.submissionId,
             title = option.trackName,
@@ -483,9 +484,14 @@ private fun VinylApp(
         if (!openReceiveRequested || homeState.isLoading) return@LaunchedEffect
         selectedTab = AppTab.Home
         if (homeState.arrivedToday.isEmpty() && homeState.error == null) {
-            dailyMood = null
-            dailyGenresViewModel.reset()
-            receiveFlowStep = ReceiveFlowStep.Questionnaire
+            if (homeState.pendingToday.isNotEmpty()) {
+                roomViewModel.showExisting(homeState.todayHand)
+                receiveFlowStep = ReceiveFlowStep.ArrivedToday
+            } else {
+                dailyMood = null
+                dailyGenresViewModel.reset()
+                receiveFlowStep = ReceiveFlowStep.Questionnaire
+            }
         }
         onReceiveOpened()
     }
@@ -549,26 +555,23 @@ private fun VinylApp(
                 AppTab.Home -> HomeScreen(
                     onOpenReceive = {
                         if (!homeState.isLoading && homeState.error == null && homeState.arrivedToday.isEmpty()) {
-                            dailyMood = null
-                            dailyGenresViewModel.reset()
-                            receiveFlowStep = ReceiveFlowStep.Questionnaire
+                            if (homeState.pendingToday.isNotEmpty()) {
+                                roomViewModel.showExisting(homeState.todayHand)
+                                receiveFlowStep = ReceiveFlowStep.ArrivedToday
+                            } else {
+                                dailyMood = null
+                                dailyGenresViewModel.reset()
+                                receiveFlowStep = ReceiveFlowStep.Questionnaire
+                            }
                         }
                     },
                     onOpenSettings = { showSettings = true },
                     avatar = homeAvatar,
                     // The picker uses exactly the hand on Home, with no load or draw on a card tap.
                     onOpenCard = { card ->
-                        roomViewModel.showExisting(homeState.arrivedToday)
+                        roomViewModel.showExisting(homeState.todayHand)
                         val option = card.toArrivedOption(readerLat = locationState.lat, readerLng = locationState.lng)
-                        if (receiveCardStore.wasOpened(option.sessionKey)) {
-                            shelfCard = option
-                        } else {
-                            receiveFlowStep = ReceiveFlowStep.Unopened(option)
-                        }
-                    },
-                    onSeeAllArrived = {
-                        roomViewModel.showExisting(homeState.arrivedToday)
-                        receiveFlowStep = ReceiveFlowStep.ArrivedToday
+                        shelfCard = option
                     },
                 )
                 AppTab.Create -> WriteCardScreen()
@@ -691,7 +694,7 @@ private fun VinylApp(
                         },
                     ),
                     onSelect = { option ->
-                        if (receiveCardStore.wasOpened(option.sessionKey)) {
+                        if (homeState.arrivedToday.isNotEmpty() || receiveCardStore.wasOpened(option.sessionKey)) {
                             receiveFlowStep = null
                             shelfCard = option
                         } else {

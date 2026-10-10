@@ -19,9 +19,12 @@ data class HomeUiState(
      * until the user has pulled once, which is a normal state, not an error.
      */
     val arrivedToday: List<RoomCard> = emptyList(),
+    /** A delivered hand waiting for the first Play on turntable action. */
+    val pendingToday: List<RoomCard> = emptyList(),
     val error: String? = null,
 ) {
     val arrivedCount: Int get() = arrivedToday.size
+    val todayHand: List<RoomCard> get() = arrivedToday.ifEmpty { pendingToday }
 }
 
 /**
@@ -44,7 +47,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val cached = cardStore.todayCards()
             if (cached.isNotEmpty()) {
-                _uiState.value = HomeUiState(isLoading = false, arrivedToday = cached)
+                showHand(cached)
+                return@launch
+            }
+            if (cardStore.manuallyPreparedTestHand() != null) {
+                _uiState.value = HomeUiState(isLoading = false)
                 return@launch
             }
             _uiState.update { it.copy(isLoading = true, error = null) }
@@ -60,7 +67,20 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun showToday(cards: List<RoomCard>) {
-        _uiState.value = HomeUiState(isLoading = false, arrivedToday = cardStore.saveToday(cards))
+        showHand(cardStore.saveToday(cards))
+    }
+
+    fun publishToday() {
+        cardStore.publishToday()
+        showHand(cardStore.todayCards())
+    }
+
+    private fun showHand(cards: List<RoomCard>) {
+        _uiState.value = if (cardStore.isShelfVisible()) {
+            HomeUiState(isLoading = false, arrivedToday = cards)
+        } else {
+            HomeUiState(isLoading = false, pendingToday = cards)
+        }
     }
 
     private companion object {

@@ -44,6 +44,11 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
             showExisting(existing)
             return
         }
+        val testHand = cardStore.manuallyPreparedTestHand()
+        if (testHand != null) {
+            showExisting(cardStore.saveToday(testHand))
+            return
+        }
         _uiState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
             val result = if (mood != null) {

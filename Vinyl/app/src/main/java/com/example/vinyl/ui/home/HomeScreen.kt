@@ -70,8 +70,6 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     /** Opens one of today's cards, as picking it in Arrived Today would. */
     onOpenCard: (RoomCard) -> Unit,
-    /** Opens the Arrived Today picker on the cards already dealt, without dealing new ones. */
-    onSeeAllArrived: () -> Unit,
     modifier: Modifier = Modifier,
     /** Shown top right, where it opens Settings. Null falls back to a generic profile icon. */
     avatar: HomeAvatar? = null,
@@ -90,11 +88,9 @@ fun HomeScreen(
         onOpenReceive = onOpenReceive,
         onOpenSettings = onOpenSettings,
         onOpenCard = onOpenCard,
-        onSeeAllArrived = onSeeAllArrived,
         avatar = avatar,
         onTogglePause = playback::togglePause,
         onSeekBy = playback::seekBy,
-        onStopPlaying = playback::stop,
         onRefresh = viewModel::refresh,
         modifier = modifier,
     )
@@ -109,7 +105,6 @@ fun HomeScreen(
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     onOpenCard: (RoomCard) -> Unit = {},
-    onSeeAllArrived: () -> Unit = {},
     avatar: HomeAvatar? = null,
     /** The song on the turntable, or null when the deck is idle. */
     nowPlaying: NowPlaying? = null,
@@ -117,7 +112,6 @@ fun HomeScreen(
     playbackClock: PlaybackClock? = null,
     onTogglePause: () -> Unit = {},
     onSeekBy: (Long) -> Unit = {},
-    onStopPlaying: () -> Unit = {},
     onRefresh: () -> Unit = {},
 ) {
     val paused = playbackClock?.isPaused == true
@@ -148,7 +142,6 @@ fun HomeScreen(
                 TodaysCardsShelf(
                     cards = state.arrivedToday,
                     onOpenCard = onOpenCard,
-                    onSeeAll = onSeeAllArrived,
                 )
 
                 OpenCardsButton(
@@ -162,7 +155,6 @@ fun HomeScreen(
                     clock = playbackClock,
                     onTogglePause = onTogglePause,
                     onSeekBy = onSeekBy,
-                    onStop = onStopPlaying,
                 )
 
                 // Bare, with the arm parked, unless music is playing. Tapping it then pauses or
@@ -201,7 +193,7 @@ private fun OpenCardsButton(arrivedCount: Int, ready: Boolean, onClick: () -> Un
         ),
     ) {
         Text(
-            text = if (arrivedCount > 0) "Come back tomorrow" else "Find three music cards",
+            text = if (arrivedCount > 0) "Come back tomorrow" else "Open today's card",
             color = ink,
             fontSize = 17.sp,
             fontWeight = FontWeight.SemiBold,
@@ -275,13 +267,12 @@ private val AVATAR_SIZE = 36.dp
  * Today's three music cards as sleeves on a shelf, drawn like the Collection's: three sleeves
  * filling the width over the same wooden ledge, each in its record's sleeve colour. A card not
  * dealt yet keeps its place as an empty square, so the shelf looks the same before the first
- * pull as after it. Tapping a sleeve opens that card; "See all" opens the Arrived Today picker.
+ * pull as after it. Tapping a sleeve opens that card's details.
  */
 @Composable
 private fun TodaysCardsShelf(
     cards: List<RoomCard>,
     onOpenCard: (RoomCard) -> Unit,
-    onSeeAll: () -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         // Three sleeves, each with its disc overhang, fill the width exactly — as in Collection.
@@ -300,16 +291,6 @@ private fun TodaysCardsShelf(
                     color = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.weight(1f),
                 )
-                // Nothing to see all of until a pull has dealt something.
-                if (cards.isNotEmpty()) {
-                    Text(
-                        text = "See all",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontSize = 16.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clickable(onClick = onSeeAll),
-                    )
-                }
             }
             Spacer(Modifier.height(12.dp))
 
@@ -346,8 +327,8 @@ private fun EmptySleeveSlot(sleeveSize: Dp) {
             Modifier
                 .size(sleeveSize)
                 .clip(shape)
-                .background(VinylPalette.PanelDark)
-                .border(1.dp, VinylPalette.TextMuted.copy(alpha = 0.3f), shape),
+                .background(Color.Black)
+                .border(1.dp, VinylPalette.Cream.copy(alpha = 0.65f), shape),
         )
     }
 }

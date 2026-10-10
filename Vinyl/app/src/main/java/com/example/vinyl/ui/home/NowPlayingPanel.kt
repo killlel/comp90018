@@ -7,7 +7,6 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -24,12 +23,10 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay5
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -46,11 +43,11 @@ import com.example.vinyl.ui.theme.VinylPalette
 
 /**
  * What's on the deck and how to drive it, above the turntable: the title and artist, the progress
- * bar, then the controls — stop, back five seconds, pause or resume, on five seconds. The deck
+ * bar, then the controls — back five seconds, pause or resume, on five seconds. The deck
  * itself shows the cover, so the panel carries only the words.
  *
  * With nothing playing it says so in grey and the controls stay greyed out, so the panel keeps its
- * shape and the screen doesn't jump when a song starts. Pause and stop work during loading;
+ * shape and the screen doesn't jump when a song starts. Pause works during loading;
  * skipping waits for the preview to be ready.
  *
  * @param record the song on the deck, or null when nothing is
@@ -63,7 +60,6 @@ fun NowPlayingPanel(
     modifier: Modifier = Modifier,
     onTogglePause: () -> Unit = {},
     onSeekBy: (Long) -> Unit = {},
-    onStop: () -> Unit = {},
 ) {
     val paused = clock?.isPaused == true
     val sounding = clock != null
@@ -100,19 +96,6 @@ fun NowPlayingPanel(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            OutlinedIconButton(
-                onClick = onStop,
-                enabled = record != null,
-                border = BorderStroke(1.5.dp, sideTint(record != null)),
-                modifier = Modifier.size(MAIN_BUTTON),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Stop,
-                    contentDescription = "Stop",
-                    tint = sideTint(record != null),
-                    modifier = Modifier.size(MAIN_ICON),
-                )
-            }
             IconButton(onClick = { onSeekBy(-SKIP_MILLIS) }, enabled = canSeek) {
                 Icon(
                     imageVector = Icons.Filled.Replay5,
@@ -146,7 +129,6 @@ fun NowPlayingPanel(
                     modifier = Modifier.size(SIDE_ICON),
                 )
             }
-            Spacer(Modifier.size(MAIN_BUTTON))
         }
     }
 }
