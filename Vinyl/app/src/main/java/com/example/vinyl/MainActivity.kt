@@ -100,6 +100,7 @@ import com.example.vinyl.ui.daily.ArrivedTodayScreen
 import com.example.vinyl.ui.daily.ArrivedTodayUiState
 import com.example.vinyl.ui.daily.MoodQuestionnaireScreen
 import com.example.vinyl.ui.daily.RoomViewModel
+import com.example.vinyl.ui.daily.ReceiveCardStore
 import com.example.vinyl.ui.daily.DailyGenresViewModel
 import com.example.vinyl.ui.daily.UnopenedRecordScreen
 import com.example.vinyl.ui.daily.UnopenedRecordUiState
@@ -358,10 +359,8 @@ private fun VinylApp(
     val collectionViewModel: CollectionViewModel = viewModel()
     val collectionState by collectionViewModel.uiState.collectAsState()
 
-    // A card from the Home shelf that was already opened this session skips the envelope and
-    // shows straight away in a details sheet. In memory only: a new launch starts empty, so each
-    // card's first opening still goes through the envelope.
-    val openedThisSession = remember { mutableSetOf<String>() }
+    // Opening history survives app restarts and is local to the signed-in account on this device.
+    val receiveCardStore = remember(appContext) { ReceiveCardStore(appContext) }
     var shelfCard by remember { mutableStateOf<ArrivedRecordOption?>(null) }
     var shelfCompassOpen by remember { mutableStateOf(false) }
 
@@ -373,6 +372,11 @@ private fun VinylApp(
     // Same activity-scoped instance HomeScreen uses. Its "Arrived today" shelf shows the latest
     // hand, so it reloads after the receive flow closes in case a new one was dealt.
     val homeViewModel: HomeViewModel = viewModel()
+    val homeState by homeViewModel.uiState.collectAsState()
+    val roomState by roomViewModel.uiState.collectAsState()
+    LaunchedEffect(roomState.cards) {
+        if (roomState.cards.isNotEmpty()) homeViewModel.showToday(roomState.cards)
+    }
 
     // What's on the Home turntable. "Play this song" on any music card starts it here and goes
     // to Home, so the needle drop is seen; HomeScreen reads the same instance.
@@ -475,12 +479,14 @@ private fun VinylApp(
     val dailyGenresState by dailyGenresViewModel.uiState.collectAsState()
 
     // Tapping the daily reminder lands on the mood question, same as Home's "Open today's music cards".
-    LaunchedEffect(openReceiveRequested) {
-        if (!openReceiveRequested) return@LaunchedEffect
+    LaunchedEffect(openReceiveRequested, homeState.isLoading) {
+        if (!openReceiveRequested || homeState.isLoading) return@LaunchedEffect
         selectedTab = AppTab.Home
-        dailyMood = null
-        dailyGenresViewModel.reset()
-        receiveFlowStep = ReceiveFlowStep.Questionnaire
+        if (homeState.arrivedToday.isEmpty() && homeState.error == null) {
+            dailyMood = null
+            dailyGenresViewModel.reset()
+            receiveFlowStep = ReceiveFlowStep.Questionnaire
+        }
         onReceiveOpened()
     }
 
@@ -542,25 +548,26 @@ private fun VinylApp(
                 AppTab.Collection -> CollectionScreen(viewModel = collectionViewModel)
                 AppTab.Home -> HomeScreen(
                     onOpenReceive = {
-                        dailyMood = null
-                        dailyGenresViewModel.reset()
-                        receiveFlowStep = ReceiveFlowStep.Questionnaire
+                        if (!homeState.isLoading && homeState.error == null && homeState.arrivedToday.isEmpty()) {
+                            dailyMood = null
+                            dailyGenresViewModel.reset()
+                            receiveFlowStep = ReceiveFlowStep.Questionnaire
+                        }
                     },
                     onOpenSettings = { showSettings = true },
                     avatar = homeAvatar,
-                    // Both replay the hand already dealt rather than dealing a new one. The picker
-                    // needs it loaded too: an unopened card's back button returns there.
+                    // The picker uses exactly the hand on Home, with no load or draw on a card tap.
                     onOpenCard = { card ->
-                        roomViewModel.load(mood = null)
+                        roomViewModel.showExisting(homeState.arrivedToday)
                         val option = card.toArrivedOption(readerLat = locationState.lat, readerLng = locationState.lng)
-                        if (option.sessionKey in openedThisSession) {
+                        if (receiveCardStore.wasOpened(option.sessionKey)) {
                             shelfCard = option
                         } else {
                             receiveFlowStep = ReceiveFlowStep.Unopened(option)
                         }
                     },
                     onSeeAllArrived = {
-                        roomViewModel.load(mood = null)
+                        roomViewModel.showExisting(homeState.arrivedToday)
                         receiveFlowStep = ReceiveFlowStep.ArrivedToday
                     },
                 )
@@ -661,7 +668,6 @@ private fun VinylApp(
     when (val step = receiveFlowStep) {
         ReceiveFlowStep.ArrivedToday -> {
             val moodLabel = MoodOptions.all.firstOrNull { it.tag == dailyMood }?.title ?: "Surprise"
-            val roomState by roomViewModel.uiState.collectAsState()
 
             if (roomState.isLoading) {
                 ArrivedTodayLoading()
@@ -684,7 +690,14 @@ private fun VinylApp(
                             it.toArrivedOption(readerLat = locationState.lat, readerLng = locationState.lng)
                         },
                     ),
-                    onSelect = { option -> receiveFlowStep = ReceiveFlowStep.Unopened(option) },
+                    onSelect = { option ->
+                        if (receiveCardStore.wasOpened(option.sessionKey)) {
+                            receiveFlowStep = null
+                            shelfCard = option
+                        } else {
+                            receiveFlowStep = ReceiveFlowStep.Unopened(option)
+                        }
+                    },
                     // "Back to Home": closes the flow without pulling again or reopening the mood sheet.
                     onNotNow = {
                         receiveFlowStep = null
@@ -711,15 +724,16 @@ private fun VinylApp(
                     sentDateLabel = step.option.sentDateLabel,
                 ),
                 onOpen = {
-                    openedThisSession += step.option.sessionKey
+                    receiveCardStore.markOpened(step.option.sessionKey)
                     receiveFlowStep = ReceiveFlowStep.Opened(step.option)
                 },
+                onOpening = { receiveCardStore.markOpened(step.option.sessionKey) },
                 onBack = { receiveFlowStep = ReceiveFlowStep.ArrivedToday },
             )
         }
 
         is ReceiveFlowStep.Opened -> {
-            val roomState by roomViewModel.uiState.collectAsState()
+            LaunchedEffect(step.option.sessionKey) { receiveCardStore.markOpened(step.option.sessionKey) }
             val submissionId = step.option.submissionId
 
             MusicCardScreen(
@@ -768,7 +782,7 @@ private fun VinylApp(
         else -> Unit
     }
 
-    // A card from the Home shelf that was opened earlier this session: receive mode in a sheet,
+    // An already opened card: receive mode in a sheet,
     // with the bookmark, the compass and "Play on turntable".
     val roomStateForShelf by roomViewModel.uiState.collectAsState()
     ShelfCardSheet(

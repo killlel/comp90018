@@ -1,6 +1,7 @@
 package com.example.vinyl.ui.daily
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.repository.RoomCard
@@ -22,7 +23,9 @@ data class RoomUiState(
 )
 
 /** Loads the letters behind the Arrived Today picker. */
-class RoomViewModel(private val repository: RoomRepository = RoomRepository()) : ViewModel() {
+class RoomViewModel(application: Application) : AndroidViewModel(application) {
+    private val repository = RoomRepository()
+    private val cardStore = ReceiveCardStore(application)
 
     private val _uiState = MutableStateFlow(RoomUiState())
     val uiState: StateFlow<RoomUiState> = _uiState.asStateFlow()
@@ -35,17 +38,31 @@ class RoomViewModel(private val repository: RoomRepository = RoomRepository()) :
      * @param genres today's chip slugs; empty lets the server use the onboarding favourites
      */
     fun load(mood: MoodTag?, genres: Set<String> = emptySet()) {
+        if (_uiState.value.isLoading) return
+        val existing = cardStore.todayCards()
+        if (existing.isNotEmpty()) {
+            showExisting(existing)
+            return
+        }
+        _uiState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
             val result = if (mood != null) {
                 repository.requestRecommendations(mood, genres = genres)
             } else {
                 repository.getRoom()
             }
             result
-                .onSuccess { cards -> _uiState.update { RoomUiState(cards = cards) } }
+                .onSuccess { cards ->
+                    val hand = if (mood != null) cardStore.saveToday(cards) else cardStore.resolveExisting(cards)
+                    _uiState.value = RoomUiState(cards = hand)
+                }
                 .onFailure { e -> _uiState.update { RoomUiState(error = e.message) } }
         }
+    }
+
+    /** Seeds the picker from the Home shelf without requesting or creating recommendations. */
+    fun showExisting(cards: List<RoomCard>) {
+        if (_uiState.value.cards != cards) _uiState.value = RoomUiState(cards = cards)
     }
 
     /**
@@ -65,10 +82,13 @@ class RoomViewModel(private val repository: RoomRepository = RoomRepository()) :
         }
     }
 
-    private fun setKept(submissionId: String, kept: Boolean) = _uiState.update {
-        it.copy(
-            keptIds = if (kept) it.keptIds + submissionId else it.keptIds - submissionId,
-            keepError = null,
-        )
+    private fun setKept(submissionId: String, kept: Boolean) {
+        cardStore.setKept(submissionId, kept)
+        _uiState.update {
+            it.copy(
+                keptIds = if (kept) it.keptIds + submissionId else it.keptIds - submissionId,
+                keepError = null,
+            )
+        }
     }
 }

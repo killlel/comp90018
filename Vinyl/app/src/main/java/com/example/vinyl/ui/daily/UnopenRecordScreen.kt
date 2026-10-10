@@ -107,10 +107,12 @@ fun UnopenedRecordScreen(
     state: UnopenedRecordUiState,
     onOpen: () -> Unit,
     onBack: () -> Unit = {},
+    onOpening: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val currentOnOpen by rememberUpdatedState(onOpen)
+    val currentOnOpening by rememberUpdatedState(onOpening)
 
     var opening by remember { mutableStateOf(false) }
     val flip = remember { Animatable(0f) }
@@ -129,6 +131,7 @@ fun UnopenedRecordScreen(
     val open: () -> Unit = {
         if (!opening) {
             opening = true
+            currentOnOpening()
             context.vibrateOnce()
             scope.launch { wobbleAmount.animateTo(0f, tween(150)) }
             scope.launch { flip.animateTo(1f, tween(FlapFlipMs, easing = FastOutSlowInEasing)) }

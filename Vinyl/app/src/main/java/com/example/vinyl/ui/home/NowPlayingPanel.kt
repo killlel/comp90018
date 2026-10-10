@@ -46,15 +46,15 @@ import com.example.vinyl.ui.theme.VinylPalette
 
 /**
  * What's on the deck and how to drive it, above the turntable: the title and artist, the progress
- * bar, then the controls — back five seconds, pause or resume, stop, on five seconds. The deck
+ * bar, then the controls — stop, back five seconds, pause or resume, on five seconds. The deck
  * itself shows the cover, so the panel carries only the words.
  *
  * With nothing playing it says so in grey and the controls stay greyed out, so the panel keeps its
- * shape and the screen doesn't jump when a song starts. Skipping and pausing wait for the sound to
- * start; stop works as soon as a record is on.
+ * shape and the screen doesn't jump when a song starts. Pause and stop work during loading;
+ * skipping waits for the preview to be ready.
  *
  * @param record the song on the deck, or null when nothing is
- * @param clock where the song is; null until sound starts
+ * @param clock where the song is, including preparation; null when stopped
  */
 @Composable
 fun NowPlayingPanel(
@@ -67,6 +67,7 @@ fun NowPlayingPanel(
 ) {
     val paused = clock?.isPaused == true
     val sounding = clock != null
+    val canSeek = sounding && !clock.isLoading
 
     Column(modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -96,14 +97,27 @@ fun NowPlayingPanel(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterHorizontally),
+            horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = { onSeekBy(-SKIP_MILLIS) }, enabled = sounding) {
+            OutlinedIconButton(
+                onClick = onStop,
+                enabled = record != null,
+                border = BorderStroke(1.5.dp, sideTint(record != null)),
+                modifier = Modifier.size(MAIN_BUTTON),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Stop,
+                    contentDescription = "Stop",
+                    tint = sideTint(record != null),
+                    modifier = Modifier.size(MAIN_ICON),
+                )
+            }
+            IconButton(onClick = { onSeekBy(-SKIP_MILLIS) }, enabled = canSeek) {
                 Icon(
                     imageVector = Icons.Filled.Replay5,
                     contentDescription = "Back 5 seconds",
-                    tint = sideTint(sounding),
+                    tint = sideTint(canSeek),
                     modifier = Modifier.size(SIDE_ICON),
                 )
             }
@@ -124,27 +138,15 @@ fun NowPlayingPanel(
                     modifier = Modifier.size(MAIN_ICON),
                 )
             }
-            OutlinedIconButton(
-                onClick = onStop,
-                enabled = record != null,
-                border = BorderStroke(1.5.dp, sideTint(record != null)),
-                modifier = Modifier.size(MAIN_BUTTON),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Stop,
-                    contentDescription = "Stop",
-                    tint = sideTint(record != null),
-                    modifier = Modifier.size(MAIN_ICON),
-                )
-            }
-            IconButton(onClick = { onSeekBy(SKIP_MILLIS) }, enabled = sounding) {
+            IconButton(onClick = { onSeekBy(SKIP_MILLIS) }, enabled = canSeek) {
                 Icon(
                     imageVector = Icons.Filled.Forward5,
                     contentDescription = "Forward 5 seconds",
-                    tint = sideTint(sounding),
+                    tint = sideTint(canSeek),
                     modifier = Modifier.size(SIDE_ICON),
                 )
             }
+            Spacer(Modifier.size(MAIN_BUTTON))
         }
     }
 }

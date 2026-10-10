@@ -1,9 +1,11 @@
 package com.example.vinyl.ui.home
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.vinyl.repository.RoomCard
 import com.example.vinyl.repository.RoomRepository
+import com.example.vinyl.ui.daily.ReceiveCardStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -11,7 +13,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class HomeUiState(
-    val isLoading: Boolean = false,
+    val isLoading: Boolean = true,
     /**
      * The latest hand of music cards, newest first — what the Arrived Today picker shows. Empty
      * until the user has pulled once, which is a normal state, not an error.
@@ -27,7 +29,9 @@ data class HomeUiState(
  * out; asking for new letters is `request_recommendations`, and that belongs to the receive flow
  * where the user has actually answered the mood question.
  */
-class HomeViewModel(private val repository: RoomRepository = RoomRepository()) : ViewModel() {
+class HomeViewModel(application: Application) : AndroidViewModel(application) {
+    private val repository = RoomRepository()
+    private val cardStore = ReceiveCardStore(application)
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -38,15 +42,25 @@ class HomeViewModel(private val repository: RoomRepository = RoomRepository()) :
 
     fun refresh() {
         viewModelScope.launch {
+            val cached = cardStore.todayCards()
+            if (cached.isNotEmpty()) {
+                _uiState.value = HomeUiState(isLoading = false, arrivedToday = cached)
+                return@launch
+            }
             _uiState.update { it.copy(isLoading = true, error = null) }
             val result = repository.getRoom(limit = HAND_SIZE)
             _uiState.update {
                 HomeUiState(
-                    arrivedToday = result.getOrNull().orEmpty(),
+                    isLoading = false,
+                    arrivedToday = cardStore.resolveExisting(result.getOrNull().orEmpty()),
                     error = result.exceptionOrNull()?.message,
                 )
             }
         }
+    }
+
+    fun showToday(cards: List<RoomCard>) {
+        _uiState.value = HomeUiState(isLoading = false, arrivedToday = cardStore.saveToday(cards))
     }
 
     private companion object {

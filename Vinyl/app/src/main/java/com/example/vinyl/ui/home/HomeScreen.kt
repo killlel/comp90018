@@ -113,7 +113,7 @@ fun HomeScreen(
     avatar: HomeAvatar? = null,
     /** The song on the turntable, or null when the deck is idle. */
     nowPlaying: NowPlaying? = null,
-    /** Where the song is, for the progress bar and the pause state. Null until sound starts. */
+    /** Where the song is, including a pending preview's pause state. Null when stopped. */
     playbackClock: PlaybackClock? = null,
     onTogglePause: () -> Unit = {},
     onSeekBy: (Long) -> Unit = {},
@@ -151,7 +151,11 @@ fun HomeScreen(
                     onSeeAll = onSeeAllArrived,
                 )
 
-                OpenCardsButton(arrivedCount = state.arrivedCount, onClick = onOpenReceive)
+                OpenCardsButton(
+                    arrivedCount = state.arrivedCount,
+                    ready = !state.isLoading && state.error == null,
+                    onClick = onOpenReceive,
+                )
 
                 NowPlayingPanel(
                     record = nowPlaying,
@@ -182,18 +186,23 @@ fun HomeScreen(
 }
 
 @Composable
-private fun OpenCardsButton(arrivedCount: Int, onClick: () -> Unit) {
+private fun OpenCardsButton(arrivedCount: Int, ready: Boolean, onClick: () -> Unit) {
+    val canDraw = ready && arrivedCount == 0
+    val ink = if (canDraw) VinylPalette.Cream else VinylPalette.TextMuted
     OutlinedButton(
         onClick = onClick,
+        enabled = canDraw,
         modifier = Modifier
             .fillMaxWidth()
             .height(56.dp),
         shape = RoundedCornerShape(50),
-        border = androidx.compose.foundation.BorderStroke(1.5.dp, VinylPalette.TealAccent),
+        border = androidx.compose.foundation.BorderStroke(
+            1.5.dp, if (canDraw) VinylPalette.TealAccent else VinylPalette.TextMuted.copy(alpha = 0.4f),
+        ),
     ) {
         Text(
-            text = if (arrivedCount > 0) "Open today's music cards" else "Find three music cards",
-            color = VinylPalette.Cream,
+            text = if (arrivedCount > 0) "Come back tomorrow" else "Find three music cards",
+            color = ink,
             fontSize = 17.sp,
             fontWeight = FontWeight.SemiBold,
         )
@@ -201,7 +210,7 @@ private fun OpenCardsButton(arrivedCount: Int, onClick: () -> Unit) {
         Icon(
             imageVector = Icons.AutoMirrored.Filled.ArrowForward,
             contentDescription = null,
-            tint = VinylPalette.TealAccent,
+            tint = if (canDraw) VinylPalette.TealAccent else ink,
             modifier = Modifier.size(18.dp),
         )
     }
