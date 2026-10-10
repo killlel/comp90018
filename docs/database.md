@@ -17,6 +17,7 @@ directly.
 | `supabase/migrations/20261004000002_split_matchmaker.sql` | The split path: `candidate_card`, `get_candidates`, `get_genre_weights`, `commit_recommendations` |
 | `supabase/migrations/20261005000001_shelf_favourites.sql` | `shelf_items.is_favourite`, for the Collection's Favourites filter |
 | `supabase/migrations/20261008000001_cap_genre_weight.sql` | Scales genre rarity to 0–1 in `request_recommendations` and `get_genre_weights`, so genre can never outweigh mood |
+| `supabase/migrations/20261010000001_sent_preview_url.sql` | Adds `preview_url` to `get_my_submissions`, so records you sent can be played from the Collection |
 | `supabase/seed.sql` | 10 demo accounts and 60 demo records — real iTunes tracks with covers and previews |
 | `supabase/tests/smoke_test.sql` | CRUD + privacy checks, self-asserting (30 checks) |
 | `docs/matching.md` | How the matchmaker scores and picks, and why |
@@ -316,7 +317,7 @@ passed **by name**, so anything with a default can be omitted.
 | `reroll_username()` | `text` | Onboarding only. Replaces the caller's username with a fresh unique one, saves it and returns it. Raises `42501` once `onboarding_completed` is true. |
 | `add_reaction(p_submission_id, p_kind)` | `integer` | New total reaction count. Reacting twice updates in place. Fails if the record is not in your room. |
 | `get_reactions(p_submission_id)` | `{kind, total}[]` | Submitter only. Counts per kind, no identities, no timestamps. |
-| `get_my_submissions(p_limit?)` | rows | "Records I've sent", with reaction totals. |
+| `get_my_submissions(p_limit?)` | rows | "Records I've sent", with reaction totals and the song's preview. |
 
 Saving and unsaving a shelf item is a plain insert/delete on `shelf_items` — no
 RPC needed, RLS covers it. Starring one is an update of `is_favourite` on the

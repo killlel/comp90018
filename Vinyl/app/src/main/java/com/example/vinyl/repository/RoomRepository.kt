@@ -118,6 +118,8 @@ data class SentCard(
     @SerialName("track_artist") val trackArtist: String = "",
     @SerialName("artwork_url") val artworkUrl: String? = null,
     @SerialName("reaction_count") val reactionCount: Int = 0,
+    /** The song's 30-second preview, so a record you sent plays like one you received. */
+    @SerialName("preview_url") val previewUrl: String? = null,
 ) {
     val moodTag: MoodTag? get() = MoodTag.entries.firstOrNull { it.wireValue == mood }
 }
