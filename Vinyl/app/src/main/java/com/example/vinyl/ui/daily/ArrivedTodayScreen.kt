@@ -49,6 +49,8 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.vinyl.R
 import com.example.vinyl.data.MoodTag
+import com.example.vinyl.data.THUMB_ARTWORK_PX
+import com.example.vinyl.data.itunesArtworkAt
 import com.example.vinyl.ui.theme.VinylPalette
 import kotlinx.coroutines.delay
 
@@ -371,7 +373,7 @@ private fun CoverWithDisc(artworkUrl: String?) {
         ) {
             if (artworkUrl != null) {
                 AsyncImage(
-                    model = artworkUrl,
+                    model = itunesArtworkAt(artworkUrl, THUMB_ARTWORK_PX),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),

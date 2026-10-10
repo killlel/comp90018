@@ -43,4 +43,7 @@ data class Track(
 fun itunesArtworkAt(url: String, px: Int): String =
     ITUNES_ARTWORK_SIZE.replace(url) { "/${px}x${px}bb.${it.groupValues[1]}" }
 
+/** Enough for any small cover (up to ~96dp) to stay sharp on a dense screen. */
+const val THUMB_ARTWORK_PX = 300
+
 private val ITUNES_ARTWORK_SIZE = Regex("""/\d+x\d+bb\.(jpg|jpeg|png|webp)$""")
