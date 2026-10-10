@@ -35,6 +35,7 @@ import com.example.vinyl.ui.theme.VinylPalette
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
+import androidx.compose.ui.draw.shadow
 
 /**
  * Plays once, from a frozen snapshot of the card's data, when the user taps "Send this record":
@@ -132,7 +133,7 @@ internal fun SendingAnimation(
                 .alpha(discAlpha.value)
                 .zIndex(1f),
         ) {
-            VinylPreviewDisc(trackName = track.trackName, envelopeStyle = state.envelopeStyle)
+            VinylPreviewDisc(artworkUrl = track.artworkUrl)
         }
 
         // Card — the one element that's deliberately smaller, and rests just above the record
@@ -308,15 +309,21 @@ private fun AnimatedEnvelope(style: EnvelopeStyle, flapProgress: Float, modifier
             }
 
             if (flapProgress >= 0.999f) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(30.dp)
-                        .clip(CircleShape)
-                        .background(VinylPalette.Background.copy(alpha = 0.85f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("♪", color = Color.White, fontSize = 14.sp)
+                BoxWithConstraints(Modifier.fillMaxSize()) {
+                    // Closed flap tip is at 70% of the pocket's height (see closedFlap above).
+                    val sealSize = 48.dp
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .offset(y = maxHeight * 0.7f - sealSize / 2)
+                            .shadow(6.dp, CircleShape)
+                            .size(sealSize)
+                            .clip(CircleShape)
+                            .background(VinylPalette.TealAccent),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("♪", color = VinylPalette.Background, fontSize = 22.sp)
+                    }
                 }
             }
 

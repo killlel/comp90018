@@ -77,6 +77,14 @@ import com.example.vinyl.ui.daily.ReceiveFlowStyle.PanelBrush
 import com.example.vinyl.ui.daily.ReceiveFlowStyle.PanelShape
 import com.example.vinyl.ui.theme.PoppinsFontFamily
 import com.example.vinyl.ui.theme.VinylPalette
+import androidx.compose.foundation.ScrollState
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.unit.Dp
+
+/** Not a real genre. Sent to the server so that no song matches and genre adds no weight. */
+internal const val ANY_GENRE_SLUG = "__any__"
 
 private fun poppins(size: TextUnit, weight: FontWeight, lineHeight: TextUnit = TextUnit.Unspecified) =
     TextStyle(fontFamily = PoppinsFontFamily, fontSize = size, fontWeight = weight, lineHeight = lineHeight)
@@ -84,7 +92,10 @@ private fun poppins(size: TextUnit, weight: FontWeight, lineHeight: TextUnit = T
 /**
  * @param genreOptions from the `genres` table; empty hides the genre section
  * @param selectedGenres slugs (`k_pop`), not labels - they are sent to the matcher as-is
+ * @param anyGenre true when "Any genre" is chosen: genre carries no weight in matching
  * @param onGenreToggled receives a slug
+ * @param onPickAnyGenre "Any genre" tapped
+ * @param onPickFavourites "My favourites" tapped (clears the chips)
  * @param onBack unused since the sheet lost its back row (swipe, scrim tap and system back close
  *   it); kept so callers don't change
  */
@@ -93,8 +104,11 @@ fun MoodQuestionnaireScreen(
     selectedMood: MoodTag?,
     genreOptions: List<GenreOption>,
     selectedGenres: Set<String>,
+    anyGenre: Boolean,
     onMoodSelected: (MoodTag) -> Unit,
     onGenreToggled: (String) -> Unit,
+    onPickAnyGenre: () -> Unit,
+    onPickFavourites: () -> Unit,
     onSubmit: () -> Unit,
     onLetCrateDecide: () -> Unit,
     onBack: () -> Unit = {},
@@ -171,6 +185,24 @@ fun MoodQuestionnaireScreen(
                         open = genreOpen,
                         onOpenChange = { genreOpen = it },
                         onToggle = onGenreToggled,
+                        emptyLabel = "My favourites",
+                        anyCellLabel = "My favourites",
+                        anyGenreSelected = anyGenre,
+                        onPickAnyGenre = onPickAnyGenre,
+                        onPickFavourites = onPickFavourites,
+                    )
+                }
+                if (selectedGenres.isEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = if (anyGenre) {
+                            "Feeling adventurous? We’ll pick songs from any genre."
+                        } else {
+                            "Nothing selected? We'll use the favourite genres you chose when you signed up."
+                        },
+                        color = VinylPalette.Cream.copy(alpha = 0.55f),
+                        style = poppins(12.sp, FontWeight.Light, 17.sp),
+                        textAlign = TextAlign.Center,
                     )
                 }
             }
@@ -304,8 +336,11 @@ internal fun moodIcon(tag: MoodTag): Int = when (tag) {
 }
 
 /**
- * Multi-choice genre picker. The selection starts on the user's onboarding favourites; each cell
- * toggles one genre, and "Any genre" clears them all.
+ * Multi-choice genre picker; each cell toggles one genre.
+ *
+ * On the daily questionnaire an empty selection means "my favourites" and a separate "Any genre"
+ * cell turns genre weighting off ([onPickAnyGenre] and [onPickFavourites] are passed only there).
+ * Elsewhere (the Write screen) the first cell, if shown, simply clears the selection.
  */
 @Composable
 internal fun GenreDropdown(
@@ -315,23 +350,24 @@ internal fun GenreDropdown(
     onOpenChange: (Boolean) -> Unit,
     onToggle: (String) -> Unit,
     includeAnyOption: Boolean = true,
+    emptyLabel: String = "Any",
+    anyCellLabel: String = "Any genre",
+    anyGenreSelected: Boolean = false,
+    onPickAnyGenre: (() -> Unit)? = null,
+    onPickFavourites: (() -> Unit)? = null,
     menuMaxHeight: androidx.compose.ui.unit.Dp = 180.dp,
 ) {
     // Labels in the dropdown's order; a slug no longer on offer falls back to itself.
     val labels = options.filter { it.slug in selected }.map { it.label } +
-        selected.filter { slug -> options.none { it.slug == slug } }
+            selected.filter { slug -> options.none { it.slug == slug } }
     val value = when {
-        labels.isEmpty() -> "Any"
+        anyGenreSelected -> "Any genre"
+        labels.isEmpty() -> emptyLabel
         labels.size <= 2 -> labels.joinToString(", ")
         else -> labels.take(2).joinToString(", ") + " +${labels.size - 2}"
     }
-    val highlighted = open || selected.isNotEmpty()
+    val highlighted = open || selected.isNotEmpty() || anyGenreSelected
     val chevronRotation by animateFloatAsState(if (open) 180f else 0f, label = "chevron")
-
-    // Stays open so several can be picked; "Any genre" (null) toggles off everything selected.
-    fun pick(slug: String?) {
-        if (slug == null) selected.forEach(onToggle) else onToggle(slug)
-    }
 
     Row(
         modifier = Modifier
@@ -375,7 +411,13 @@ internal fun GenreDropdown(
         enter = expandVertically() + fadeIn(),
         exit = shrinkVertically() + fadeOut(),
     ) {
-        val cells = if (includeAnyOption) listOf<GenreOption?>(null) + options else options
+        // null = the "my favourites" / "clear" cell; ANY_GENRE_SLUG = the "Any genre" cell.
+        val cells = buildList<GenreOption?> {
+            if (includeAnyOption) add(null)
+            if (onPickAnyGenre != null) add(GenreOption(ANY_GENRE_SLUG, "Any genre"))
+            addAll(options)
+        }
+        val menuScroll = rememberScrollState()
         Column(
             modifier = Modifier
                 .padding(top = 8.dp)
@@ -384,17 +426,30 @@ internal fun GenreDropdown(
                 .background(PanelBrush, PanelShape)
                 .border(1.dp, PanelBorder, PanelShape)
                 .clip(PanelShape)
-                .verticalScroll(rememberScrollState())
-                .padding(8.dp),
+                .verticalScrollbar(menuScroll, activeAlpha = 0.9f)
+                .verticalScroll(menuScroll)
+                .padding(start = 12.dp, top = 8.dp, end = 18.dp, bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             cells.chunked(3).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     row.forEach { genre ->
                         GenreCell(
-                            label = genre?.label ?: "Any genre",
-                            selected = if (genre == null) selected.isEmpty() else genre.slug in selected,
-                            onClick = { pick(genre?.slug) },
+                            label = genre?.label ?: anyCellLabel,
+                            selected = when {
+                                genre == null -> selected.isEmpty() && !anyGenreSelected
+                                genre.slug == ANY_GENRE_SLUG -> anyGenreSelected
+                                else -> genre.slug in selected
+                            },
+                            onClick = {
+                                when {
+                                    genre == null -> {
+                                        if (onPickFavourites != null) onPickFavourites() else selected.forEach(onToggle)
+                                    }
+                                    genre.slug == ANY_GENRE_SLUG -> onPickAnyGenre?.invoke()
+                                    else -> onToggle(genre.slug)
+                                }
+                            },
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -438,6 +493,37 @@ private fun GenreCell(label: String, selected: Boolean, onClick: () -> Unit, mod
             )
         }
     }
+}
+
+/**
+ * A slim scrollbar on the right edge, drawn over the viewport. Only appears when the
+ * content is taller than the viewport, and brightens while scrolling.
+ */
+private fun Modifier.verticalScrollbar(
+    state: ScrollState,
+    activeAlpha: Float,
+    idleAlpha: Float = 0.45f,
+    width: Dp = 3.dp,
+    edgePadding: Dp = 7.dp,    // distance from the right edge, inside the gutter
+    trackInset: Dp = 12.dp,    // keeps the thumb away from the rounded corners
+    minThumb: Dp = 24.dp,
+): Modifier = drawWithContent {
+    drawContent()
+    if (state.maxValue == 0) return@drawWithContent
+
+    val viewport = size.height
+    val total = viewport + state.maxValue
+    val inset = trackInset.toPx()
+    val track = viewport - inset * 2
+    val thumbHeight = (track * viewport / total).coerceAtLeast(minThumb.toPx())
+    val thumbTop = inset + (track - thumbHeight) * state.value / state.maxValue
+
+    drawRoundRect(
+        color = VinylPalette.TealAccent.copy(alpha = if (state.isScrollInProgress) activeAlpha else idleAlpha),
+        topLeft = Offset(size.width - width.toPx() - edgePadding.toPx(), thumbTop),
+        size = Size(width.toPx(), thumbHeight),
+        cornerRadius = CornerRadius(width.toPx() / 2f),
+    )
 }
 
 @Composable
@@ -493,8 +579,11 @@ private fun MoodQuestionnaireScreenPreview() {
             GenreOption("shoegaze", "Shoegaze"),
         ),
         selectedGenres = setOf("k_pop"),
+        anyGenre = false,
         onMoodSelected = {},
         onGenreToggled = {},
+        onPickAnyGenre = {},
+        onPickFavourites = {},
         onSubmit = {},
         onLetCrateDecide = {},
     )

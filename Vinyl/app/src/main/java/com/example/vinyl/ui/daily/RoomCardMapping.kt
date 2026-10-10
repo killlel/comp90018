@@ -110,5 +110,6 @@ internal fun RoomCard.toArrivedOption(readerLat: Double?, readerLng: Double?): A
         senderLat = lat,
         senderLng = lng,
         previewUrl = previewUrl,
+        envelopeStyle = envelopeStyle,
     )
 }
