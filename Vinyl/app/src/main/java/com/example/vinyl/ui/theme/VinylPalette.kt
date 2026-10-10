@@ -8,7 +8,7 @@ object VinylPalette {
     val RecordDark = Color(0xFF141414)
     val SheetSurface = Color(0xFF1C1C1C)
 
-    val TealAccent = Color(0xFF77EDE5)
+    val TealAccent: Color get() = ThemeState.accent.color
     val BrownAccent = Color(0xFF6E3A2C)
 
     val Cream = Color(0xFFF4F0EA)

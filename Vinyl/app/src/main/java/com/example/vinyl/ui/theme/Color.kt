@@ -11,7 +11,7 @@ object VinylColors {
     val Charcoal = Color(0xFF1E1E1E)
     val Surface = Color(0xFF242A2A)
     val Cream = Color(0xFFF4F0EA)
-    val Teal = Color(0xFF77EDE5)
+    val Teal: Color get() = ThemeState.accent.color
     val Rust = Color(0xFF6B3B32)
 
     // Unselected filter pill.

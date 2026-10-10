@@ -11,6 +11,17 @@ class PlaybackClockTest {
     private val clock = PlaybackClock(startedAtMillis = 1_000L, durationMillis = 30_000L)
 
     @Test
+    fun `loading accepts pause and resume without advancing progress`() {
+        val loading = clock.copy(isLoading = true)
+        val paused = loading.pausedAt(2_000L)
+        assertTrue(paused.isPaused)
+        assertEquals(0L, paused.elapsedAt(50_000L))
+        val resumed = paused.resumedAt(10_000L)
+        assertFalse(resumed.isPaused)
+        assertEquals(0L, resumed.elapsedAt(50_000L))
+    }
+
+    @Test
     fun `runs with the wall clock while playing`() {
         assertEquals(5_000L, clock.elapsedAt(6_000L))
     }

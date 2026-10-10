@@ -24,7 +24,7 @@ private val VinylDarkColorScheme = darkColorScheme(
 @Composable
 fun VinylTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = VinylDarkColorScheme,
+        colorScheme = vinylColorScheme(VinylDarkColorScheme),
         typography = Typography,
         content = content
     )

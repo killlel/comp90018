@@ -43,12 +43,14 @@ data class PlaybackClock(
     val durationMillis: Long,
     /** When it was paused, on the same clock. Null while it plays. */
     val pausedAtMillis: Long? = null,
+    /** A pending preview accepts pause immediately but keeps progress at zero. */
+    val isLoading: Boolean = false,
 ) {
     val isPaused: Boolean get() = pausedAtMillis != null
 
     /** How far into the song it is at [now], never past either end. */
     fun elapsedAt(now: Long): Long =
-        ((pausedAtMillis ?: now) - startedAtMillis).coerceIn(0L, durationMillis)
+        if (isLoading) 0L else ((pausedAtMillis ?: now) - startedAtMillis).coerceIn(0L, durationMillis)
 
     fun pausedAt(now: Long): PlaybackClock = if (isPaused) this else copy(pausedAtMillis = now)
 
@@ -80,7 +82,7 @@ class PlaybackViewModel : ViewModel() {
     private val _nowPlaying = MutableStateFlow<NowPlaying?>(null)
     val nowPlaying: StateFlow<NowPlaying?> = _nowPlaying.asStateFlow()
 
-    /** Null until sound (or the silent stand-in) actually starts, and again once stopped. */
+    /** Available from the play tap, including while the preview is preparing; null once stopped. */
     private val _clock = MutableStateFlow<PlaybackClock?>(null)
     val clock: StateFlow<PlaybackClock?> = _clock.asStateFlow()
 
@@ -89,7 +91,9 @@ class PlaybackViewModel : ViewModel() {
 
     fun play(track: NowPlaying) {
         stop()
-        _nowPlaying.value = track.copy(startedAtMillis = SystemClock.elapsedRealtime())
+        val now = SystemClock.elapsedRealtime()
+        _nowPlaying.value = track.copy(startedAtMillis = now)
+        _clock.value = PlaybackClock(now, SILENT_PLAY_MILLIS, isLoading = true)
         session = viewModelScope.launch {
             // Sound starts as the needle lands, not while the arm is still swinging over.
             delay(NEEDLE_LANDS_AFTER_MILLIS)
@@ -99,12 +103,16 @@ class PlaybackViewModel : ViewModel() {
     }
 
     /**
-     * Pauses a playing song, or resumes a paused one. Does nothing until sound has started — while
-     * the needle is still dropping there is nothing to hold yet.
+     * Pauses or resumes immediately, including while the needle drops or a preview buffers.
+     * A preview prepared while paused waits for an explicit resume.
      */
     fun togglePause() {
         val clock = _clock.value ?: return
         val now = SystemClock.elapsedRealtime()
+        if (clock.isLoading) {
+            _clock.value = if (clock.isPaused) clock.resumedAt(now) else clock.pausedAt(now)
+            return
+        }
         if (clock.isPaused) {
             _clock.value = clock.resumedAt(now)
             val mediaPlayer = player
@@ -123,6 +131,7 @@ class PlaybackViewModel : ViewModel() {
      */
     fun seekBy(deltaMillis: Long) {
         val clock = _clock.value ?: return
+        if (clock.isLoading) return
         val now = SystemClock.elapsedRealtime()
         val target = clock.elapsedAt(now) + deltaMillis
         if (target >= clock.durationMillis) {
@@ -158,15 +167,19 @@ class PlaybackViewModel : ViewModel() {
                 .build(),
         )
         mediaPlayer.setOnPreparedListener {
-            it.start()
+            if (player !== it) return@setOnPreparedListener
             // The clock starts with the sound, not with the tap, so buffering doesn't eat into
             // the bar. A stream that won't say how long it is is treated as a standard preview.
             val duration = it.duration.toLong().takeIf { d -> d > 0 } ?: SILENT_PLAY_MILLIS
-            _clock.value = PlaybackClock(SystemClock.elapsedRealtime(), duration)
+            val now = SystemClock.elapsedRealtime()
+            val paused = _clock.value?.isPaused == true
+            _clock.value = PlaybackClock(now, duration, pausedAtMillis = now.takeIf { paused })
+            if (!paused) it.start()
         }
         // Listeners run on the main thread, where this was created, so they can touch state.
-        mediaPlayer.setOnCompletionListener { stop() }
-        mediaPlayer.setOnErrorListener { _, what, extra ->
+        mediaPlayer.setOnCompletionListener { if (player === it) stop() }
+        mediaPlayer.setOnErrorListener { failed, what, extra ->
+            if (player !== failed) return@setOnErrorListener true
             Log.w(TAG, "preview failed ($what, $extra), playing on silently")
             playOnSilently()
             true
@@ -188,9 +201,12 @@ class PlaybackViewModel : ViewModel() {
     private fun playOnSilently() {
         releasePlayer()
         val now = SystemClock.elapsedRealtime()
-        val clock = _clock.value
-            ?.copy(durationMillis = SILENT_PLAY_MILLIS)
-            ?: PlaybackClock(now, SILENT_PLAY_MILLIS)
+        val previous = _clock.value
+        val clock = if (previous == null || previous.isLoading) {
+            PlaybackClock(now, SILENT_PLAY_MILLIS, pausedAtMillis = now.takeIf { previous?.isPaused == true })
+        } else {
+            previous.copy(durationMillis = SILENT_PLAY_MILLIS)
+        }
         _clock.value = clock
         if (!clock.isPaused) finishSilentlyAfter(clock.remaining())
     }
