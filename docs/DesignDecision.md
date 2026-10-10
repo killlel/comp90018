@@ -432,7 +432,7 @@ deadline, not piecemeal.
 
 | Leftover | Where it lives | Notes |
 | -------- | -------------- | ----- |
-| **Reactions** | `reactions` table, `reaction_kind` enum, `add_reaction()`, `get_reactions()`, the "Reactions stay anonymous" text if it is still in the UI | Also remove the "sender never learns who reacted" row in §2 and the smoke-test checks that cover reactions |
+| **Reactions** | `reactions` table, `reaction_kind` enum, `add_reaction()`, `get_reactions()`, and `reaction_count` on `room_card` (read into three classes in `RoomRepository.kt`) | No screen uses any of it. `room_card` is frozen (§8), so dropping `reaction_count` means recreating three functions. Also remove the "sender never learns who reacted" row in §2 and the smoke-test checks that cover reactions |
 | **Context** | `context_tag` enum, `context` columns on `submissions` and `recommendations`, `p_context` on `request_recommendations()` and `commit_recommendations()`, `context` in `room_card` and the Kotlin `RoomCard` | `room_card` is frozen (§8), so dropping its field means recreating three functions |
 | **Split matcher** | `get_candidates()`, `get_genre_weights()`, `commit_recommendations()`, `Matchmaker.kt` | Only if we decide not to move the receive flow over (§10) |
 | **`SubmissionViewModel`** | `ui/submission/SubmissionViewModel.kt` | Nothing references it |
