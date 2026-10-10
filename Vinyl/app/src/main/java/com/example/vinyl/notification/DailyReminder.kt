@@ -19,6 +19,7 @@ import androidx.work.Worker
 import androidx.work.WorkerParameters
 import com.example.vinyl.MainActivity
 import com.example.vinyl.R
+import com.example.vinyl.data.pullDay
 import com.example.vinyl.ui.notification.notificationsAllowed
 import java.time.Duration
 import java.time.LocalDate
@@ -139,14 +140,14 @@ class ReminderPrefs(context: Context) {
         get() = prefs.getBoolean(KEY_ENABLED, true)
         set(value) = prefs.edit { putBoolean(KEY_ENABLED, value) }
 
-    /** The last day the user asked for recommendations, or null. */
+    /** The last pull day (turning over at 06:00) the user asked for recommendations, or null. */
     var lastPulledDate: LocalDate?
         get() = prefs.getString(KEY_LAST_PULLED, null)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
         set(value) = prefs.edit { putString(KEY_LAST_PULLED, value?.toString()) }
 
     /** Call when the user asks for today's music, so today's reminder is skipped. */
     fun markPulledToday() {
-        lastPulledDate = LocalDate.now()
+        lastPulledDate = pullDay()
     }
 
     private companion object {
@@ -162,7 +163,7 @@ class DailyReminderWorker(context: Context, params: WorkerParameters) : Worker(c
             enabled = prefs.enabled,
             allowed = applicationContext.notificationsAllowed(),
             lastPulled = prefs.lastPulledDate,
-            today = LocalDate.now(),
+            today = pullDay(),
         )
         if (remind) DailyReminder.post(applicationContext)
         return Result.success()

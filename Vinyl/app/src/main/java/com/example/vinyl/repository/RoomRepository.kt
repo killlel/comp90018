@@ -3,6 +3,7 @@ package com.example.vinyl.repository
 import com.example.vinyl.data.ContextTag
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.data.Supabase
+import com.example.vinyl.data.deviceTimeZone
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.postgrest
@@ -124,6 +125,27 @@ data class SentCard(
     val moodTag: MoodTag? get() = MoodTag.entries.firstOrNull { it.wireValue == mood }
 }
 
+/**
+ * Whether the user may pull today, from `get_pull_status()`. One pull a day, of up to three
+ * cards; the day turns over at 06:00 in the user's time zone.
+ */
+@Serializable
+data class PullStatus(
+    /** Cards dealt since the last 06:00. */
+    @SerialName("dealt_today") val dealtToday: Int = 0,
+    /** How many a pull may deal now: three before today's pull, none after it. */
+    val remaining: Int = 3,
+    /** The next 06:00, as the server's ISO timestamp. */
+    @SerialName("next_refresh_at") val nextRefreshAt: String? = null,
+) {
+    val canPull: Boolean get() = remaining > 0
+}
+
+/** True when the server refused a pull because today's has already been made. */
+fun Throwable.isDailyPullLimit(): Boolean = message?.contains(DAILY_PULL_LIMIT_MESSAGE) == true
+
+private const val DAILY_PULL_LIMIT_MESSAGE = "daily pull limit reached"
+
 /** One genre and how rare it is in the pool — the idf the client cannot compute for itself. */
 @Serializable
 data class GenreWeight(val slug: String, val weight: Double)
@@ -145,8 +167,18 @@ open class RoomRepository(private val supabase: SupabaseClient = Supabase.client
         limit: Int = DEFAULT_LIMIT,
         genres: Collection<String> = emptyList(),
     ): Result<List<RoomCard>> = runCatching {
-        val params = requestRecommendationsParams(mood, context, limit, genres)
+        val params = requestRecommendationsParams(mood, context, limit, genres, deviceTimeZone())
         supabase.postgrest.rpc("request_recommendations", params).decodeList<RoomCard>()
+    }
+
+    /**
+     * Whether today's pull has been made, and when the next one opens. Read-only. Fails like any
+     * other call, so callers should fall back to letting the server decide.
+     */
+    open suspend fun getPullStatus(): Result<PullStatus> = runCatching {
+        val params = buildJsonObject { put("p_tz", deviceTimeZone()) }
+        supabase.postgrest.rpc("get_pull_status", params).decodeList<PullStatus>().firstOrNull()
+            ?: PullStatus()
     }
 
     /** Replays letters already delivered, without picking new ones. */
@@ -256,6 +288,7 @@ open class RoomRepository(private val supabase: SupabaseClient = Supabase.client
             if (scores != null) {
                 put("p_scores", JsonArray(scores.map { JsonPrimitive(it) }))
             }
+            put("p_tz", deviceTimeZone())
         }
         supabase.postgrest.rpc("commit_recommendations", params).decodeList<RoomCard>()
     }
@@ -285,6 +318,8 @@ internal fun requestRecommendationsParams(
     context: ContextTag?,
     limit: Int,
     genres: Collection<String> = emptyList(),
+    /** The phone's zone, so the server knows when this user's day turns over. */
+    timeZone: String? = null,
 ): JsonObject =
     buildJsonObject {
         put("p_mood", mood.wireValue)
@@ -293,4 +328,5 @@ internal fun requestRecommendationsParams(
         if (genres.isNotEmpty()) {
             put("p_genres", JsonArray(genres.map { JsonPrimitive(it) }))
         }
+        if (timeZone != null) put("p_tz", timeZone)
     }

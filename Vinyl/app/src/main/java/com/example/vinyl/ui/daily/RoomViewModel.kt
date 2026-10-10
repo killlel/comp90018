@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.repository.RoomCard
 import com.example.vinyl.repository.RoomRepository
+import com.example.vinyl.repository.isDailyPullLimit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -61,7 +62,28 @@ class RoomViewModel(application: Application) : AndroidViewModel(application) {
                     val hand = if (mood != null) cardStore.saveToday(cards) else cardStore.resolveExisting(cards)
                     _uiState.value = RoomUiState(cards = hand)
                 }
-                .onFailure { e -> _uiState.update { RoomUiState(error = e.message) } }
+                .onFailure { e ->
+                    if (e.isDailyPullLimit()) {
+                        showTodaysPullFromServer()
+                    } else {
+                        _uiState.update { RoomUiState(error = e.message) }
+                    }
+                }
+        }
+    }
+
+    /**
+     * Today's pull was already made somewhere this phone doesn't know about — another phone, or
+     * before a reinstall. Rather than an error, show the cards that pull dealt: they are the
+     * newest in the room, and the status says how many there were.
+     */
+    private suspend fun showTodaysPullFromServer() {
+        val dealt = repository.getPullStatus().getOrNull()?.dealtToday ?: 0
+        val cards = if (dealt > 0) repository.getRoom(limit = dealt).getOrNull().orEmpty() else emptyList()
+        _uiState.value = if (cards.isNotEmpty()) {
+            RoomUiState(cards = cardStore.saveToday(cards))
+        } else {
+            RoomUiState(error = "You've had today's music cards. New ones arrive at 6:00.")
         }
     }
 
