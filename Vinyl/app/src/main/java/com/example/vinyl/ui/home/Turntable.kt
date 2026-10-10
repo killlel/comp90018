@@ -38,6 +38,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.example.vinyl.R
+import com.example.vinyl.data.THUMB_ARTWORK_PX
+import com.example.vinyl.data.itunesArtworkAt
 import com.example.vinyl.ui.theme.VinylPalette
 import kotlinx.coroutines.delay
 
@@ -190,7 +192,10 @@ fun Turntable(
         Image(
             painter = painterResource(R.drawable.turntable_plinth),
             contentDescription = null,
-            modifier = Modifier.fillMaxWidth(),
+            // An explicit size, like every other layer. With only a width, Compose caps the
+            // height at the export's natural size (1100px, ~367dp wide at 3x) and shrinks the
+            // plinth to match, so on a wider phone it sat inset from the platter and arm.
+            modifier = Modifier.size(width = plinthWidth, height = plinthHeight),
         )
 
         // Sized to the export's own aspect. A square box would letterbox the image and push it
@@ -250,7 +255,7 @@ fun Turntable(
                 modifier = Modifier
                     .size(labelSize)
                     .offset(
-                        x = (recordSize - labelSize) / 2,
+                        x = recordSize * LABEL_CENTRE_X - labelSize / 2,
                         y = (recordSize - labelSize) / 2,
                     )
                     // Read at draw time, so each frame of the spin redraws without recomposing.
@@ -259,7 +264,7 @@ fun Turntable(
             ) {
                 if (shownLabel != null) {
                     AsyncImage(
-                        model = shownLabel,
+                        model = itunesArtworkAt(shownLabel, THUMB_ARTWORK_PX),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
@@ -358,9 +363,14 @@ private const val PLATTER_WIDTH_FRACTION = 0.68f
  */
 private const val RECORD_WIDTH_FRACTION = 0.917f
 
-/** Measured off the record export: the paper label, and the hole at its centre. */
-private const val LABEL_DIAMETER_FRACTION = 0.236f
-private const val SPINDLE_HOLE_OF_LABEL = 0.05f
+/**
+ * Measured off the record export: the white paper label is 0.252 of the image across and centred
+ * a touch left of the middle, at 0.495. The cover is drawn slightly larger than the paper so none
+ * of its white rim shows round the edge.
+ */
+private const val LABEL_DIAMETER_FRACTION = 0.258f
+private const val LABEL_CENTRE_X = 0.495f
+private const val SPINDLE_HOLE_OF_LABEL = 0.046f
 
 /**
  * 950x964 export. Sized so the parked arm fits on the mat beside the platter, headshell and all,

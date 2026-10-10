@@ -167,4 +167,10 @@ class SubmissionParamsTest {
         val p = requestRecommendationsParams(MoodTag.Happy, null, 3, genres = emptyList())
         assertTrue("p_genres" !in p)
     }
+
+    @Test
+    fun `pulling records sends the phone's time zone for the 6am turnover`() {
+        val p = requestRecommendationsParams(MoodTag.Happy, null, 3, timeZone = "Australia/Melbourne")
+        assertEquals("Australia/Melbourne", p.getValue("p_tz").jsonPrimitive.content)
+    }
 }

@@ -37,6 +37,11 @@ declare
   v_lng      double precision;
   v_name     text;       -- generated username before a reroll
   v_name2    text;       -- and after
+  v_dealt    integer;    -- cards CHECK 2 dealt to A
+  v_left     integer;
+  v_refused  boolean;
+  v_from     timestamptz;
+  v_to       timestamptz;
 begin
   -- ---------------------------------------------------------------------
   -- Setup (as the migration role — RLS is bypassed here on purpose)
@@ -77,6 +82,14 @@ begin
   end if;
   raise notice 'CHECK 1 ok — room_card carries no sender/reactor identity';
 
+  -- One pull a day (0016) looks at the cards dealt since 06:00. The test
+  -- shouldn't depend on whether this account already pulled today, so its
+  -- recent cards are pushed back two days — undone by the final rollback.
+  update public.recommendations
+     set created_at = created_at - interval '2 days'
+   where recipient_id = v_a
+     and created_at > now() - interval '2 days';
+
   -- ---------------------------------------------------------------------
   -- Become user A
   -- ---------------------------------------------------------------------
@@ -101,6 +114,7 @@ begin
     raise exception 'CHECK 2 FAILED: request_recommendations() returned nothing (is the pool empty?)';
   end if;
   raise notice 'CHECK 2 ok — request_recommendations() returned % card(s)', v_cnt;
+  v_dealt := v_cnt;
 
   -- ---------------------------------------------------------------------
   -- CHECK 3 — the room persists and is readable
@@ -178,6 +192,12 @@ begin
   execute 'reset role';
 
   select s.sender_id into v_b from public.submissions s where s.id = v_sub;
+
+  -- B commits below (CHECKs 27-28); as for A, take today's cards out of play.
+  update public.recommendations
+     set created_at = created_at - interval '2 days'
+   where recipient_id = v_b
+     and created_at > now() - interval '2 days';
 
   perform set_config(
     'request.jwt.claims',
@@ -505,7 +525,67 @@ begin
   end if;
   raise notice 'CHECK 30 ok — genre weights are within (0, 1]';
 
+  -- ---------------------------------------------------------------------
+  -- Back to user A for the daily limit
+  -- ---------------------------------------------------------------------
+  perform set_config(
+    'request.jwt.claims',
+    json_build_object('sub', v_a, 'role', 'authenticated')::text,
+    true
+  );
+
+  -- ---------------------------------------------------------------------
+  -- CHECK 31 — the pull status counts the cards dealt today
+  -- ---------------------------------------------------------------------
+  select dealt_today, remaining into v_cnt, v_left
+  from public.get_pull_status('Australia/Melbourne');
+
+  if v_cnt <> v_dealt or v_left <> 0 then
+    raise exception 'CHECK 31 FAILED: status says % dealt, % left; CHECK 2 dealt %', v_cnt, v_left, v_dealt;
+  end if;
+  raise notice 'CHECK 31 ok — % card(s) dealt today, none left to pull', v_cnt;
+
+  -- ---------------------------------------------------------------------
+  -- CHECK 32 — a second pull the same day is refused
+  -- ---------------------------------------------------------------------
+  v_refused := false;
+  begin
+    perform public.request_recommendations('happy'::public.mood_tag, null, 3, '{}', 'Australia/Melbourne');
+  exception when raise_exception then
+    v_refused := sqlerrm = 'daily pull limit reached';
+  end;
+
+  select dealt_today into v_cnt from public.get_pull_status('Australia/Melbourne');
+  if not v_refused or v_cnt <> v_dealt then
+    raise exception 'CHECK 32 FAILED: refused = %, dealt today = %', v_refused, v_cnt;
+  end if;
+  raise notice 'CHECK 32 ok — second pull refused, still % dealt today', v_cnt;
+
   execute 'reset role';
+
+  -- ---------------------------------------------------------------------
+  -- CHECK 33 — the day turns over at 06:00 local time, not at midnight
+  -- ---------------------------------------------------------------------
+  select starts_at, ends_at into v_from, v_to
+  from app_private.pull_window('Australia/Melbourne', '2026-10-10 05:59:00+11');
+  if v_from <> '2026-10-09 06:00:00+11' or v_to <> '2026-10-10 06:00:00+11' then
+    raise exception 'CHECK 33 FAILED: 05:59 fell in % to %', v_from, v_to;
+  end if;
+
+  select starts_at into v_from
+  from app_private.pull_window('Australia/Melbourne', '2026-10-10 06:00:00+11');
+  if v_from <> '2026-10-10 06:00:00+11' then
+    raise exception 'CHECK 33 FAILED: 06:00 fell in a day starting %', v_from;
+  end if;
+
+  -- An unknown zone falls back to Melbourne rather than failing the pull.
+  select starts_at into v_from
+  from app_private.pull_window('Not/AZone', '2026-10-10 05:59:00+11');
+  if v_from <> '2026-10-09 06:00:00+11' then
+    raise exception 'CHECK 33 FAILED: unknown zone gave a day starting %', v_from;
+  end if;
+  raise notice 'CHECK 33 ok — 05:59 is yesterday''s cards, 06:00 is today''s';
+
   raise notice '=== ALL CHECKS PASSED ===';
 end $$;
 

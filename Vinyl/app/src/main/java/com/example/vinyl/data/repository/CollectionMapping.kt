@@ -61,6 +61,7 @@ internal fun SentCard.toVinylRecord(): VinylRecord = VinylRecord(
     collectedAtMs = parseTimestampMs(createdAt),
     moodTag = moodTag,
     sentAt = createdAt,
+    previewUrl = previewUrl,
 )
 
 /**

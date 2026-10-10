@@ -57,6 +57,8 @@ import coil.compose.AsyncImage
 import com.example.vinyl.R
 import com.example.vinyl.data.MoodOptions
 import com.example.vinyl.data.MoodTag
+import com.example.vinyl.data.THUMB_ARTWORK_PX
+import com.example.vinyl.data.itunesArtworkAt
 import com.example.vinyl.network.AudioPreviewController
 import com.example.vinyl.network.rememberAudioPreviewController
 import com.example.vinyl.ui.daily.ReceiveFlowStyle
@@ -355,7 +357,8 @@ private fun PlayerCard(state: MusicCardUiState, releaseOnBackground: Boolean, ac
                 }
                 if (state.artworkUrl != null) {
                     AsyncImage(
-                        model = state.artworkUrl,
+                        // iTunes hands out 100px covers, soft at 56dp on a dense screen.
+                        model = itunesArtworkAt(state.artworkUrl, THUMB_ARTWORK_PX),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         onSuccess = { artworkShown = true },

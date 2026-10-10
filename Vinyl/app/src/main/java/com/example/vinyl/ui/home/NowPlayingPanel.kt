@@ -43,6 +43,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.vinyl.data.THUMB_ARTWORK_PX
+import com.example.vinyl.data.itunesArtworkAt
 import com.example.vinyl.ui.theme.VinylPalette
 
 /**
@@ -158,7 +160,7 @@ private fun AlbumArtwork(record: NowPlaying?) {
         )
         record?.artworkUrl?.let { artworkUrl ->
             AsyncImage(
-                model = artworkUrl,
+                model = itunesArtworkAt(artworkUrl, THUMB_ARTWORK_PX),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),

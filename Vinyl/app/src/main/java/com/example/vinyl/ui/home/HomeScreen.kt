@@ -1,8 +1,13 @@
 package com.example.vinyl.ui.home
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -34,8 +39,17 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
@@ -47,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.vinyl.R
+import com.example.vinyl.data.PULL_DAY_STARTS_AT_HOUR
 import com.example.vinyl.data.repository.placeholderAccent
 import com.example.vinyl.repository.RoomCard
 import com.example.vinyl.ui.components.ShelfLedge
@@ -54,6 +69,9 @@ import com.example.vinyl.ui.components.VinylSleeveThumbnail
 import com.example.vinyl.ui.settings.AvatarPreview
 import com.example.vinyl.ui.theme.VinylPalette
 import com.example.vinyl.ui.theme.VinylSectionTitleStyle
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 
 /** The signed-in user's profile picture, as Settings draws it. */
 data class HomeAvatar(val iconIndex: Int, val gradientIndex: Int, val imageUrl: String?)
@@ -142,9 +160,14 @@ fun HomeScreen(
                     onOpenCard = onOpenCard,
                 )
 
+                // One pull a day. It's used once today's cards are on the shelf, or the server
+                // says so (say, pulled on another phone) — but a hand dealt and not yet shown can
+                // always be opened.
+                val usedToday = state.arrivedToday.isNotEmpty() ||
+                    (state.pendingToday.isEmpty() && !state.canPull)
                 OpenCardsButton(
-                    arrivedCount = state.arrivedCount,
-                    ready = !state.isLoading && state.error == null,
+                    canDraw = !state.isLoading && state.error == null && !usedToday,
+                    usedToday = usedToday,
                     onClick = onOpenReceive,
                 )
 
@@ -175,8 +198,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun OpenCardsButton(arrivedCount: Int, ready: Boolean, onClick: () -> Unit) {
-    val canDraw = ready && arrivedCount == 0
+private fun OpenCardsButton(canDraw: Boolean, usedToday: Boolean, onClick: () -> Unit) {
     val ink = if (canDraw) VinylPalette.Cream else VinylPalette.TextMuted
     OutlinedButton(
         onClick = onClick,
@@ -190,7 +212,7 @@ private fun OpenCardsButton(arrivedCount: Int, ready: Boolean, onClick: () -> Un
         ),
     ) {
         Text(
-            text = if (arrivedCount > 0) "Come back tomorrow" else "Open today's card",
+            text = if (usedToday) "New cards at $NEXT_PULL_TIME" else "Open today's card",
             color = ink,
             fontSize = 17.sp,
             fontWeight = FontWeight.SemiBold,
@@ -204,6 +226,10 @@ private fun OpenCardsButton(arrivedCount: Int, ready: Boolean, onClick: () -> Un
         )
     }
 }
+
+/** When the next pull opens, in the phone's own time format: "6:00 AM" or "06:00". */
+private val NEXT_PULL_TIME: String =
+    LocalTime.of(PULL_DAY_STARTS_AT_HOUR, 0).format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT))
 
 /** How far the turntable reaches past the screen's side padding, on each side. */
 private val TURNTABLE_BLEED = 12.dp
@@ -305,7 +331,7 @@ private fun TodaysCardsShelf(
                             modifier = Modifier.clickable { onOpenCard(card) },
                         )
                     } else {
-                        EmptySleeveSlot(sleeveSize)
+                        PendingSleeve(sleeveSize)
                     }
                 }
             }
@@ -315,20 +341,99 @@ private fun TodaysCardsShelf(
     }
 }
 
-/** Where a card will stand once it's dealt: a faint square, in the same footprint as a sleeve. */
+/**
+ * A card not dealt yet, drawn as a record still in its plain paper inner sleeve: off-white paper
+ * with a thumb notch, and a round window showing the record and its blank label. Nothing printed,
+ * because nobody has picked the song yet. A soft light passes over the paper now and then, so the
+ * slot reads as waiting rather than empty. Same footprint as a real sleeve, so the shelf doesn't
+ * move when the cards arrive.
+ */
 @Composable
-private fun EmptySleeveSlot(sleeveSize: Dp) {
-    val shape = RoundedCornerShape(2.dp)
+private fun PendingSleeve(sleeveSize: Dp) {
+    // -1 → 3 sweeps the band across the sleeve (0 → 1) and then rests off it for a while.
+    val sheen by rememberInfiniteTransition(label = "pendingSleeve").animateFloat(
+        initialValue = -1f,
+        targetValue = 3f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(PENDING_SHEEN_MILLIS, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "sheen",
+    )
+    val label = VinylPalette.TealAccent
+
     Box(Modifier.size(width = sleeveSize * SLEEVE_WITH_DISC, height = sleeveSize)) {
+        // Behind the sleeve, as on a real one.
+        Image(
+            painter = painterResource(R.drawable.black_vinyl),
+            contentDescription = null,
+            modifier = Modifier
+                .size(sleeveSize * PENDING_DISC_TO_SLEEVE)
+                .align(Alignment.CenterEnd),
+        )
         Box(
             Modifier
                 .size(sleeveSize)
-                .clip(shape)
-                .background(Color.Black)
-                .border(1.dp, VinylPalette.Cream.copy(alpha = 0.65f), shape),
+                .align(Alignment.CenterStart)
+                .drawWithContent {
+                    val corner = CornerRadius(2.dp.toPx())
+                    // The paper, with the thumb notch at the top of every inner sleeve cut out of
+                    // it, so the shelf behind shows through.
+                    val notch = size.minDimension * PENDING_NOTCH_OF_SLEEVE
+                    val paper = Path.combine(
+                        operation = PathOperation.Difference,
+                        path1 = Path().apply { addRoundRect(RoundRect(Rect(Offset.Zero, size), corner)) },
+                        path2 = Path().apply { addOval(Rect(Offset(size.width / 2f, 0f), notch)) },
+                    )
+                    clipPath(paper) {
+                        drawRect(Brush.verticalGradient(listOf(PendingPaperTop, PendingPaperBottom)))
+
+                        // The window: the record inside, a groove or two, and its blank label.
+                        val window = size.minDimension * PENDING_WINDOW_OF_SLEEVE
+                        drawCircle(color = VinylPalette.RecordDark, radius = window)
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.08f),
+                            radius = window * 0.82f,
+                            style = Stroke(width = 1.dp.toPx()),
+                        )
+                        drawCircle(color = label.copy(alpha = 0.75f), radius = window * 0.55f)
+                        drawCircle(color = VinylPalette.RecordDark, radius = window * 0.08f)
+                        // The paper's cut edge, a shade darker than the paper.
+                        drawCircle(
+                            color = Color.Black.copy(alpha = 0.25f),
+                            radius = window,
+                            style = Stroke(width = 1.5.dp.toPx()),
+                        )
+
+                        // The passing light: a soft diagonal band.
+                        val band = size.width * 0.6f
+                        val x = sheen * size.width
+                        drawRect(
+                            Brush.linearGradient(
+                                colors = listOf(Color.Transparent, Color.White.copy(alpha = 0.22f), Color.Transparent),
+                                start = Offset(x - band, 0f),
+                                end = Offset(x, size.height),
+                            ),
+                        )
+                    }
+                },
         )
     }
 }
+
+/** The window's radius, and the thumb notch's, as fractions of the sleeve. */
+private const val PENDING_WINDOW_OF_SLEEVE = 0.2f
+private const val PENDING_NOTCH_OF_SLEEVE = 0.09f
+
+/** The record's size against its sleeve — the same as a real sleeve's. */
+private const val PENDING_DISC_TO_SLEEVE = 0.83f
+
+/** One pass of the light plus the rest before the next. */
+private const val PENDING_SHEEN_MILLIS = 3600
+
+/** Off-white paper, dimmed so it sits with the covers beside it rather than glaring. */
+private val PendingPaperTop = Color(0xFFD8D1C4)
+private val PendingPaperBottom = Color(0xFFB8B0A2)
 
 private const val SLEEVES_PER_SHELF = 3
 

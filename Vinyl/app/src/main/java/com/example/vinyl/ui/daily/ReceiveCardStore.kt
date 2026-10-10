@@ -3,13 +3,17 @@ package com.example.vinyl.ui.daily
 import android.content.Context
 import com.example.vinyl.BuildConfig
 import com.example.vinyl.data.Supabase
+import com.example.vinyl.data.pullDay
 import com.example.vinyl.repository.RoomCard
 import io.github.jan.supabase.auth.auth
-import java.time.LocalDate
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-/** Device-only opening history and the daily hand, isolated for each signed-in account. */
+/**
+ * Device-only opening history and the daily hand, isolated for each signed-in account. "Today" is
+ * the pull day, which turns over at 06:00 rather than midnight. The server keeps the real limit
+ * (get_pull_status); this only remembers what was shown on this phone.
+ */
 internal class ReceiveCardStore(context: Context) {
     private val accountId = Supabase.client.auth.currentUserOrNull()?.id ?: "guest"
     private val prefs = context.getSharedPreferences("receive_cards_$accountId", Context.MODE_PRIVATE)
@@ -23,26 +27,31 @@ internal class ReceiveCardStore(context: Context) {
     }
 
     fun todayCards(): List<RoomCard> =
-        if (prefs.getString("day", null) == LocalDate.now().toString()) storedCards() else emptyList()
+        if (prefs.getString("day", null) == pullDay().toString()) storedCards() else emptyList()
 
     fun saveToday(cards: List<RoomCard>, shelfVisible: Boolean = false): List<RoomCard> {
         val existing = todayCards()
         if (existing.isNotEmpty() || cards.isEmpty()) return existing
         val hand = cards.take(3)
         prefs.edit()
-            .putString("day", LocalDate.now().toString())
+            .putString("day", pullDay().toString())
             .putString("cards", json.encodeToString(hand))
             .putBoolean("hand_pending", !shelfVisible)
             .apply()
         return hand
     }
 
-    /** get_room has no delivery date; never adopt the same known hand again after midnight. */
+    /** get_room has no delivery date; never adopt the same known hand again after 06:00. */
     fun resolveExisting(cards: List<RoomCard>): List<RoomCard> {
         val today = todayCards()
         if (today.isNotEmpty()) return today
         val fresh = unseenDeliveries(cards, storedCards())
         return saveToday(fresh, shelfVisible = true)
+    }
+
+    /** Drops the remembered hand, for when the server says nothing was dealt today. */
+    fun forgetToday() {
+        prefs.edit().remove("day").remove("cards").remove("hand_pending").apply()
     }
 
     fun isShelfVisible(): Boolean = todayCards().isNotEmpty() && !prefs.getBoolean("hand_pending", false)
@@ -53,7 +62,7 @@ internal class ReceiveCardStore(context: Context) {
 
     /** Only an external emulator test script sets this; release builds never read it. */
     fun manuallyPreparedTestHand(): List<RoomCard>? {
-        if (!BuildConfig.DEBUG || prefs.getString("manual_test_day", null) != LocalDate.now().toString()) return null
+        if (!BuildConfig.DEBUG || prefs.getString("manual_test_day", null) != pullDay().toString()) return null
         return runCatching {
             json.decodeFromString<List<RoomCard>>(prefs.getString("manual_test_cards", null) ?: "[]")
         }.getOrNull()?.takeIf { it.isNotEmpty() }

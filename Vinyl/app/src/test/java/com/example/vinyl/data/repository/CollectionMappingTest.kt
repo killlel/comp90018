@@ -69,6 +69,13 @@ class CollectionMappingTest {
     }
 
     @Test
+    fun `sent record keeps its preview so it can be played`() {
+        val card = sent("s", createdAt = null).copy(previewUrl = "https://example.com/s.m4a")
+
+        assertEquals("https://example.com/s.m4a", card.toVinylRecord().previewUrl)
+    }
+
+    @Test
     fun `missing shelf entry means no star rather than a failure`() {
         val record = kept("a").toVinylRecord(entry = null)
 

@@ -566,7 +566,7 @@ private fun VinylApp(
                             if (homeState.pendingToday.isNotEmpty()) {
                                 roomViewModel.showExisting(homeState.todayHand)
                                 receiveFlowStep = ReceiveFlowStep.ArrivedToday
-                            } else {
+                            } else if (homeState.canPull) {
                                 dailyMood = null
                                 dailyGenresViewModel.reset()
                                 receiveFlowStep = ReceiveFlowStep.Questionnaire

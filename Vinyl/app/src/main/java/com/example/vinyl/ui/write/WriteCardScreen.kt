@@ -48,6 +48,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.example.vinyl.data.THUMB_ARTWORK_PX
+import com.example.vinyl.data.itunesArtworkAt
 import com.example.vinyl.data.onboarding.GenreOption
 import com.example.vinyl.data.MoodOptions
 import com.example.vinyl.data.Track
@@ -403,7 +405,27 @@ private fun SelectedTrackCard(track: Track, onClear: () -> Unit) {
             .padding(start = 12.dp, top = 10.dp, bottom = 10.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        TrackArtwork(track, 52.dp)
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(VinylPalette.SheetSurface),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Rounded.MusicNote,
+                contentDescription = null,
+                tint = VinylPalette.Cream.copy(alpha = 0.5f),
+            )
+            track.artworkUrl?.let { artwork ->
+                AsyncImage(
+                    model = itunesArtworkAt(artwork, THUMB_ARTWORK_PX),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
@@ -680,7 +702,7 @@ private fun CardPreview(state: WriteCardUiState, modifier: Modifier = Modifier) 
             ) {
                 if (track.artworkUrl != null) {
                     AsyncImage(
-                        model = track.artworkUrl,
+                        model = itunesArtworkAt(track.artworkUrl, THUMB_ARTWORK_PX),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
