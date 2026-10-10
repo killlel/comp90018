@@ -41,6 +41,9 @@ import com.example.vinyl.ui.theme.VinylPalette
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 
 private object CompassColors {
     val DialBackground = VinylColors.Charcoal
@@ -218,9 +221,15 @@ fun CompassScreen(
 
         Text(
             text = when {
-                isFacingSender && targetDirectionLabel != null -> "You found them! They're $targetDirectionLabel of you."
-                isFacingSender -> "You found them!"
-                else -> "Rotate your phone"
+                isFacingSender && targetDirectionLabel != null -> buildAnnotatedString {
+                    append("You found them! They're ")
+                    withStyle(SpanStyle(color = CompassColors.TealArrow, fontWeight = FontWeight.Bold)) {
+                        append(targetDirectionLabel)
+                    }
+                    append(" of you.")
+                }
+                isFacingSender -> buildAnnotatedString { append("You found them!") }
+                else -> buildAnnotatedString { append("Rotate your phone") }
             },
             color = VinylPalette.TextPrimary,
             fontSize = 18.sp,

@@ -120,13 +120,47 @@ app with weaker matching. Nothing here may block reaching the main screen.
 
 | Setting                        | Backed by                              |
 | ------------------------------ | --------------------------------------- |
-| Change profile picture         | `profiles.avatar_slug`                 |
+| Change profile picture         | Device only — `AvatarAppearance` (icon + background). `profiles.avatar_slug` is set once at onboarding and **not** updated here |
+| Accent colour                  | Device only — `ThemeState`             |
 | Change favourite genres        | `profiles.favorite_genres`             |
 | Daily reminder on / off        | Device only — `ReminderPrefs`          |
 | Update or clear location       | `update_my_location()`                 |
 | Log out                        | Auth only, no data change              |
 | Delete account                 | _(button removed — see §10)_           |
 | Q&A / help                     | Static content, no backend             |
+
+### What is stored where
+
+The rule: **anything another person, or the matcher, depends on lives on the
+server. Anything that only changes how this phone looks or behaves lives on the
+phone.** Phone storage is Android `SharedPreferences`, so it is wiped by a
+reinstall or "Clear data".
+
+| Data                                         | Stored in                                              | Survives reinstall / new phone |
+| -------------------------------------------- | ------------------------------------------------------ | ------------------------------ |
+| Username (generated alias)                   | `profiles.username`                                    | Yes                            |
+| Onboarding avatar choice                     | `profiles.avatar_slug`                                 | Yes                            |
+| Favourite genres                             | `profiles.favorite_genres`                             | Yes                            |
+| Location (city-level)                        | `profiles.lat` / `lng`                                 | Yes                            |
+| Submissions, shelf, recommendations, history | Supabase tables (RLS)                                  | Yes                            |
+| Avatar icon, background and image URL        | `SharedPreferences` `avatar_appearance`, keys prefixed with the account id | **No** — back to icon 1, Teal background |
+| Accent colour                                | `SharedPreferences` `appearance`, key `accent` (not per account) | **No** — back to Teal |
+| Daily reminder on / off, last pull date      | `SharedPreferences` `daily_reminder` (`ReminderPrefs`) | **No** — reminder defaults to on |
+| Today's dealt hand (incl. envelope styles)   | `SharedPreferences` (`ReceiveCardStore`)               | **No** — and it's re-fetched anyway |
+| Notification and location **permissions**    | Android itself                                         | Asked again (see §7)           |
+
+Consequences to know about:
+
+- **The avatar on screen can differ from `profiles.avatar_slug`.** Changing it
+  in Settings only writes the phone. Nothing else shows your avatar to anyone,
+  so this is harmless today. If another screen or user ever needs it, move
+  icon + background to the profile first.
+- **Sign-out** cancels the reminder job and clears the last pull date
+  (`DailyReminder.stop`). It does not clear the on-screen preferences; the
+  avatar is keyed per account, the accent is not.
+- **Moving to a new phone** keeps genres, alias, location and everything you
+  sent or kept. It loses only the cosmetic and reminder choices above, which
+  the user can set again in Settings.
 
 ---
 
@@ -140,7 +174,9 @@ app with weaker matching. Nothing here may block reaching the main screen.
 3. **Context** — not used. A context match needs both the sender's record and
    the receiver's request to carry one, and neither side ever sets it. The
    column and `p_context` stay, since both are optional and harmless.
-4. **Three records arrive.** Pick one, listen, react, optionally shelve it.
+4. **Three records arrive**, each in a sealed envelope drawn in the sender's
+   chosen style. Pick one, shake or hold to open it, listen, react, optionally
+   shelve it.
 
 Matching never returns your own songs, and never repeats a record you have
 already been shown. How the three are chosen is explained in `matching.md`.
@@ -166,10 +202,14 @@ already been shown. How the three are chosen is explained in `matching.md`.
 | **No `settings` jsonb.** Every preference is its own typed column           | A jsonb bag has no type, no default, no `NOT NULL`, and a key anyone can misspell. Migrations are cheap; add a column                                                            |
 | **OS permissions are never stored.** Ask Android at runtime                 | The user can revoke a permission in system settings without the app knowing. A copy in the database is a mirror that silently goes stale. For GPS the state already *is* whether `lat` is null |
 | The daily reminder is a **local notification**, its switch stored **on the device** | Cards are pulled, so there is no server event to push; a per-phone reminder has no business in `profiles` |
+| **Appearance is device-only**: avatar icon, avatar background, accent colour | Purely cosmetic and visible only to the owner, so a profile column buys nothing yet. Cost: a reinstall resets them. See §5 "What is stored where" |
 | Matching uses **small-scale rules, not a learned model**                    | IDF genre weighting, Hacker News freshness, a circulation penalty, one-per-artist, one random slot. A model needs interaction data we don't have. See `matching.md`              |
 | **Genre can never outweigh mood**                                           | Genre rarity is scaled to 0–1, so the genre term is at most 2.0 against mood's 3.0. Mood is the question the user answered; one rare genre chip must not override it            |
 | **Filtering is always server-side; ranking may move to the device**         | Eligibility is a privacy rule. Ranking is arithmetic over rows that are already anonymous                                                                                       |
 | The app **ignores unknown JSON keys**                                       | supabase-kt rejects them by default, so one new server column would crash every older build. Set in `SupabaseClient.kt`                                                         |
+| The sender's envelope look is stored as a **slug** on `submissions.envelope_style` | Same slug/label split as genres. The look itself (colours, motif, fold) is drawn in code from the `EnvelopeStyle` enum, so no image is stored or sent |
+| The envelope style is served by **`get_envelope_styles()`**, not a `room_card` field | `room_card` is frozen until every build ignores unknown keys. A separate call also fails harmlessly: no style just means the default look |
+| A missing or unknown style means the **default (Rainbow)**                  | Records sent before styles were saved, and any slug a newer app adds that an older one doesn't know, still show a valid envelope |
 
 ---
 
@@ -219,6 +259,24 @@ not that it is still offered.
 `profiles.avatar_slug` is a real foreign key, so an unknown slug is rejected by
 Postgres with `23503`.
 
+### Envelope styles
+
+Send the slug from `EnvelopeStyle.slug` (its name, lowercased): `rainbow`,
+`sunset`, `ocean`, `berry`, `cute`, `midnight`, `simple`, `sweetheart`.
+Anything else is rejected by the check constraint. **Never rename an enum entry
+without a migration**, because the stored slug is its name. Adding a style means
+extending the check constraint in a new migration.
+
+Read them for a hand of cards with one call, then merge by `submission_id`:
+
+```kotlin
+supabase.postgrest.rpc("get_envelope_styles", buildJsonObject {
+  put("p_submission_ids", JsonArray(ids.map { JsonPrimitive(it) }))
+}).decodeList<EnvelopeStyleRow>()
+```
+
+Look it up with `EnvelopeStyle.fromSlug(slug)`, which falls back to the default.
+
 ### `profiles.favorite_genres` — three states
 
 | Value             | Means                    | Matching           |
@@ -231,13 +289,15 @@ Postgres with `23503`.
 
 | Function                                                            | Returns            |
 | ------------------------------------------------------------------- | ------------------ |
-| `request_recommendations(p_mood, p_context?, p_limit?, p_genres?)`  | `room_card[]`      |
+| `request_recommendations(p_mood, p_context?, p_limit?, p_genres?, p_tz?)` | `room_card[]` |
+| `get_pull_status(p_tz?)`                                            | `{dealt_today, remaining, next_refresh_at}` |
 | `get_room(p_limit?)`                                                | `room_card[]`      |
 | `get_shelf(p_limit?)`                                               | `room_card[]`      |
 | `get_candidates(p_limit?)`                                          | `candidate_card[]` |
 | `get_genre_weights()`                                               | `{slug, weight}[]` |
-| `commit_recommendations(p_submission_ids, p_mood, p_context?, p_scores?)` | `room_card[]` |
+| `commit_recommendations(p_submission_ids, p_mood, p_context?, p_scores?, p_tz?)` | `room_card[]` |
 | `submit_song(...)`                                      | `uuid`            |
+| `get_envelope_styles(p_submission_ids)`                 | `{submission_id, envelope_style}[]` |
 | `update_my_location(p_lat?, p_lng?)`                    | `void`            |
 | `reroll_username()`                                     | `text`            |
 | `add_reaction(p_submission_id, p_kind)`                 | `integer`         |
@@ -246,7 +306,7 @@ Postgres with `23503`.
 
 `submit_song` requires `p_provider`, `p_provider_track_id`, `p_title`,
 `p_artist`, `p_message`, `p_mood`. It takes **`p_attach_location` (boolean)**,
-not coordinates.
+not coordinates, and an optional **`p_envelope_style`** (slug).
 
 `p_genres` takes **slugs**. Leave it out and the server uses `favorite_genres`.
 
@@ -280,6 +340,7 @@ It only goes `false` → `true`: a client that tries to set it back gets `42501`
 | `23514`    | Bad genre slug                                                    |
 | `23503`    | Unknown avatar slug                                               |
 | `22023`    | Missing message, title or artist; or more than 10 ids in one commit |
+| `P0001`    | `daily pull limit reached` — today's pull has already been made   |
 | `PGRST202` | Wrong argument names — the client is calling an old signature     |
 
 ---
@@ -295,6 +356,9 @@ It only goes `false` → `true`: a client that tries to set it back gets `42501`
 
 **Reaction** (one per record, changeable) — `heart`, `tears`, `fire`, `hug`,
 `goosebumps`, `smile`
+
+**Envelope style** (optional, one; default `rainbow`) — `rainbow`, `sunset`,
+`ocean`, `berry`, `cute`, `midnight`, `simple`, `sweetheart`
 
 Enum values cannot be removed or reordered. Agree additions with the team.
 
@@ -342,20 +406,16 @@ Not decisions — just things that are true right now and will surprise you.
   the device (`ReminderPrefs`), not in `profiles` — a reminder belongs to the
   phone it rings on, like the OS permission it depends on (§7). There is no
   time picker yet.
-- **Avatars don't work yet.** Onboarding reads `public.avatars`, which is
-  **empty**, so the picker shows no icons. (Next is let through when there are
-  none, so testers aren't stuck.) Even once rows exist, `AvatarIcon` is still a
-  placeholder circle and does not load `avatar.url` — it needs an image loader.
-- **Clearing every daily genre chip doesn't switch genre off.** An empty
-  selection falls back to `favorite_genres`, so there's no "no genre, just
-  today" option.
 - **Reactions are promised in the UI** ("Reactions stay anonymous") but no code
   calls `add_reaction` or `get_reactions`.
-- **The Home turntable can't be tapped.** It looks like a real object but does
-  nothing when pressed; it should open the receive flow.
 - **The split matcher is unused.** `get_candidates`, `get_genre_weights`,
   `commit_recommendations` and `Matchmaker.kt` are built and tested, but the
   app still calls `request_recommendations`. See §10.
 - **`SubmissionViewModel` is unused.** Nothing references it.
 - **GeoNames isn't credited in the app yet.** CC BY 4.0 requires it; the credit
   is only in `assets/cities.tsv`.
+- **Only the unopened envelope uses the sender's style.** Cards opened from the
+  Home shelf or the Collection skip the envelope, so they don't show it. Shelf
+  cards also don't fetch styles (`getShelf` doesn't call `get_envelope_styles`).
+- **Envelope styles are cached with today's hand on the phone.** A hand cached
+  by an older build has no styles and keeps the default look until 06:00.

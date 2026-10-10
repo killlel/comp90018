@@ -23,7 +23,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.rememberScrollState
@@ -43,16 +42,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.SnackbarDuration
@@ -110,13 +106,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import com.example.vinyl.ui.theme.PoppinsFontFamily
-import com.example.vinyl.ui.onboarding.OnboardingButtonHeight
 import com.example.vinyl.ui.onboarding.OnboardingHorizontalPadding
-import com.example.vinyl.ui.onboarding.OnboardingActionMinimumHeight
-import com.example.vinyl.ui.onboarding.OnboardingBottomPadding
 import com.example.vinyl.ui.onboarding.OnboardingPagerScreen
 import com.example.vinyl.ui.daily.toArrivedOption
-import com.example.vinyl.ui.location.LocationGateScreen
 import com.example.vinyl.ui.location.LocationSettingsScreen
 import com.example.vinyl.ui.location.LocationUiState
 import com.example.vinyl.ui.settings.SettingsScreen
@@ -124,18 +116,13 @@ import com.example.vinyl.ui.settings.rememberAvatarAppearance
 import com.example.vinyl.ui.location.LocationViewModel
 import com.example.vinyl.ui.receive.MusicCardScreen
 import com.example.vinyl.ui.receive.MusicCardUiState
-import com.example.vinyl.ui.receive.ReceivedCardScreen
-import com.example.vinyl.ui.receive.ReceivedCardUiState
 import com.example.vinyl.ui.receive.CompassScreen
 import com.example.vinyl.ui.receive.CompassUiState
-import com.example.vinyl.ui.receive.CompassState
 import com.example.vinyl.ui.receive.rememberCompassHeading
 import com.example.vinyl.ui.receive.rememberSenderCityLabel
 import com.example.vinyl.ui.collection.CollectionViewModel
 import com.example.vinyl.data.model.VinylRecord
 import com.example.vinyl.data.model.RecordSource
-import com.example.vinyl.ui.daily.distanceLabelAndNote
-import com.example.vinyl.ui.daily.sentTimeLabel
 import com.example.vinyl.ui.daily.sentDateLabel
 import com.example.vinyl.repository.RoomRepository
 import kotlinx.coroutines.flow.first
@@ -160,6 +147,7 @@ import kotlin.math.roundToInt
 import com.example.vinyl.notification.DailyReminder
 import com.example.vinyl.notification.ReminderPrefs
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.vinyl.ui.write.EnvelopeStyle
 
 class MainActivity : ComponentActivity() {
 
@@ -736,6 +724,7 @@ private fun VinylApp(
                     distanceNote = step.option.distanceNote,
                     mood = step.option.mood,
                     sentDateLabel = step.option.sentDateLabel,
+                    envelopeStyle = EnvelopeStyle.fromSlug(step.option.envelopeStyle),
                 ),
                 onOpen = {
                     receiveCardStore.markOpened(step.option.sessionKey)
