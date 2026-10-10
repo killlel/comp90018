@@ -11,6 +11,7 @@ way. The exact contracts (argument names, return types) are in
 | `supabase/migrations/20261004000001_matchmaking_v2.sql` | `request_recommendations()`: the whole algorithm in SQL. **This is the one the app calls.** |
 | `supabase/migrations/20261004000002_split_matchmaker.sql` | `get_candidates()`, `get_genre_weights()`, `commit_recommendations()`: the split path |
 | `supabase/migrations/20261008000001_cap_genre_weight.sql` | Caps the genre term so it can never outweigh mood (current version of both functions above) |
+| `supabase/migrations/20261010000002_daily_pull_limit.sql` | One pull a day. Moves both dealers to `app_private` unchanged (`deal_recommendations`, `commit_recommendations_unchecked`); the public names are now wrappers that check the limit first. **Scoring changes go in `app_private.deal_recommendations`.** |
 | `Vinyl/app/.../matchmaking/Matchmaker.kt` | The same scoring in Kotlin, for the split path |
 | `Vinyl/app/src/test/.../matchmaking/MatchmakerTest.kt` | 15 unit tests, one or two per term |
 | `supabase/tests/smoke_test.sql` checks 26–30 | The split path's security and genre weights, tested against a real database |
@@ -403,6 +404,9 @@ is tested on its own:
 | 28 | `commit_recommendations()` refuses a record you've already seen |
 | 29 | Rarer genres get a higher weight |
 | 30 | Every genre weight is between 0 and 1, so genre can't outweigh mood |
+| 31 | `get_pull_status()` counts the cards dealt today |
+| 32 | A second pull the same day is refused |
+| 33 | The day turns over at 06:00 local time, not midnight |
 
 Checks 26–28 are security checks. **If a change breaks one, the change is
 wrong.**
@@ -413,10 +417,11 @@ wrong.**
 
 | You want to… | Change |
 | --- | --- |
-| Re-weight a term | The `w_*` constants in `request_recommendations` (new migration), and `Matchmaker.Weights` to match. Keep `w_genre` below `w_mood` or genre can outrank mood again |
+| Re-weight a term | The `w_*` constants in `app_private.deal_recommendations` (new migration), and `Matchmaker.Weights` to match. Keep `w_genre` below `w_mood` or genre can outrank mood again |
 | Make old records fade faster | Raise `gravity` |
 | Make popular records fade faster | Raise `w_crowded` / `circulation` |
 | Add a scoring term | Both paths, plus a unit test that isolates it |
-| Change who is eligible | **Both** `request_recommendations` and `app_private.candidate_cards`, **and** the re-check in `commit_recommendations`. All three must agree, or one of them leaks |
+| Change who is eligible | **Both** `app_private.deal_recommendations` and `app_private.candidate_cards`, **and** the re-check in `app_private.commit_recommendations_unchecked`. All three must agree, or one of them leaks |
+| Change the daily limit or the 06:00 turnover | `app_private.pull_status` / `pull_window` (new migration), and `PULL_DAY_STARTS_AT_HOUR` in `data/PullDay.kt` to match |
 
 Never edit an applied migration. Add a new file that re-creates the function.

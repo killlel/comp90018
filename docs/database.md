@@ -17,6 +17,8 @@ directly.
 | `supabase/migrations/20261004000002_split_matchmaker.sql` | The split path: `candidate_card`, `get_candidates`, `get_genre_weights`, `commit_recommendations` |
 | `supabase/migrations/20261005000001_shelf_favourites.sql` | `shelf_items.is_favourite`, for the Collection's Favourites filter |
 | `supabase/migrations/20261008000001_cap_genre_weight.sql` | Scales genre rarity to 0–1 in `request_recommendations` and `get_genre_weights`, so genre can never outweigh mood |
+| `supabase/migrations/20261010000001_sent_preview_url.sql` | Adds `preview_url` to `get_my_submissions`, so records you sent can be played from the Collection |
+| `supabase/migrations/20261010000002_daily_pull_limit.sql` | One pull of up to three cards a day, turning over at 06:00 local time: `get_pull_status`, and the limit in front of `request_recommendations` and `commit_recommendations` |
 | `supabase/seed.sql` | 10 demo accounts and 60 demo records — real iTunes tracks with covers and previews |
 | `supabase/tests/smoke_test.sql` | CRUD + privacy checks, self-asserting (30 checks) |
 | `docs/matching.md` | How the matchmaker scores and picks, and why |
@@ -305,18 +307,19 @@ passed **by name**, so anything with a default can be omitted.
 
 | Function | Returns | Notes |
 | --- | --- | --- |
-| `request_recommendations(p_mood, p_context?, p_limit?, p_genres?)` | `room_card[]` | Runs the matchmaker and persists the result. Never returns your own songs or ones you have already seen. `p_genres` is today's genre **slugs**; leave it out to use `favorite_genres`. `p_limit` is clamped to 1–10. An empty pool returns zero rows — that is a normal state, not an error. |
+| `request_recommendations(p_mood, p_context?, p_limit?, p_genres?, p_tz?)` | `room_card[]` | Runs the matchmaker and persists the result. Never returns your own songs or ones you have already seen. `p_genres` is today's genre **slugs**; leave it out to use `favorite_genres`. **One pull a day:** deals at most 3, and once a pull has dealt anything the next raises `daily pull limit reached` (`P0001`) until 06:00 in `p_tz` (an IANA zone such as `Australia/Melbourne`, the default). An empty pool returns zero rows — a normal state, not an error, and it doesn't use up the day's pull. |
+| `get_pull_status(p_tz?)` | `{dealt_today, remaining, next_refresh_at}` | Whether today's pull has been made: `remaining` is 3 before it and 0 after. `next_refresh_at` is the next 06:00 in `p_tz`. Read-only. |
 | `get_room(p_limit?)` | `room_card[]` | Replays the current room. Call this on app start instead of re-matching. |
 | `get_shelf(p_limit?)` | `room_card[]` | Saved records, newest save first. |
 | `get_candidates(p_limit?)` | `candidate_card[]` | Split path. Eligible records in random order, for ranking on the device. **Read-only — marks nothing as seen.** Default 20, capped at 50. |
 | `get_genre_weights()` | `{slug, weight}[]` | Split path. How rare each genre is across the whole pool (IDF), scaled to 0–1: 1.0 is a genre only one record carries. Changes slowly; fetch once per session. |
-| `commit_recommendations(p_submission_ids, p_mood, p_context?, p_scores?)` | `room_card[]` | Split path. Records the cards actually shown and returns them. Re-checks every id; ineligible ones are dropped silently. At most 10 ids (`22023` otherwise). |
+| `commit_recommendations(p_submission_ids, p_mood, p_context?, p_scores?, p_tz?)` | `room_card[]` | Split path. Records the cards actually shown and returns them. Re-checks every id; ineligible ones are dropped silently. Same one-pull-a-day limit as `request_recommendations`: only the first 3 ids are used, and a second pull the same day is refused. |
 | `submit_song(...)` | `uuid` | Upserts the track and creates the submission in one call. Required: `p_provider`, `p_provider_track_id`, `p_title`, `p_artist`, `p_message`, `p_mood`. Pass `p_attach_location = true` to snapshot the sender's saved location onto the record. **Does not accept coordinates** — see below. |
 | `update_my_location(p_lat?, p_lng?)` | `void` | Sets the caller's coarse home location (onboarding / settings). Call with no arguments to clear it. |
 | `reroll_username()` | `text` | Onboarding only. Replaces the caller's username with a fresh unique one, saves it and returns it. Raises `42501` once `onboarding_completed` is true. |
 | `add_reaction(p_submission_id, p_kind)` | `integer` | New total reaction count. Reacting twice updates in place. Fails if the record is not in your room. |
 | `get_reactions(p_submission_id)` | `{kind, total}[]` | Submitter only. Counts per kind, no identities, no timestamps. |
-| `get_my_submissions(p_limit?)` | rows | "Records I've sent", with reaction totals. |
+| `get_my_submissions(p_limit?)` | rows | "Records I've sent", with reaction totals and the song's preview. |
 
 Saving and unsaving a shelf item is a plain insert/delete on `shelf_items` — no
 RPC needed, RLS covers it. Starring one is an update of `is_favourite` on the
