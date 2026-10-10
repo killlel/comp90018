@@ -44,13 +44,13 @@ import kotlin.math.sin
 
 private object CompassColors {
     val DialBackground = VinylColors.Charcoal
-    val TealArrow = VinylColors.Teal
+    val TealArrow get() = VinylColors.Teal
     /** The ring itself only - decorative, not informational, so it can stay faint without
      *  hurting anyone's ability to read the compass. */
-    val Ring = VinylColors.Teal.copy(alpha = 0.45f)
+    val Ring get() = VinylColors.Teal.copy(alpha = 0.45f)
     /** The N/E/S/W letters and the degree numbers - these ARE the information, so they need to
      *  be genuinely legible, not just present. */
-    val CardinalLabel = TealArrow
+    val CardinalLabel get() = TealArrow
     /** The record's centre "label" sticker - a step lighter than Charcoal so the two discs read
      *  as distinct circles rather than one flat shape. Purely decorative. */
     val RecordLabel = VinylColors.Cream

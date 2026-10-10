@@ -22,15 +22,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,15 +36,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.outlined.BrightnessAuto
-import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -67,11 +65,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.vinyl.ui.theme.Accent
+import com.example.vinyl.ui.theme.ThemeState
 import com.example.vinyl.ui.theme.VinylPalette
 import com.example.vinyl.ui.theme.VinylTheme
 
@@ -81,23 +82,7 @@ private val SignOutFg = Color(0xFFE57373)
 private val GroupRadius = 22.dp
 private val PagePad = 20.dp
 
-private val AccentColors = listOf(
-    Color(0xFF77EDE5),
-    Color(0xFFE57373),
-    Color(0xFFF4C27A),
-    Color(0xFF8FA8FF),
-)
-
-/** What TalkBack calls each of [AccentColors], in the same order. */
-private val AccentNames = listOf("Teal", "Red", "Amber", "Blue")
-
-private enum class SettingsPage { List, Account, IconMaker, Preferences, Appearance, About, Help }
-
-private fun themeLabel(mode: Int) = when (mode) {
-    0 -> "System"
-    1 -> "Day"
-    else -> "Night"
-}
+private enum class SettingsPage { List, Account, IconMaker, Preferences, About, Help }
 
 @Composable
 fun SettingsScreen(
@@ -124,8 +109,6 @@ fun SettingsScreen(
         DailyReminder.setEnabled(context, granted)
         notificationsEnabled = granted
     }
-    var themeMode by rememberSaveable { mutableStateOf(2) }
-    var accentIndex by rememberSaveable { mutableStateOf(0) }
     var selectedGenres by rememberSaveable { mutableStateOf(setOf("Indie", "Electronic")) }
     var signedOutNote by rememberSaveable { mutableStateOf(false) }
     val avatarAppearance = rememberAvatarAppearance()
@@ -158,7 +141,6 @@ fun SettingsScreen(
                     SettingsPage.Account -> "Profile"
                     SettingsPage.IconMaker -> "Icon"
                     SettingsPage.Preferences -> "Music Preferences"
-                    SettingsPage.Appearance -> "Appearance"
                     SettingsPage.About -> "About"
                     SettingsPage.Help -> "Help & Support"
                 },
@@ -180,10 +162,10 @@ fun SettingsScreen(
                             notificationsEnabled = false
                         }
                     },
-                    themeLabel = themeLabel(themeMode),
+                    accent = ThemeState.accent,
+                    onAccentChange = { ThemeState.setAccent(context, it) },
                     onOpenProfile = { page = SettingsPage.Account },
                     onOpenPreferences = { page = SettingsPage.Preferences },
-                    onOpenAppearance = { page = SettingsPage.Appearance },
                     onOpenLocation = onOpenLocation,
                     onOpenAbout = { page = SettingsPage.About },
                     onOpenHelp = { page = SettingsPage.Help },
@@ -211,12 +193,6 @@ fun SettingsScreen(
                 SettingsPage.Preferences -> PreferencesPage(selectedGenres) { genre ->
                     selectedGenres = if (genre in selectedGenres) selectedGenres - genre else selectedGenres + genre
                 }
-                SettingsPage.Appearance -> AppearancePage(
-                    themeMode = themeMode,
-                    onThemeModeChange = { themeMode = it },
-                    accentIndex = accentIndex,
-                    onAccentChange = { accentIndex = it },
-                )
                 SettingsPage.About -> AboutPage()
                 SettingsPage.Help -> HelpPage()
             }
@@ -266,10 +242,10 @@ private fun SettingsHome(
     locationValue: String?,
     notificationsEnabled: Boolean,
     onNotificationsChange: (Boolean) -> Unit,
-    themeLabel: String,
+    accent: Accent,
+    onAccentChange: (Accent) -> Unit,
     onOpenProfile: () -> Unit,
     onOpenPreferences: () -> Unit,
-    onOpenAppearance: () -> Unit,
     onOpenLocation: () -> Unit,
     onOpenAbout: () -> Unit,
     onOpenHelp: () -> Unit,
@@ -284,7 +260,7 @@ private fun SettingsHome(
         SettingsGroup {
             IconNavRow(Icons.Outlined.MusicNote, "Music Preferences", onClick = onOpenPreferences)
             GroupDivider()
-            IconNavRow(Icons.Outlined.DarkMode, "Appearance", subtitle = themeLabel, onClick = onOpenAppearance)
+            AccentRow(accent = accent, onAccentChange = onAccentChange)
         }
         SettingsGroup {
             IconNavRow(Icons.Outlined.LocationOn, "Location", locationValue ?: "Not set", onClick = onOpenLocation)
@@ -401,65 +377,59 @@ private fun SwitchRow(icon: ImageVector, title: String, checked: Boolean, onChec
     }
 }
 
+/**
+ * "Accent colour" with the current colour as a swatch on the right. Tapping the swatch opens the
+ * list of accents under it; picking one applies it app-wide straight away.
+ */
 @Composable
-private fun AppearancePage(
-    themeMode: Int,
-    onThemeModeChange: (Int) -> Unit,
-    accentIndex: Int,
-    onAccentChange: (Int) -> Unit,
-) {
-    val options = listOf(
-        Triple(0, Icons.Outlined.BrightnessAuto, "System"),
-        Triple(1, Icons.Outlined.LightMode, "Day"),
-        Triple(2, Icons.Outlined.DarkMode, "Night"),
-    )
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp).padding(top = 20.dp, bottom = 32.dp),
+private fun AccentRow(accent: Accent, onAccentChange: (Accent) -> Unit) {
+    var menuOpen by remember { mutableStateOf(false) }
+    // Vertical padding 4dp less than IconNavRow's, so the 48dp swatch target gives the same
+    // row height as the Location row.
+    Row(
+        Modifier.fillMaxWidth().padding(start = 18.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Theme", color = VinylPalette.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-        Spacer(Modifier.height(14.dp))
-        Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            options.forEach { (id, icon, label) ->
-                val on = themeMode == id
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(108.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(if (on) Color(0xFF242424) else Color(0xFF141414))
-                        .border(
-                            width = 1.dp,
-                            color = if (on) VinylPalette.TealAccent else Color(0xFF2E2E2E),
-                            shape = RoundedCornerShape(16.dp),
-                        )
-                        .selectable(selected = on, role = Role.RadioButton) { onThemeModeChange(id) }
-                        .padding(vertical = 18.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Icon(icon, null, tint = if (on) VinylPalette.TealAccent else Color(0xFF7A7A7A), modifier = Modifier.size(26.dp))
-                    Spacer(Modifier.height(10.dp))
-                    Text(label, color = if (on) VinylPalette.TextPrimary else Color(0xFF8A8A8A), fontSize = 12.sp)
-                }
-            }
+        Icon(Icons.Outlined.Palette, null, tint = VinylPalette.TextMuted, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Accent colour", color = VinylPalette.TextPrimary, fontSize = 16.sp)
+            Text(accent.label, color = VinylPalette.TextMuted, fontSize = 14.sp)
         }
-        Spacer(Modifier.height(32.dp))
-        Text("Accent", color = VinylPalette.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-        Spacer(Modifier.height(14.dp))
-        // Each 28dp swatch sits in a 48dp touch target; the offset keeps the first swatch
-        // lined up with the "Accent" label.
-        Row(Modifier.offset(x = (-10).dp).selectableGroup()) {
-            AccentColors.forEachIndexed { i, color ->
+        Box {
+            Box(
+                Modifier.size(48.dp).clip(CircleShape)
+                    .clickable(role = Role.Button) { menuOpen = true }
+                    .semantics { contentDescription = "Accent colour, ${accent.label}. Double tap to change" },
+                contentAlignment = Alignment.Center,
+            ) {
                 Box(
-                    Modifier.size(48.dp).clip(CircleShape)
-                        .selectable(selected = accentIndex == i, role = Role.RadioButton) { onAccentChange(i) }
-                        .semantics { contentDescription = AccentNames[i] },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Box(
-                        Modifier.size(28.dp).clip(CircleShape).background(color)
-                            .border(if (accentIndex == i) 2.dp else 0.dp, VinylPalette.TextPrimary, CircleShape),
+                    Modifier.size(28.dp).clip(CircleShape).background(accent.color)
+                        .border(1.dp, VinylPalette.Cream, CircleShape),
+                )
+            }
+            DropdownMenu(
+                expanded = menuOpen,
+                onDismissRequest = { menuOpen = false },
+                containerColor = CardBg,
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Accent.entries.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option.label, color = VinylPalette.TextPrimary, fontSize = 16.sp) },
+                        leadingIcon = {
+                            Box(Modifier.size(20.dp).clip(CircleShape).background(option.color))
+                        },
+                        trailingIcon = if (option == accent) {
+                            { Icon(Icons.Rounded.Check, null, tint = VinylPalette.TextPrimary) }
+                        } else {
+                            null
+                        },
+                        onClick = {
+                            menuOpen = false
+                            onAccentChange(option)
+                        },
+                        modifier = Modifier.heightIn(min = 48.dp).semantics { selected = option == accent },
                     )
                 }
             }

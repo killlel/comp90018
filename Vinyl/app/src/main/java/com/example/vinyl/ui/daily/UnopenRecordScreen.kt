@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
@@ -69,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.haptics.vibrateOnce
+import com.example.vinyl.ui.theme.ThemeState
 import com.example.vinyl.ui.theme.VinylPalette
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -381,7 +383,7 @@ private fun Envelope(flip: Float, letterLift: Dp, holdProgress: Float = 0f, modi
             if (!flapOpen) drawFlap(turn, open = false)
         }
 
-        // The long-press ring: a thin teal arc round the seal that fills while the envelope is held.
+        // The long-press ring: a thin accent arc round the seal that fills while the envelope is held.
         // It rides on the flap's tip with the seal and fades with it.
         if (holdProgress > 0f) {
             Canvas(
@@ -397,13 +399,30 @@ private fun Envelope(flip: Float, letterLift: Dp, holdProgress: Float = 0f, modi
                     .size(HoldRingSize),
             ) {
                 val stroke = 3.dp.toPx()
+                val outline = 1.dp.toPx()
+                // Inset by the outlined width, so the cream edge stays inside the canvas.
+                val inset = stroke / 2 + outline
+                val arcTopLeft = Offset(inset, inset)
+                val arcSize = Size(size.width - inset * 2, size.height - inset * 2)
+                // A 1dp cream edge on both sides: against the darker accents' flaps the arc alone
+                // is under 3:1.
                 drawArc(
-                    color = VinylPalette.TealAccent,
+                    color = VinylPalette.Cream,
                     startAngle = -90f,
                     sweepAngle = 360f * holdProgress,
                     useCenter = false,
-                    topLeft = Offset(stroke / 2, stroke / 2),
-                    size = Size(size.width - stroke, size.height - stroke),
+                    topLeft = arcTopLeft,
+                    size = arcSize,
+                    style = Stroke(width = stroke + outline * 2, cap = StrokeCap.Round),
+                )
+                drawArc(
+                    // Half of the ring is over the cream pocket, where the light accent vanishes.
+                    color = ThemeState.accent.onCream,
+                    startAngle = -90f,
+                    sweepAngle = 360f * holdProgress,
+                    useCenter = false,
+                    topLeft = arcTopLeft,
+                    size = arcSize,
                     style = Stroke(width = stroke, cap = StrokeCap.Round),
                 )
             }
@@ -422,13 +441,13 @@ private fun Envelope(flip: Float, letterLift: Dp, holdProgress: Float = 0f, modi
                 .graphicsLayer { alpha = (1f - flip * 2.5f).coerceIn(0f, 1f) }
                 .size(SealSize)
                 .shadow(8.dp, CircleShape, ambientColor = Color.Black.copy(alpha = 0.25f), spotColor = Color.Black.copy(alpha = 0.25f))
-                .background(SealColor, CircleShape),
+                .background(sealColor(), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 Icons.Rounded.MusicNote,
                 contentDescription = null,
-                tint = SealNoteColor,
+                tint = ThemeState.accent.onCream,
                 modifier = Modifier.size(34.dp),
             )
         }
@@ -532,8 +551,9 @@ private val GroupGap = 28.dp
 
 private val BackColor = Color(0xFFCFC8BA)
 private val LetterColor = Color(0xFFFBF9F4)
-private val SealColor = Color(0xFFE9FBF9)
-private val SealNoteColor = Color(0xFF2FB8AF)
+
+/** A near-white disc with a hint of the accent, like the original mint seal on teal. */
+private fun sealColor(): Color = ThemeState.accent.color.copy(alpha = 0.12f).compositeOver(Color.White)
 
 private const val WobbleMs = 1800
 private const val WobbleDegrees = 2.5f

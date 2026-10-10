@@ -63,6 +63,7 @@ import com.example.vinyl.network.AudioPreviewController
 import com.example.vinyl.network.rememberAudioPreviewController
 import com.example.vinyl.ui.daily.ReceiveFlowStyle
 import com.example.vinyl.ui.daily.moodIcon
+import com.example.vinyl.ui.theme.ThemeState
 import com.example.vinyl.ui.theme.VinylPalette
 
 /** What page 4 of the receive flow shows for one opened music card. */
@@ -548,12 +549,14 @@ private fun Letter(state: MusicCardUiState, onOpenCompass: () -> Unit, modifier:
 
 @Composable
 private fun CompassChip(onClick: () -> Unit) {
+    // The chip sits on the cream letter, so it uses the accent's darker on-cream shade.
+    val chipInk = ThemeState.accent.onCream
     Row(
         modifier = Modifier
             .height(48.dp)
             .clip(CircleShape)
-            .background(ChipTeal.copy(alpha = 0.1f))
-            .border(1.5.dp, ChipInk, CircleShape)
+            .background(chipInk.copy(alpha = 0.06f))
+            .border(1.5.dp, chipInk, CircleShape)
             .clickable(role = Role.Button, onClick = onClick)
             .padding(start = 10.dp, end = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -561,13 +564,13 @@ private fun CompassChip(onClick: () -> Unit) {
         Icon(
             Icons.Outlined.Explore,
             contentDescription = null,
-            tint = ChipInk,
+            tint = chipInk,
             modifier = Modifier.size(28.dp),
         )
         Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = "See where it's from",
-            color = ChipInk,
+            color = chipInk,
             style = ReceiveFlowStyle.text(14.sp, FontWeight.Medium, 20.sp),
         )
     }
@@ -736,8 +739,6 @@ private const val ShortMessageMaxChars = 80
 
 private val LetterTextInset = 28.dp
 
-private val ChipTeal = Color(0xFF0E8C85)
-private val ChipInk = Color(0xFF0A6F69)
 /** Apple Music and Spotify icons inside their shared pill. */
 private val StreamingIconSize = 36.dp
 private val StreamingTouchSize = 48.dp

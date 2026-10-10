@@ -29,12 +29,5 @@
             android:strokeWidth="1.95"
             android:strokeLineCap="round"
             android:strokeLineJoin="round" />
-        <path
-            android:pathData="M9.6 16.6q-1.5 2.1-1.5 3.1a1.5 1.5 0 0 0 3 0q0-1-1.5-3.1z"
-            android:fillColor="#FFF4F0EA"
-            android:strokeColor="#FFF4F0EA"
-            android:strokeWidth="0.8"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round" />
     </group>
 </vector>
