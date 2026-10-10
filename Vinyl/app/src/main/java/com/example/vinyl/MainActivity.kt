@@ -76,6 +76,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.tooling.preview.Preview
+import com.example.vinyl.ui.daily.ReceiveFlowStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.vinyl.data.GoogleAuthRepository
@@ -422,11 +426,15 @@ private fun VinylApp(
                 snackbarHostState.showSnackbar(settled.actionError)
                 return@launch
             }
-            val result = snackbarHostState.showSnackbar(
-                message = "Removed.",
-                actionLabel = "Undo",
-                duration = SnackbarDuration.Short,
-            )
+            // Held for UndoSnackbarMs rather than the short default, long enough to reach Undo.
+            // Timing out cancels the call, which takes the snackbar down; null means no undo.
+            val result = withTimeoutOrNull(UndoSnackbarMs) {
+                snackbarHostState.showSnackbar(
+                    message = "Removed.",
+                    actionLabel = "Undo",
+                    duration = SnackbarDuration.Indefinite,
+                )
+            }
             if (result == SnackbarResult.ActionPerformed) {
                 roomRepository.keep(record.id)
                     .onSuccess {
@@ -478,7 +486,16 @@ private fun VinylApp(
 
     Scaffold(
         containerColor = VinylPalette.Background,
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        // Sits above the bottom bar, drawn in the app's own panel style.
+        snackbarHost = {
+            SnackbarHost(snackbarHostState) { data ->
+                VinylSnackbar(
+                    message = data.visuals.message,
+                    actionLabel = data.visuals.actionLabel,
+                    onAction = data::performAction,
+                )
+            }
+        },
         bottomBar = {
             NavigationBar(
                 containerColor = VinylPalette.PanelDark,
@@ -785,6 +802,51 @@ private val ArrivedRecordOption.sessionKey: String get() = submissionId ?: id
 
 /** How long to wait for a remove to reach the server before giving up on offering an undo. */
 private const val RemoveSettleTimeoutMs = 10_000L
+
+/** How long "Removed. Undo" stays up. */
+private const val UndoSnackbarMs = 8_000L
+
+/**
+ * A snackbar in the app's panel style: the dark gradient with its border, cream text and a teal
+ * action, in Poppins with 20dp corners.
+ */
+@Composable
+private fun VinylSnackbar(message: String, actionLabel: String?, onAction: () -> Unit) {
+    val shape = RoundedCornerShape(20.dp)
+    Row(
+        modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .fillMaxWidth()
+            .clip(shape)
+            .background(ReceiveFlowStyle.PanelBrush)
+            .border(1.dp, ReceiveFlowStyle.PanelBorder, shape)
+            .padding(start = 20.dp, end = 8.dp)
+            .heightIn(min = 56.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = message,
+            color = VinylPalette.Cream,
+            style = ReceiveFlowStyle.text(15.sp, FontWeight.Normal, 22.sp),
+            modifier = Modifier.weight(1f).padding(vertical = 12.dp),
+        )
+        actionLabel?.let {
+            TextButton(onClick = onAction) {
+                Text(
+                    text = it,
+                    color = VinylPalette.TealAccent,
+                    style = ReceiveFlowStyle.text(15.sp, FontWeight.Medium, 22.sp),
+                )
+            }
+        }
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF0D0D0D, widthDp = 390)
+@Composable
+private fun VinylSnackbarPreview() {
+    VinylSnackbar(message = "Removed.", actionLabel = "Undo", onAction = {})
+}
 
 /**
  * A card from the Home shelf in receive mode, in a bottom sheet: the same music card page 4
