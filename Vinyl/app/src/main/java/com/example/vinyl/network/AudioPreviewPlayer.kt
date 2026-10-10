@@ -22,9 +22,9 @@ class AudioPreviewController {
         if (currentUrl == url && player != null) {
             if (!prepared) return   // still loading; the prepared listener will start it
             if (isPlaying) {
-                runCatching { player?.pause() }
-                isPlaying = false
+                pause()
             } else {
+                AudioPlaybackArbiter.claim(this, ::yieldToOther)
                 runCatching { player?.start() }
                     .onSuccess { isPlaying = true }
                     .onFailure { release() }
@@ -34,6 +34,7 @@ class AudioPreviewController {
 
         // Different track (or nothing loaded yet): start fresh.
         release()
+        AudioPlaybackArbiter.claim(this, ::yieldToOther)
         currentUrl = url
         prepared = false
         player = MediaPlayer().apply {
@@ -59,12 +60,24 @@ class AudioPreviewController {
         }
     }
 
+    fun pause() {
+        if (!isPlaying) return
+        runCatching { player?.pause() }
+        isPlaying = false
+    }
+
+    /** Another player has started: hold where we are, or drop the load if not ready yet. */
+    private fun yieldToOther() {
+        if (prepared) pause() else release()
+    }
+
     fun release() {
         runCatching { player?.release() }
         player = null
         prepared = false
         isPlaying = false
         currentUrl = null
+        AudioPlaybackArbiter.release(this)
     }
 }
 

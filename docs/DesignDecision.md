@@ -210,6 +210,7 @@ already been shown. How the three are chosen is explained in `matching.md`.
 | The sender's envelope look is stored as a **slug** on `submissions.envelope_style` | Same slug/label split as genres. The look itself (colours, motif, fold) is drawn in code from the `EnvelopeStyle` enum, so no image is stored or sent |
 | The envelope style is served by **`get_envelope_styles()`**, not a `room_card` field | `room_card` is frozen until every build ignores unknown keys. A separate call also fails harmlessly: no style just means the default look |
 | A missing or unknown style means the **default (Rainbow)**                  | Records sent before styles were saved, and any slug a newer app adds that an older one doesn't know, still show a valid envelope |
+| **Only one audio source plays at a time**, arbitrated by `AudioPlaybackArbiter` | The card preview, the Write preview and the Home turntable each own a separate `MediaPlayer`, so they overlapped. Anything that starts audio must `claim` first; the previous owner pauses, so it can resume. New players must do the same |
 
 ---
 
@@ -419,3 +420,32 @@ Not decisions — just things that are true right now and will surprise you.
   cards also don't fetch styles (`getShelf` doesn't call `get_envelope_styles`).
 - **Envelope styles are cached with today's hand on the phone.** A hand cached
   by an older build has no styles and keeps the default look until 06:00.
+- **Sign-in is Google-only.** Phones without Google Play services, or emulators without a Google image, can't sign in.
+
+---
+
+## 13. Cleanup TODO: remove unused features
+
+Code and schema for features we decided not to ship. Left in place they invite
+someone to wire them up assuming they work. Remove them together, after the
+deadline, not piecemeal.
+
+| Leftover | Where it lives | Notes |
+| -------- | -------------- | ----- |
+| **Reactions** | `reactions` table, `reaction_kind` enum, `add_reaction()`, `get_reactions()`, the "Reactions stay anonymous" text if it is still in the UI | Also remove the "sender never learns who reacted" row in §2 and the smoke-test checks that cover reactions |
+| **Context** | `context_tag` enum, `context` columns on `submissions` and `recommendations`, `p_context` on `request_recommendations()` and `commit_recommendations()`, `context` in `room_card` and the Kotlin `RoomCard` | `room_card` is frozen (§8), so dropping its field means recreating three functions |
+| **Split matcher** | `get_candidates()`, `get_genre_weights()`, `commit_recommendations()`, `Matchmaker.kt` | Only if we decide not to move the receive flow over (§10) |
+| **`SubmissionViewModel`** | `ui/submission/SubmissionViewModel.kt` | Nothing references it |
+| **Google name and picture** | `profiles.display_name`, `profiles.avatar_url`, the copy in the signup trigger | Only if the open question in §10 is settled as "drop" |
+
+**How to remove one:**
+
+1. `grep -rn` the app for the name first. Confirm nothing calls it.
+2. One migration per feature. Drop old function signatures explicitly, or the
+   old ones stay callable and PostgREST can see two overloads.
+3. Update `DATABASE.md`, this file (§2, §6, §8, §9, §12), and the smoke test in
+   the same change.
+4. Commit the docs on their own.
+
+Do not remove any of this before the older builds in teammates' hands have the
+matching client change, or their calls will fail.
