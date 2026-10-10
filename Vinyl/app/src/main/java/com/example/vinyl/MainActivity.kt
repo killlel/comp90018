@@ -483,7 +483,7 @@ private fun VinylApp(
     // known or nothing is stored, so the city list is searched at most once per launch.
     LaunchedEffect(locationState.hasLocation) { locationViewModel.loadCityLabel() }
     var dailyMood by remember { mutableStateOf<MoodTag?>(null) }
-    // The chips' options and selection, as slugs. Reset to the onboarding favourites on every open.
+    // The chips' options and selection, as slugs. Reset to empty ("my favourites") on every open.
     val dailyGenresViewModel: DailyGenresViewModel = viewModel()
     val dailyGenresState by dailyGenresViewModel.uiState.collectAsState()
 
@@ -648,15 +648,18 @@ private fun VinylApp(
                     selectedMood = dailyMood,
                     genreOptions = dailyGenresState.options,
                     selectedGenres = dailyGenresState.selected,
+                    anyGenre = dailyGenresState.anyGenre,
                     // Tapping the selected mood again clears it.
                     onMoodSelected = { dailyMood = if (dailyMood == it) null else it },
                     onGenreToggled = dailyGenresViewModel::toggle,
+                    onPickAnyGenre = dailyGenresViewModel::pickAnyGenre,
+                    onPickFavourites = dailyGenresViewModel::pickFavourites,
                     // Load here rather than on entering Arrived Today: Unopened's back button
                     // returns there, and request_recommendations records new matches on every
                     // call — loading on entry would deal a fresh hand each time.
                     onSubmit = {
                         reminderPrefs.markPulledToday()
-                        roomViewModel.load(dailyMood, dailyGenresState.selected)
+                        roomViewModel.load(dailyMood, dailyGenresViewModel.genresToSend())
                         receiveFlowStep = ReceiveFlowStep.ArrivedToday
                     },
                     onLetCrateDecide = {
@@ -664,7 +667,7 @@ private fun VinylApp(
                         // Deals a fresh hand on a random mood; kept in dailyMood so "Try again" reuses it.
                         val randomMood = MoodTag.entries.random()
                         dailyMood = randomMood
-                        roomViewModel.load(randomMood, dailyGenresState.selected)
+                        roomViewModel.load(randomMood, dailyGenresViewModel.genresToSend())
                         receiveFlowStep = ReceiveFlowStep.ArrivedToday
                     },
                     onBack = { receiveFlowStep = null },
@@ -716,7 +719,7 @@ private fun VinylApp(
                     },
                     animateIn = animateIn,
                     onRetry = if (roomState.error != null) {
-                        { roomViewModel.load(dailyMood, dailyGenresState.selected) }
+                        { roomViewModel.load(dailyMood, dailyGenresViewModel.genresToSend()) }
                     } else {
                         null
                     },
