@@ -55,6 +55,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
@@ -154,7 +155,7 @@ fun MoodQuestionnaireScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            MoodPanel(selectedMood = selectedMood, onMoodSelected = onMoodSelected)
+            MoodPicker(selectedMood = selectedMood, onMoodSelected = onMoodSelected)
 
             // Hidden rather than shown empty while the list loads or if it can't: genre is optional.
             if (genreOptions.isNotEmpty()) {
@@ -164,7 +165,7 @@ fun MoodQuestionnaireScreen(
                         .fillMaxWidth()
                         .onGloballyPositioned { genreBounds = it.boundsInRoot() },
                 ) {
-                    GenrePicker(
+                    GenreDropdown(
                         options = genreOptions,
                         selected = selectedGenres,
                         open = genreOpen,
@@ -196,7 +197,7 @@ fun MoodQuestionnaireScreen(
 }
 
 @Composable
-private fun MoodPanel(selectedMood: MoodTag?, onMoodSelected: (MoodTag) -> Unit) {
+internal fun MoodPicker(selectedMood: MoodTag?, onMoodSelected: (MoodTag) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -237,6 +238,7 @@ private fun MoodCell(
                 role = Role.RadioButton,
                 onClick = onClick,
             )
+            .semantics(mergeDescendants = true) { contentDescription = option.title }
             .padding(vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -306,12 +308,14 @@ internal fun moodIcon(tag: MoodTag): Int = when (tag) {
  * toggles one genre, and "Any genre" clears them all.
  */
 @Composable
-private fun GenrePicker(
+internal fun GenreDropdown(
     options: List<GenreOption>,
     selected: Set<String>,
     open: Boolean,
     onOpenChange: (Boolean) -> Unit,
     onToggle: (String) -> Unit,
+    includeAnyOption: Boolean = true,
+    menuMaxHeight: androidx.compose.ui.unit.Dp = 180.dp,
 ) {
     // Labels in the dropdown's order; a slug no longer on offer falls back to itself.
     val labels = options.filter { it.slug in selected }.map { it.label } +
@@ -371,12 +375,12 @@ private fun GenrePicker(
         enter = expandVertically() + fadeIn(),
         exit = shrinkVertically() + fadeOut(),
     ) {
-        val cells = listOf<GenreOption?>(null) + options // null = "Any genre"
+        val cells = if (includeAnyOption) listOf<GenreOption?>(null) + options else options
         Column(
             modifier = Modifier
                 .padding(top = 8.dp)
                 .fillMaxWidth()
-                .heightIn(max = 180.dp)
+                .heightIn(max = menuMaxHeight)
                 .background(PanelBrush, PanelShape)
                 .border(1.dp, PanelBorder, PanelShape)
                 .clip(PanelShape)

@@ -12,11 +12,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -33,20 +36,25 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.vinyl.data.onboarding.GenreOption
 import com.example.vinyl.data.MoodOptions
 import com.example.vinyl.data.Track
-import com.example.vinyl.network.AudioPreviewController
-import com.example.vinyl.network.rememberAudioPreviewController
+import com.example.vinyl.ui.daily.GenreDropdown
+import com.example.vinyl.ui.daily.MoodPicker
 import com.example.vinyl.ui.location.LocationViewModel
+import com.example.vinyl.ui.theme.PoppinsFontFamily
 import com.example.vinyl.ui.theme.VinylPalette
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.draw.drawBehind
@@ -59,7 +67,6 @@ fun WriteCardScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val locationState by locationViewModel.uiState.collectAsState()
-    val audioController = rememberAudioPreviewController()
 
     // Genres come from the database; if they didn't load last time (offline), try again.
     LaunchedEffect(Unit) { viewModel.loadGenresIfNeeded() }
@@ -101,21 +108,20 @@ fun WriteCardScreen(
             .fillMaxSize()
             .background(VinylPalette.Background)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(20.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = if (state.isPreviewMode) "Preview" else "Write a music card",
-                color = VinylPalette.TextPrimary,
-                fontSize = 28.sp,
-            )
-            val previewButtonActive = state.isPreviewMode || state.canSubmit
-            if (previewButtonActive) {
+        if (state.isPreviewMode) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(20.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Preview",
+                    color = VinylPalette.TextPrimary,
+                    fontSize = 28.sp,
+                )
                 Button(
                     onClick = viewModel::onTogglePreview,
                     shape = RoundedCornerShape(50),
@@ -126,23 +132,10 @@ fun WriteCardScreen(
                     ),
                 ) {
                     Text(
-                        text = if (state.isPreviewMode) "Edit" else "Preview",
+                        text = "Edit",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
                     )
-                }
-            } else {
-                OutlinedButton(
-                    onClick = viewModel::onTogglePreview,
-                    enabled = false,
-                    shape = RoundedCornerShape(50),
-                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
-                    border = BorderStroke(1.5.dp, VinylPalette.TextMuted.copy(alpha = 0.3f)),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        disabledContentColor = VinylPalette.TextMuted.copy(alpha = 0.3f),
-                    ),
-                ) {
-                    Text("Preview", fontSize = 14.sp, fontWeight = FontWeight.Medium)
                 }
             }
         }
@@ -158,90 +151,214 @@ fun WriteCardScreen(
         } else {
             LazyColumn(
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(22.dp),
             ) {
-                item { SongPickerSection(state, viewModel, audioController) }
-                item { LetterSection(state, viewModel) }
-                item { MoodGrid(state, viewModel) }
-                item { GenreChips(state, viewModel) }
-                item { EnvelopeStylePicker(state, viewModel) }
-                item { LocationToggle(state, viewModel, locationState.hasLocation) }
-                item { Spacer(modifier = Modifier.height(80.dp)) }
+                item { CreateHeader() }
+                item {
+                    SongPickerSection(
+                        state = state,
+                        onQueryChange = viewModel::onQueryChange,
+                        onTrackSelected = viewModel::onTrackSelected,
+                        onTrackCleared = viewModel::onTrackCleared,
+                    )
+                }
+                item { LetterSection(state.message, viewModel::onMessageChange) }
+                item { MoodSection(state.mood, viewModel::onMoodSelected) }
+                item {
+                    GenreSection(
+                        options = state.genreOptions,
+                        selected = state.selectedGenres,
+                        onToggle = viewModel::onGenreToggled,
+                    )
+                }
+                item { EnvelopeStylePicker(state.envelopeStyle, viewModel::onEnvelopeStyleSelected) }
+                item {
+                    LocationToggle(
+                        attachLocation = state.attachLocation,
+                        onAttachLocationToggled = viewModel::onAttachLocationToggled,
+                        hasLocation = locationState.hasLocation,
+                    )
+                }
+                state.submissionError?.let { error ->
+                    item {
+                        Text(error, color = Color(0xFFE08787), fontSize = 13.sp)
+                    }
+                }
+                item {
+                    FormActions(
+                        canSubmit = state.canSubmit,
+                        isSubmitting = state.isSubmitting,
+                        onPreview = viewModel::onTogglePreview,
+                        onSend = {
+                            sendSnapshot = state
+                            sendAnimationDone = false
+                            viewModel.submit()
+                        },
+                    )
+                }
             }
         }
+    }
+}
 
-        state.submissionError?.let { err ->
+private val FormPanelShape = RoundedCornerShape(20.dp)
+private val FormPanelBrush = Brush.verticalGradient(listOf(Color(0xFF111413), Color(0xFF2E3938)))
+private val FormPanelBorder = Color(0xFF3E4A49)
+private val MessageInk = Color(0xFF0D0D0D)
+private val CounterInk = Color(0xFF5E6766)
+
+private fun formText(size: androidx.compose.ui.unit.TextUnit, weight: FontWeight, lineHeight: androidx.compose.ui.unit.TextUnit = androidx.compose.ui.unit.TextUnit.Unspecified) =
+    TextStyle(fontFamily = PoppinsFontFamily, fontSize = size, fontWeight = weight, lineHeight = lineHeight)
+
+@Composable
+private fun CreateHeader() {
+    Column {
+        Text(
+            text = "Write a music card",
+            color = VinylPalette.Cream,
+            style = formText(22.sp, FontWeight.Medium, 30.sp),
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = "Send one song and a few words to someone in the world.",
+            color = VinylPalette.Cream.copy(alpha = 0.58f),
+            style = formText(14.sp, FontWeight.Light, 20.sp),
+        )
+    }
+}
+
+@Composable
+private fun SectionHeader(label: String, required: Boolean = false) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label.uppercase(),
+            color = VinylPalette.Cream.copy(alpha = 0.6f),
+            style = formText(11.sp, FontWeight.Medium),
+            letterSpacing = 0.8.sp,
+        )
+        if (required) {
             Text(
-                err,
-                color = Color(0xFFE08787),
-                fontSize = 13.sp,
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                text = "Required",
+                color = VinylPalette.Cream.copy(alpha = 0.55f),
+                style = formText(12.sp, FontWeight.Light),
             )
         }
-
-        SendBar(
-            state = state,
-            isSending = isSending,
-            onSend = {
-                sendSnapshot = state
-                sendAnimationDone = false
-                viewModel.submit()
-            },
-        )
     }
 }
 
 @Composable
 private fun SongPickerSection(
     state: WriteCardUiState,
-    viewModel: WriteCardViewModel,
-    audioController: AudioPreviewController,
+    onQueryChange: (String) -> Unit,
+    onTrackSelected: (Track) -> Unit,
+    onTrackCleared: () -> Unit,
 ) {
-    val track = state.selectedTrack
-
     Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("SONG", color = VinylPalette.TextMuted, fontSize = 11.sp, letterSpacing = 1.sp)
-            Text(" *", color = Color(0xFFE08787), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        }
-        Spacer(modifier = Modifier.height(8.dp))
+        SectionHeader("Song")
+        Spacer(Modifier.height(8.dp))
 
-        if (track != null) {
-            SelectedTrackCard(track, onClear = { viewModel.onTrackCleared() }, audioController = audioController)
+        if (state.selectedTrack != null) {
+            SelectedTrackCard(track = state.selectedTrack, onClear = onTrackCleared)
         } else {
-            OutlinedTextField(
-                value = state.query,
-                onValueChange = viewModel::onQueryChange,
-                placeholder = { Text("Search for a song…", color = VinylPalette.TextMuted) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                colors = vinylTextFieldColors(),
-                modifier = Modifier.fillMaxWidth(),
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 60.dp)
+                    .background(FormPanelBrush, FormPanelShape)
+                    .border(
+                        1.dp,
+                        if (state.query.isNotEmpty()) VinylPalette.TealAccent else FormPanelBorder,
+                        FormPanelShape,
+                    )
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Rounded.Search,
+                    contentDescription = null,
+                    tint = VinylPalette.Cream.copy(alpha = 0.4f),
+                    modifier = Modifier.size(22.dp),
+                )
+                Spacer(Modifier.width(12.dp))
+                BasicTextField(
+                    value = state.query,
+                    onValueChange = onQueryChange,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    textStyle = formText(15.sp, FontWeight.Normal).copy(color = VinylPalette.Cream),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(VinylPalette.TealAccent),
+                    modifier = Modifier
+                        .weight(1f)
+                        .semantics { contentDescription = "Search song or artist" },
+                    decorationBox = { innerTextField ->
+                        Box {
+                            if (state.query.isEmpty()) {
+                                Text(
+                                    "Search song or artist",
+                                    color = VinylPalette.Cream.copy(alpha = 0.4f),
+                                    style = formText(15.sp, FontWeight.Light),
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
+                )
+            }
 
             if (state.isSearching) {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(Modifier.height(8.dp))
                 LinearProgressIndicator(
                     modifier = Modifier.fillMaxWidth(),
                     color = VinylPalette.TealAccent,
-                    trackColor = VinylPalette.PanelDark,
+                    trackColor = FormPanelBorder,
                 )
             }
 
             if (state.searchResults.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(Modifier.height(8.dp))
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(VinylPalette.PanelDark)
+                        .background(FormPanelBrush, FormPanelShape)
+                        .border(1.dp, FormPanelBorder, FormPanelShape)
+                        .clip(FormPanelShape)
+                        .padding(vertical = 4.dp),
                 ) {
                     state.searchResults.take(6).forEach { result ->
-                        TrackResultRow(result, onClick = { viewModel.onTrackSelected(result) })
+                        TrackResultRow(result, onClick = { onTrackSelected(result) })
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun TrackArtwork(track: Track, size: androidx.compose.ui.unit.Dp) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(8.dp))
+            .background(VinylPalette.SheetSurface),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.Rounded.MusicNote,
+            contentDescription = null,
+            tint = VinylPalette.Cream.copy(alpha = 0.5f),
+        )
+        track.artworkUrl?.let { artwork ->
+            AsyncImage(
+                model = artwork,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
     }
 }
@@ -252,261 +369,145 @@ private fun TrackResultRow(track: Track, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column {
-            Text(track.trackName, color = VinylPalette.TextPrimary, fontSize = 14.sp)
-            Text(track.artistName, color = VinylPalette.TextMuted, fontSize = 12.sp)
+        TrackArtwork(track, 44.dp)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                track.trackName,
+                color = VinylPalette.Cream,
+                style = formText(15.sp, FontWeight.Medium, 20.sp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                track.artistName,
+                color = VinylPalette.Cream.copy(alpha = 0.7f),
+                style = formText(12.sp, FontWeight.Light, 17.sp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
 
 @Composable
-private fun SelectedTrackCard(
-    track: Track,
-    onClear: () -> Unit,
-    audioController: AudioPreviewController,
-) {
+private fun SelectedTrackCard(track: Track, onClear: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(VinylPalette.PanelDark)
-            .padding(12.dp),
+            .background(FormPanelBrush, FormPanelShape)
+            .border(1.dp, FormPanelBorder, FormPanelShape)
+            .padding(start = 12.dp, top = 10.dp, bottom = 10.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val isPlayingThis = audioController.isPlaying && audioController.currentUrl == track.previewUrl
-
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(VinylPalette.Background)
-                .clickable(enabled = track.previewUrl != null) { audioController.toggle(track.previewUrl) },
-            contentAlignment = Alignment.Center,
-        ) {
-            if (track.artworkUrl != null) {
-                AsyncImage(
-                    model = track.artworkUrl,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                // Scrim so the play/pause icon stays legible over any artwork
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)))
-            }
-            Icon(
-                imageVector = if (isPlayingThis) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                contentDescription = "Preview 30 seconds",
-                tint = if (track.previewUrl != null) Color.White else VinylPalette.TextMuted,
+        TrackArtwork(track, 52.dp)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                track.trackName,
+                color = VinylPalette.Cream,
+                style = formText(16.sp, FontWeight.Medium, 22.sp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                track.artistName,
+                color = VinylPalette.Cream.copy(alpha = 0.7f),
+                style = formText(13.sp, FontWeight.Light, 18.sp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
-        Spacer(modifier = Modifier.width(10.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(track.trackName, color = VinylPalette.TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-            Text(track.artistName, color = VinylPalette.TextMuted, fontSize = 13.sp)
-        }
-        TextButton(onClick = onClear) {
-            Text("Change", color = VinylPalette.TealAccent, fontSize = 13.sp)
+        IconButton(onClick = onClear, modifier = Modifier.size(44.dp)) {
+            Icon(
+                Icons.Rounded.Close,
+                contentDescription = "Change song",
+                tint = VinylPalette.Cream.copy(alpha = 0.7f),
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }
 
 @Composable
-private fun LetterSection(state: WriteCardUiState, viewModel: WriteCardViewModel) {
+private fun LetterSection(message: String, onMessageChange: (String) -> Unit) {
     Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("MESSAGE", color = VinylPalette.TextMuted, fontSize = 11.sp, letterSpacing = 1.sp)
-            Text(" *", color = Color(0xFFE08787), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-
+        SectionHeader("Message")
+        Spacer(Modifier.height(8.dp))
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(VinylPalette.Cream)
-                .padding(16.dp)
+                .background(VinylPalette.Cream, RoundedCornerShape(14.dp))
+                .padding(horizontal = 16.dp, vertical = 14.dp),
         ) {
-            OutlinedTextField(
-                value = state.message,
-                onValueChange = viewModel::onMessageChange,
-                placeholder = {
-                    Column {
-                        Text(
-                            "Share a message…",
-                            color = VinylPalette.Background.copy(alpha = 0.45f),
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Medium,
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            "What does this song mean to you? Where are you right now?\n\n" +
-                                    "Your words will travel with the music and maybe reach someone special somewhere in the world.",
-                            color = VinylPalette.Background.copy(alpha = 0.4f),
-                            fontSize = 15.sp,
-                            lineHeight = 22.sp,
-                        )
+            BasicTextField(
+                value = message,
+                onValueChange = onMessageChange,
+                textStyle = formText(15.sp, FontWeight.Normal, 24.sp).copy(color = MessageInk),
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(MessageInk),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 120.dp),
+                decorationBox = { innerTextField ->
+                    Box {
+                        if (message.isEmpty()) {
+                            Text(
+                                "Write a message…",
+                                color = MessageInk.copy(alpha = 0.4f),
+                                style = formText(15.sp, FontWeight.Normal, 24.sp),
+                            )
+                        }
+                        innerTextField()
                     }
                 },
-                textStyle = androidx.compose.ui.text.TextStyle(
-                    color = VinylPalette.Background,
-                    fontSize = 18.sp,
-                    lineHeight = 28.sp,
-                ),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedBorderColor = Color.Transparent,
-                    unfocusedBorderColor = Color.Transparent,
-                    focusedTextColor = VinylPalette.Background,
-                    unfocusedTextColor = VinylPalette.Background,
-                    cursorColor = VinylPalette.Background,
-                ),
-                minLines = 10,
-                modifier = Modifier.fillMaxWidth(),
             )
-
             Text(
-                text = "${state.messageCharsRemaining} characters left",
-                color = if (state.messageCharsRemaining < 20) Color(0xFFE08787) else VinylPalette.Background.copy(alpha = 0.5f),
-                fontSize = 11.sp,
-                modifier = Modifier.align(Alignment.End).padding(top = 6.dp),
+                text = "${message.length} / 280",
+                color = CounterInk,
+                style = formText(11.sp, FontWeight.Light),
+                modifier = Modifier.align(Alignment.End),
             )
         }
     }
 }
 
 @Composable
-private fun MoodGrid(state: WriteCardUiState, viewModel: WriteCardViewModel) {
+private fun MoodSection(selectedMood: com.example.vinyl.data.MoodTag?, onMoodSelected: (com.example.vinyl.data.MoodTag) -> Unit) {
     Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("MOOD", color = VinylPalette.TextMuted, fontSize = 11.sp, letterSpacing = 1.sp)
-            Text(" *", color = Color(0xFFE08787), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-
-        val rows = MoodOptions.all.chunked(2)
-        rows.forEach { pair ->
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.padding(bottom = 10.dp)
-            ) {
-                pair.forEach { option ->
-                    MoodCard(
-                        title = option.title,
-                        subtitle = option.subtitle,
-                        selected = state.mood == option.tag,
-                        onClick = { viewModel.onMoodSelected(option.tag) },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                if (pair.size == 1) Spacer(modifier = Modifier.weight(1f))
-            }
-        }
+        SectionHeader("Mood", required = selectedMood == null)
+        Spacer(Modifier.height(8.dp))
+        MoodPicker(selectedMood = selectedMood, onMoodSelected = onMoodSelected)
     }
 }
 
 @Composable
-private fun MoodCard(
-    title: String,
-    subtitle: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
+private fun GenreSection(
+    options: List<GenreOption>,
+    selected: Set<String>,
+    onToggle: (String) -> Unit,
 ) {
-    Column(
-        modifier = modifier
-            .height(76.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (selected) VinylPalette.TealAccent.copy(alpha = 0.15f) else VinylPalette.PanelDark)
-            .border(
-                width = if (selected) 1.5.dp else 1.dp,
-                color = if (selected) VinylPalette.TealAccent else VinylPalette.TextMuted.copy(alpha = 0.2f),
-                shape = RoundedCornerShape(10.dp),
-            )
-            .clickable(onClick = onClick)
-            .padding(12.dp),
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(title, color = VinylPalette.TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            subtitle,
-            color = VinylPalette.TextMuted,
-            fontSize = 11.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-@Composable
-private fun GenreChips(state: WriteCardUiState, viewModel: WriteCardViewModel) {
-    // Genres are read from the database. If they haven't loaded (offline), hide the section rather
-    // than show empty chips: genre is optional, so the letter can still be sent without one.
-    if (state.genreOptions.isEmpty()) return
-
+    if (options.isEmpty()) return
+    var open by remember { mutableStateOf(false) }
     Column {
-        Text("GENRE · optional", color = VinylPalette.TextMuted, fontSize = 11.sp, letterSpacing = 1.sp)
-        Spacer(modifier = Modifier.height(8.dp))
-        FlowRowChips(
-            items = state.genreOptions,
-            selected = state.selectedGenres,
-            onToggle = viewModel::onGenreToggled,
+        SectionHeader("Genre")
+        Spacer(Modifier.height(8.dp))
+        GenreDropdown(
+            options = options,
+            selected = selected,
+            open = open,
+            onOpenChange = { open = it },
+            onToggle = onToggle,
+            includeAnyOption = false,
+            menuMaxHeight = 216.dp,
         )
     }
 }
 
-/** Chips show each genre's label but select and report its slug, which is what the database stores. */
 @Composable
-private fun FlowRowChips(items: List<GenreOption>, selected: Set<String>, onToggle: (String) -> Unit) {
-    val rows = remember(items) {
-        val chunks = mutableListOf<MutableList<GenreOption>>()
-        var current = mutableListOf<GenreOption>()
-        var lineLen = 0
-        items.forEach { genre ->
-            val approxLen = genre.label.length + 3
-            if (lineLen + approxLen > 30 && current.isNotEmpty()) {
-                chunks.add(current); current = mutableListOf(); lineLen = 0
-            }
-            current.add(genre); lineLen += approxLen
-        }
-        if (current.isNotEmpty()) chunks.add(current)
-        chunks
-    }
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        rows.forEach { row ->
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                row.forEach { genre ->
-                    val isSelected = genre.slug in selected
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(if (isSelected) VinylPalette.TealAccent else VinylPalette.PanelDark)
-                            .border(1.dp, VinylPalette.TextMuted.copy(alpha = 0.2f), RoundedCornerShape(50))
-                            .clickable(onClick = { onToggle(genre.slug) })
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
-                    ) {
-                        Text(
-                            genre.label,
-                            color = if (isSelected) VinylPalette.Background else VinylPalette.TextPrimary,
-                            fontSize = 13.sp,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun EnvelopeStylePicker(state: WriteCardUiState, viewModel: WriteCardViewModel) {
+private fun EnvelopeStylePicker(selectedStyle: EnvelopeStyle, onStyleSelected: (EnvelopeStyle) -> Unit) {
     Column {
         Text("ENVELOPE STYLE", color = VinylPalette.TextMuted, fontSize = 11.sp, letterSpacing = 1.sp)
         Spacer(modifier = Modifier.height(8.dp))
@@ -515,7 +516,7 @@ private fun EnvelopeStylePicker(state: WriteCardUiState, viewModel: WriteCardVie
             modifier = Modifier.horizontalScroll(rememberScrollState()),
         ) {
             EnvelopeStyle.entries.forEach { style ->
-                val selected = state.envelopeStyle == style
+                val selected = selectedStyle == style
                 Box(
                     modifier = Modifier
                         .size(44.dp)
@@ -526,7 +527,7 @@ private fun EnvelopeStylePicker(state: WriteCardUiState, viewModel: WriteCardVie
                             color = if (selected) VinylPalette.TextPrimary else Color.Black.copy(alpha = 0.3f),
                             shape = RoundedCornerShape(8.dp),
                         )
-                        .clickable { viewModel.onEnvelopeStyleSelected(style) }
+                        .clickable { onStyleSelected(style) }
                 )
             }
         }
@@ -535,8 +536,8 @@ private fun EnvelopeStylePicker(state: WriteCardUiState, viewModel: WriteCardVie
 
 @Composable
 private fun LocationToggle(
-    state: WriteCardUiState,
-    viewModel: WriteCardViewModel,
+    attachLocation: Boolean,
+    onAttachLocationToggled: (Boolean) -> Unit,
     hasLocation: Boolean,
 ) {
     Row(
@@ -560,8 +561,8 @@ private fun LocationToggle(
             }
         }
         Switch(
-            checked = state.attachLocation,
-            onCheckedChange = viewModel::onAttachLocationToggled,
+            checked = attachLocation,
+            onCheckedChange = onAttachLocationToggled,
             enabled = hasLocation,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = VinylPalette.TealAccent,
@@ -576,40 +577,66 @@ private fun LocationToggle(
 }
 
 @Composable
-private fun SendBar(state: WriteCardUiState, isSending: Boolean, onSend: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(VinylPalette.Background)
-            .padding(20.dp)
-    ) {
-        val active = state.canSubmit && !state.isSubmitting && !isSending
+private fun FormActions(
+    canSubmit: Boolean,
+    isSubmitting: Boolean,
+    onPreview: () -> Unit,
+    onSend: () -> Unit,
+) {
+    val active = canSubmit && !isSubmitting
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        TextButton(
+            onClick = onPreview,
+            enabled = canSubmit,
+            modifier = Modifier.height(44.dp),
+            colors = ButtonDefaults.textButtonColors(
+                contentColor = VinylPalette.TealAccent,
+                disabledContentColor = VinylPalette.TextMuted.copy(alpha = 0.5f),
+            ),
+        ) {
+            Text("Preview", style = formText(14.sp, FontWeight.Medium))
+        }
+
+        Spacer(Modifier.height(8.dp))
+
         OutlinedButton(
             onClick = onSend,
             enabled = active,
-            modifier = Modifier.fillMaxWidth().height(52.dp),
+            modifier = Modifier.fillMaxWidth().height(56.dp),
             shape = RoundedCornerShape(50),
-            border = BorderStroke(1.5.dp, if (active) VinylPalette.Cream else VinylPalette.TextMuted.copy(alpha = 0.3f)),
-            colors = ButtonDefaults.outlinedButtonColors(
-                contentColor = VinylPalette.Cream,
-                disabledContentColor = VinylPalette.TextMuted,
+            border = BorderStroke(
+                1.5.dp,
+                if (active) VinylPalette.TealAccent else VinylPalette.TextMuted.copy(alpha = 0.35f),
             ),
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = VinylPalette.TealAccent,
+                disabledContentColor = VinylPalette.TextMuted.copy(alpha = 0.55f),
+            ),
+            contentPadding = PaddingValues(0.dp),
         ) {
-            Text(if (isSending || state.isSubmitting) "Sending…" else "Send this music card", fontWeight = FontWeight.SemiBold)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(FormPanelBrush),
+            ) {
+                Text(
+                    text = if (isSubmitting) "Sending…" else "Send",
+                    style = formText(18.sp, FontWeight.Medium),
+                    modifier = Modifier.align(Alignment.Center),
+                )
+                Icon(
+                    Icons.AutoMirrored.Rounded.Send,
+                    contentDescription = null,
+                    tint = if (active) VinylPalette.TealAccent else VinylPalette.TextMuted.copy(alpha = 0.55f),
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 24.dp)
+                        .size(22.dp),
+                )
+            }
         }
     }
 }
-
-@Composable
-private fun vinylTextFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedContainerColor = VinylPalette.Background,
-    unfocusedContainerColor = VinylPalette.Background,
-    focusedBorderColor = VinylPalette.Cream,
-    unfocusedBorderColor = VinylPalette.Cream.copy(alpha = 0.4f),
-    focusedTextColor = VinylPalette.TextPrimary,
-    unfocusedTextColor = VinylPalette.TextPrimary,
-    cursorColor = VinylPalette.Cream,
-)
 
 @Composable
 private fun CardPreview(state: WriteCardUiState, modifier: Modifier = Modifier) {
@@ -921,18 +948,80 @@ internal fun VinylPreviewDisc(trackName: String, envelopeStyle: EnvelopeStyle) {
     }
 }
 
-@androidx.compose.ui.tooling.preview.Preview(
+private val PreviewGenreOptions = listOf(
+    GenreOption("pop", "Pop"),
+    GenreOption("rock", "Rock"),
+    GenreOption("indie", "Indie"),
+    GenreOption("alternative", "Alternative"),
+    GenreOption("electronic", "Electronic"),
+    GenreOption("edm", "EDM"),
+    GenreOption("synth_pop", "Synth-pop"),
+    GenreOption("hip_hop", "Hip-Hop"),
+    GenreOption("rap", "Rap"),
+    GenreOption("rnb", "R&B"),
+    GenreOption("soul", "Soul"),
+    GenreOption("funk", "Funk"),
+)
+
+@Composable
+private fun WriteCardFormPreviewContent(state: WriteCardUiState) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(VinylPalette.Background),
+    ) {
+        LazyColumn(
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(22.dp),
+        ) {
+            item { CreateHeader() }
+            item { SongPickerSection(state, {}, {}, {}) }
+            item { LetterSection(state.message, {}) }
+            item { MoodSection(state.mood, {}) }
+            item { GenreSection(state.genreOptions, state.selectedGenres, {}) }
+            item { EnvelopeStylePicker(state.envelopeStyle, {}) }
+            item { LocationToggle(state.attachLocation, {}, hasLocation = true) }
+            item { FormActions(state.canSubmit, state.isSubmitting, {}, {}) }
+        }
+    }
+}
+
+@Preview(
     showBackground = true,
     backgroundColor = 0xFF0D0D0D,
     widthDp = 393,
     heightDp = 852,
 )
 @Composable
-private fun WriteCardScreenPreview() {
-    WriteCardScreen()
+private fun WriteCardEmptyPreview() {
+    WriteCardFormPreviewContent(WriteCardUiState(genreOptions = PreviewGenreOptions))
 }
 
-@androidx.compose.ui.tooling.preview.Preview(
+@Preview(
+    showBackground = true,
+    backgroundColor = 0xFF0D0D0D,
+    widthDp = 393,
+    heightDp = 852,
+)
+@Composable
+private fun WriteCardFilledPreview() {
+    WriteCardFormPreviewContent(
+        WriteCardUiState(
+            selectedTrack = Track(
+                trackId = 1L,
+                trackName = "Lover",
+                artistName = "Taylor Swift",
+            ),
+            message = "This one got me through a long winter.\nHope it does something small for you today.",
+            mood = com.example.vinyl.data.MoodTag.Calm,
+            genreOptions = PreviewGenreOptions,
+            selectedGenres = setOf("hip_hop", "electronic"),
+            attachLocation = true,
+        )
+    )
+}
+
+@Preview(
     showBackground = true,
     backgroundColor = 0xFF0D0D0D,
     widthDp = 393,
