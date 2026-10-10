@@ -15,7 +15,7 @@ object VinylColors {
     val Rust = Color(0xFF6B3B32)
 
     // Unselected filter pill.
-    val Pill = Color(0xFF303030)
+    val Pill: Color get() = VinylPalette.PanelColors.panelWell
     // Shelf ledge: lit top face fading into the shadowed front edge.
     val ShelfTop = Color(0xFF7A4439)
     val ShelfFade = Color(0xFF442924)

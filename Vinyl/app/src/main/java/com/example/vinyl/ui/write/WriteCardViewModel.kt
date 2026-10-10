@@ -76,7 +76,9 @@ class WriteCardViewModel(
         if (message.length <= 280) _uiState.update { it.copy(message = message) }
     }
 
-    fun onMoodSelected(mood: MoodTag) = _uiState.update { it.copy(mood = mood) }
+    fun onMoodSelected(mood: MoodTag) = _uiState.update {
+        it.copy(mood = if (it.mood == mood) null else mood)
+    }
 
     /** [genreSlug] is a slug from `genres` (`k_pop`), not a label. */
     fun onGenreToggled(genreSlug: String) = _uiState.update {

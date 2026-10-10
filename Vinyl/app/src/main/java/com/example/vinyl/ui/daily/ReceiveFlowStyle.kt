@@ -1,8 +1,6 @@
 package com.example.vinyl.ui.daily
 
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -10,16 +8,17 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.vinyl.ui.theme.PoppinsFontFamily
+import com.example.vinyl.ui.theme.VinylPalette
 
 /**
  * Tokens shared by the receive flow after the mood sheet: Arrived today, the unopened envelope
  * and the music card. Same values as the mood sheet's own panel styling.
  */
 internal object ReceiveFlowStyle {
-    val PanelBrush = Brush.verticalGradient(listOf(Color(0xFF111413), Color(0xFF2E3938)))
-    val PanelBorder = Color(0xFF3E4A49)
+    val PanelBrush get() = VinylPalette.PanelColors.panelGradient
+    val PanelBorder get() = VinylPalette.PanelColors.panelBorder
     val PanelShape = RoundedCornerShape(20.dp)
-    val IconWell = Color(0xFF242A2A)
+    val IconWell get() = VinylPalette.PanelColors.panelWell
 
     fun text(
         size: TextUnit,
