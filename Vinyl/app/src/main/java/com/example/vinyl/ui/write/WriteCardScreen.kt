@@ -205,8 +205,8 @@ fun WriteCardScreen(
 }
 
 private val FormPanelShape = RoundedCornerShape(20.dp)
-private val FormPanelBrush = Brush.verticalGradient(listOf(Color(0xFF111413), Color(0xFF2E3938)))
-private val FormPanelBorder = Color(0xFF3E4A49)
+private val FormPanelBrush: Brush get() = VinylPalette.PanelColors.panelGradient
+private val FormPanelBorder: Color get() = VinylPalette.PanelColors.panelBorder
 private val MessageInk = Color(0xFF0D0D0D)
 private val CounterInk = Color(0xFF5E6766)
 

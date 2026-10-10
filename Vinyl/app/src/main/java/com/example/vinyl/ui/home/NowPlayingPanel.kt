@@ -148,7 +148,7 @@ private fun AlbumArtwork(record: NowPlaying?) {
         modifier = Modifier
             .size(ALBUM_ART_SIZE)
             .clip(shape)
-            .background(VinylPalette.PanelDark)
+            .background(VinylPalette.PanelColors.panelWell)
             .border(1.dp, VinylPalette.Cream.copy(alpha = 0.35f), shape),
         contentAlignment = Alignment.Center,
     ) {

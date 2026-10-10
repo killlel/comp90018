@@ -24,10 +24,10 @@ import androidx.compose.ui.platform.LocalInspectionMode
  */
 enum class Accent(val label: String, val color: Color, val onCream: Color) {
     Teal("Teal", Color(0xFF77EDE5), Color(0xFF0A6F69)),
-    Lime("Lime", Color(0xFFB5E965), Color(0xFF4A7300)),
-    Sun("Sun", Color(0xFFFEC84E), Color(0xFF8A5A00)),
-    Pink("Pink", Color(0xFFFE91CE), Color(0xFFB8326F)),
-    Violet("Violet", Color(0xFFB49DFE), Color(0xFF6D4BD8)),
+    Lime("Lime", Color(0xFFAEF631), Color(0xFF4A7300)),
+    Sun("Sun", Color(0xFFFFBE3D), Color(0xFF8A5A00)),
+    Pink("Pink", Color(0xFFFF7ACE), Color(0xFFB8326F)),
+    Violet("Violet", Color(0xFFB58AFF), Color(0xFF6D4BD8)),
 }
 
 /**
@@ -71,5 +71,10 @@ internal fun vinylColorScheme(base: ColorScheme): ColorScheme {
     val inPreview = LocalInspectionMode.current
     remember(context) { if (!inPreview) ThemeState.load(context) }
     val accent = ThemeState.accent
-    return remember(base, accent) { base.copy(primary = accent.color) }
+    return remember(base, accent) {
+        base.copy(
+            primary = accent.color,
+            surfaceVariant = accentPanelColors(accent.color).panelWell,
+        )
+    }
 }
