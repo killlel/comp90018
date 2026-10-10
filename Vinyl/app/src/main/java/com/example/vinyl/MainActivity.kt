@@ -387,7 +387,14 @@ private fun VinylApp(
         shelfCompassOpen = false
         collectionViewModel.closeRecord()
         selectedTab = AppTab.Home
-        playbackViewModel.play(track)
+        val current = playbackViewModel.nowPlaying.value
+        val alreadyPlaying = current != null && current.submissionId == track.submissionId &&
+            current.title == track.title && current.artist == track.artist
+        if (alreadyPlaying) {
+            if (playbackViewModel.clock.value?.isPaused == true) playbackViewModel.togglePause()
+        } else {
+            playbackViewModel.play(track)
+        }
     }
 
     // "Play on turntable" on a received card, from page 4 or the shelf's details sheet.
@@ -400,20 +407,21 @@ private fun VinylApp(
             artworkUrl = option.artworkUrl,
             previewUrl = option.previewUrl,
         )
-        // Already on the turntable: go back to it rather than restarting the song, and resume it
-        // if it was paused there.
-        val current = playbackViewModel.nowPlaying.value
-        val alreadyPlaying = current != null && current.submissionId == track.submissionId &&
-            current.title == track.title && current.artist == track.artist
-        if (alreadyPlaying) {
-            if (playbackViewModel.clock.value?.isPaused == true) playbackViewModel.togglePause()
-            receiveFlowStep = null
-            shelfCard = null
-            shelfCompassOpen = false
-            selectedTab = AppTab.Home
-        } else {
-            playOnHome(track)
-        }
+        playOnHome(track)
+    }
+
+    // Collection records use the same player without publishing a pending daily hand. A song in
+    // the library can be unrelated to today's three cards.
+    val playCollectionRecord: (VinylRecord) -> Unit = { record ->
+        playOnHome(
+            NowPlaying(
+                submissionId = record.id,
+                title = record.songName,
+                artist = record.artist,
+                artworkUrl = record.coverUrl,
+                previewUrl = record.previewUrl,
+            ),
+        )
     }
 
     // Takes a card off the Collection shelf, closes its sheet and offers an undo. The undo keeps
@@ -810,6 +818,7 @@ private fun VinylApp(
         actionError = collectionState.actionError,
         onToggleFavourite = { collectionState.openRecord?.let(collectionViewModel::toggleFavourite) },
         onRemove = { collectionState.openRecord?.let(removeFromCollection) },
+        onPlayOnTurntable = playCollectionRecord,
         onClose = collectionViewModel::closeRecord,
     )
 }
@@ -934,10 +943,9 @@ private fun ShelfCardSheet(
 }
 
 /**
- * A record opened from the Collection, in history mode: the music card with the star and a menu
- * to remove it, and no bookmark, compass or turntable. The compass and the distance belong to the
- * day a card arrives, so this sheet reads no location and starts no sensor. A card the reader
- * sent is only shown, signed by them.
+ * A record opened from the Collection, in history mode: the music card with favourite and remove
+ * actions, plus Play on turntable. The compass and distance belong to the day a card arrives, so
+ * this sheet reads no location and starts no sensor. A card the reader sent is signed by them.
  *
  * [record] is null when nothing is open. It's still drawn then, so the sheet can slide out
  * showing the card it's closing.
@@ -948,6 +956,7 @@ private fun CollectionCardSheet(
     actionError: String?,
     onToggleFavourite: () -> Unit,
     onRemove: () -> Unit,
+    onPlayOnTurntable: (VinylRecord) -> Unit,
     onClose: () -> Unit,
 ) {
     val shown = rememberLastNonNull(record)
@@ -972,7 +981,7 @@ private fun CollectionCardSheet(
                 ),
                 onToggleKeep = null,
                 onOpenCompass = {},
-                onPlayOnTurntable = null,
+                onPlayOnTurntable = { onPlayOnTurntable(shown) },
                 onToggleFavourite = onToggleFavourite,
                 onRemove = if (received) onRemove else null,
                 inSheet = true,

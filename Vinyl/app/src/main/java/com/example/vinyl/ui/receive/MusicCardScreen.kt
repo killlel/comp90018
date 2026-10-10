@@ -13,17 +13,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Explore
-import androidx.compose.material.icons.outlined.StarBorder
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.rounded.Bookmark
-import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ButtonDefaults
@@ -79,9 +77,9 @@ data class MusicCardUiState(
     /** False when there is no location to point at, which hides the compass chip. */
     val hasDirection: Boolean = false,
     val isKept: Boolean = false,
-    /** Why the last keep (or, from the Collection, the last star or remove) didn't go through. */
+    /** Why the last keep (or, from the Collection, the last favourite or remove) didn't go through. */
     val keepError: String? = null,
-    /** The Collection's star. Null hides it: the receive flow, and cards the reader sent. */
+    /** The Collection's favourite state. Null hides it: the receive flow, and cards the reader sent. */
     val isFavourite: Boolean? = null,
     /** A card the reader sent themselves, opened from their Collection. Signed "you". */
     val isOwn: Boolean = false,
@@ -93,10 +91,10 @@ data class MusicCardUiState(
  *
  * The round play button plays the 30 second preview here and never navigates.
  *
- * @param onToggleKeep the bookmark. Null hides it, as in the Collection.
+ * @param onToggleKeep the labelled Collection action. Null hides it, as in the Collection.
  * @param onPlayOnTurntable null hides the button; the store links then fill the row.
- * @param onToggleFavourite the star, shown when [MusicCardUiState.isFavourite] isn't null.
- * @param onRemove the menu's "Remove from Collection". Null hides the menu.
+ * @param onToggleFavourite the heart, shown when [MusicCardUiState.isFavourite] isn't null.
+ * @param onRemove the Collection's remove action. Null hides it.
  * @param inSheet draws a drag handle instead of clearing the status bar, and stops and releases
  *   the preview when the app goes to the background (full screen it only pauses).
  * @param playerActive false stops and releases the preview at once, for a sheet that is closing
@@ -172,9 +170,8 @@ fun MusicCardScreen(
 }
 
 /**
- * The title, centred, with the card's actions at the right: the bookmark in the receive flow, the
- * star and the menu in the Collection. The title is kept clear of the actions on both sides, so it
- * stays centred whichever are shown.
+ * The title and contextual actions. A received card names the unfamiliar keep action explicitly;
+ * a card already in Collection uses the familiar heart and bin symbols for favourite and remove.
  */
 @Composable
 private fun TopBar(
@@ -183,44 +180,68 @@ private fun TopBar(
     onToggleFavourite: () -> Unit,
     onRemove: (() -> Unit)?,
 ) {
-    val actionCount = listOf(onToggleKeep != null, state.isFavourite != null, onRemove != null).count { it }
-    Box(
-        modifier = Modifier.fillMaxWidth().height(TopBarTouchSize),
-        contentAlignment = Alignment.Center,
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = TopBarTouchSize),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = "Card details",
             color = VinylPalette.Cream,
             style = ReceiveFlowStyle.Title,
-            textAlign = TextAlign.Center,
             maxLines = 1,
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = TopBarTouchSize * actionCount),
+                .weight(1f)
+                .padding(end = 8.dp),
         )
-        Row(modifier = Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically) {
-            state.isFavourite?.let { favourite ->
-                TopBarButton(onClick = onToggleFavourite) {
-                    Icon(
-                        if (favourite) Icons.Rounded.Star else Icons.Outlined.StarBorder,
-                        contentDescription = if (favourite) "Remove from favourites" else "Add to favourites",
-                        tint = if (favourite) VinylPalette.TealAccent else VinylPalette.Cream,
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
-            }
-            onRemove?.let { OverflowMenu(onRemove = it) }
-            onToggleKeep?.let { keep ->
-                TopBarButton(onClick = keep) {
-                    Icon(
-                        if (state.isKept) Icons.Rounded.Bookmark else Icons.Outlined.BookmarkBorder,
-                        contentDescription = if (state.isKept) "Remove from collection" else "Keep this music card",
-                        tint = if (state.isKept) VinylPalette.TealAccent else VinylPalette.Cream,
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
+        state.isFavourite?.let { favourite ->
+            TopBarButton(onClick = onToggleFavourite) {
+                Icon(
+                    if (favourite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                    contentDescription = if (favourite) "Remove from favourites" else "Add to favourites",
+                    tint = if (favourite) VinylPalette.TealAccent else VinylPalette.Cream,
+                    modifier = Modifier.size(24.dp),
+                )
             }
         }
+        onRemove?.let { remove ->
+            TopBarButton(onClick = remove) {
+                Icon(
+                    Icons.Outlined.Delete,
+                    contentDescription = "Remove from collection",
+                    tint = VinylPalette.Cream,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+        }
+        onToggleKeep?.let { keep ->
+            CollectionButton(isKept = state.isKept, onClick = keep)
+        }
+    }
+}
+
+/** The receive flow spells out this action because a bookmark alone does not explain its scope. */
+@Composable
+private fun CollectionButton(isKept: Boolean, onClick: () -> Unit) {
+    val colour = if (isKept) VinylPalette.TealAccent else VinylPalette.Cream
+    OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier.height(TopBarTouchSize),
+        shape = CircleShape,
+        border = BorderStroke(1.5.dp, colour),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = colour),
+        contentPadding = PaddingValues(horizontal = 12.dp),
+    ) {
+        Icon(
+            if (isKept) Icons.Rounded.Bookmark else Icons.Outlined.BookmarkBorder,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(7.dp))
+        Text(
+            text = if (isKept) "In collection" else "Add to collection",
+            style = ReceiveFlowStyle.text(13.sp, FontWeight.Medium, 18.sp),
+            maxLines = 1,
+        )
     }
 }
 
@@ -235,41 +256,6 @@ private fun TopBarButton(onClick: () -> Unit, icon: @Composable () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         icon()
-    }
-}
-
-/** The three-dot menu. Its one item takes the card off the shelf, with an undo afterwards. */
-@Composable
-private fun OverflowMenu(onRemove: () -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    Box {
-        TopBarButton(onClick = { open = true }) {
-            Icon(
-                Icons.Rounded.MoreVert,
-                contentDescription = "More options",
-                tint = VinylPalette.Cream,
-                modifier = Modifier.size(24.dp),
-            )
-        }
-        DropdownMenu(
-            expanded = open,
-            onDismissRequest = { open = false },
-            containerColor = ReceiveFlowStyle.IconWell,
-        ) {
-            DropdownMenuItem(
-                text = {
-                    Text(
-                        "Remove from Collection",
-                        color = VinylPalette.Cream,
-                        style = ReceiveFlowStyle.text(15.sp, FontWeight.Normal, 22.sp),
-                    )
-                },
-                onClick = {
-                    open = false
-                    onRemove()
-                },
-            )
-        }
     }
 }
 

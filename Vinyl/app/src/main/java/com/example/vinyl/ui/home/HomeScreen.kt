@@ -90,7 +90,6 @@ fun HomeScreen(
         onOpenCard = onOpenCard,
         avatar = avatar,
         onTogglePause = playback::togglePause,
-        onSeekBy = playback::seekBy,
         onRefresh = viewModel::refresh,
         modifier = modifier,
     )
@@ -111,7 +110,6 @@ fun HomeScreen(
     /** Where the song is, including a pending preview's pause state. Null when stopped. */
     playbackClock: PlaybackClock? = null,
     onTogglePause: () -> Unit = {},
-    onSeekBy: (Long) -> Unit = {},
     onRefresh: () -> Unit = {},
 ) {
     val paused = playbackClock?.isPaused == true
@@ -154,7 +152,6 @@ fun HomeScreen(
                     record = nowPlaying,
                     clock = playbackClock,
                     onTogglePause = onTogglePause,
-                    onSeekBy = onSeekBy,
                 )
 
                 // Bare, with the arm parked, unless music is playing. Tapping it then pauses or
