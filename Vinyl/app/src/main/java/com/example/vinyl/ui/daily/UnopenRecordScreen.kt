@@ -2,6 +2,7 @@ package com.example.vinyl.ui.daily
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -23,7 +24,11 @@ import androidx.compose.material.icons.outlined.Vibration
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import android.content.Context
+import android.provider.Settings
+import android.view.accessibility.AccessibilityManager
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,6 +42,9 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
@@ -48,6 +56,7 @@ import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -85,9 +94,11 @@ data class UnopenedRecordUiState(
  * Shaking the phone opens it: [DetectShakeGesture] listens to the accelerometer for as long as
  * this screen is visible (see ShakeDetector.kt and ShakeAlgorithm.kt for the detection itself).
  * A tap on the envelope doesn't open it: the envelope jiggles and the helper line pulses, as a
- * nudge to shake. As a backup, holding the envelope for [LongPressOpenMs] opens it, and so does
- * the "Open card" accessibility action. Either way the flap flips up, the letter slides out, and
- * then [onOpen] moves on to the music card.
+ * nudge to shake. As a backup, holding the envelope for [LongPressOpenMs] opens it, with a ring
+ * filling round the seal while it's held. With touch exploration on (TalkBack), a double tap on
+ * the envelope opens it, and the "Open card" action stays available for Switch Access and the
+ * actions menu. Either way the flap flips up, the letter slides out, and then [onOpen] moves on
+ * to the music card.
  */
 @Composable
 fun UnopenedRecordScreen(
@@ -106,6 +117,12 @@ fun UnopenedRecordScreen(
     // A tap's nudge: an extra, stronger jiggle of the envelope and one pulse of the helper line.
     val nudge = remember { Animatable(0f) }
     val helperPulse = remember { Animatable(0f) }
+    // How far through the long press the finger is, for the ring round the seal.
+    val holdProgress = remember { Animatable(0f) }
+
+    val touchExploration = rememberTouchExplorationEnabled()
+    val currentTouchExploration by rememberUpdatedState(touchExploration)
+    val reduceMotion = remember(context) { animationsRemoved(context) }
 
     val open: () -> Unit = {
         if (!opening) {
@@ -189,7 +206,7 @@ fun UnopenedRecordScreen(
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "Shake your phone, or press and hold, to open it.",
+            text = "Shake your phone, or press and hold the envelope",
             // Brightens from the usual 55% towards full cream at the top of a pulse.
             color = VinylPalette.Cream.copy(alpha = 0.55f + 0.45f * helperPulse.value),
             style = ReceiveFlowStyle.Helper,
@@ -219,6 +236,7 @@ fun UnopenedRecordScreen(
         Envelope(
             flip = flip.value,
             letterLift = LetterLiftDistance * letterLift.value,
+            holdProgress = holdProgress.value,
             modifier = Modifier
                 .graphicsLayer {
                     rotationZ = wobble * WobbleDegrees * wobbleAmount.value + nudge.value
@@ -227,13 +245,27 @@ fun UnopenedRecordScreen(
                 .pointerInput(Unit) {
                     awaitEachGesture {
                         awaitFirstDown(requireUnconsumed = false)
+                        // The ring fills over the hold; with animations removed it shows full
+                        // straight away instead of moving.
+                        if (!opening) {
+                            scope.launch {
+                                if (reduceMotion) {
+                                    holdProgress.snapTo(1f)
+                                } else {
+                                    holdProgress.animateTo(1f, tween(LongPressOpenMs.toInt(), easing = LinearEasing))
+                                }
+                            }
+                        }
                         var released = false
                         // Null when the finger is still down once the time is up: a long press.
                         val endedInTime = withTimeoutOrNull(LongPressOpenMs) {
                             released = waitForUpOrCancellation() != null
                         }
+                        scope.launch { holdProgress.snapTo(0f) }
                         when {
                             endedInTime == null -> open()
+                            // A TalkBack double tap arrives as a tap: it opens the card.
+                            released && currentTouchExploration -> open()
                             released -> remind()
                             // Dragged off the envelope: neither a tap nor a hold.
                             else -> Unit
@@ -241,7 +273,17 @@ fun UnopenedRecordScreen(
                     }
                 }
                 .semantics {
-                    contentDescription = "Unopened music card"
+                    contentDescription = if (touchExploration) {
+                        "Sealed envelope. Double tap to open."
+                    } else {
+                        "Sealed envelope. Shake your phone, or press and hold to open."
+                    }
+                    if (touchExploration) {
+                        onClick(label = "Open card") {
+                            open()
+                            true
+                        }
+                    }
                     customActions = listOf(
                         CustomAccessibilityAction("Open card") {
                             open()
@@ -282,6 +324,29 @@ fun UnopenedRecordScreen(
 }
 
 /**
+ * Whether touch exploration (TalkBack) is on, kept up to date while the screen is shown so
+ * turning it on or off takes effect without leaving the page.
+ */
+@Composable
+private fun rememberTouchExplorationEnabled(): Boolean {
+    val context = LocalContext.current
+    val manager = remember(context) { context.getSystemService(AccessibilityManager::class.java) }
+    var enabled by remember(manager) { mutableStateOf(manager?.isTouchExplorationEnabled == true) }
+    DisposableEffect(manager) {
+        if (manager == null) return@DisposableEffect onDispose {}
+        val listener = AccessibilityManager.TouchExplorationStateChangeListener { enabled = it }
+        manager.addTouchExplorationStateChangeListener(listener)
+        enabled = manager.isTouchExplorationEnabled
+        onDispose { manager.removeTouchExplorationStateChangeListener(listener) }
+    }
+    return enabled
+}
+
+/** True when the system's "Remove animations" setting is on (animator duration scale 0). */
+private fun animationsRemoved(context: Context): Boolean =
+    Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+
+/**
  * The envelope, drawn rather than imported so its parts can move independently.
  *
  * [flip] runs the flap from closed (0) to fully open (1), a 180 degree turn about its top edge.
@@ -290,7 +355,7 @@ fun UnopenedRecordScreen(
  * body's top corners square off, so the open flap meets them without a notch.
  */
 @Composable
-private fun Envelope(flip: Float, letterLift: Dp, modifier: Modifier = Modifier) {
+private fun Envelope(flip: Float, letterLift: Dp, holdProgress: Float = 0f, modifier: Modifier = Modifier) {
     val turn = cos(Math.PI * flip).toFloat() // 1 closed, 0 edge-on, -1 open
     val flapOpen = turn < 0f
     // Square by the time the flap is edge-on, before its open side shows.
@@ -314,6 +379,34 @@ private fun Envelope(flip: Float, letterLift: Dp, modifier: Modifier = Modifier)
         Canvas(modifier = Modifier.fillMaxSize()) {
             drawPocket(bodyTopCorner.toPx(), BodyCorner.toPx())
             if (!flapOpen) drawFlap(turn, open = false)
+        }
+
+        // The long-press ring: a thin teal arc round the seal that fills while the envelope is held.
+        // It rides on the flap's tip with the seal and fades with it.
+        if (holdProgress > 0f) {
+            Canvas(
+                modifier = Modifier
+                    .offset {
+                        val tipY = (EnvelopeHeight * FlapDepth).toPx() * turn
+                        IntOffset(
+                            ((EnvelopeWidth - HoldRingSize) / 2).roundToPx(),
+                            (tipY - (HoldRingSize / 2).toPx()).roundToInt(),
+                        )
+                    }
+                    .graphicsLayer { alpha = (1f - flip * 2.5f).coerceIn(0f, 1f) }
+                    .size(HoldRingSize),
+            ) {
+                val stroke = 3.dp.toPx()
+                drawArc(
+                    color = VinylPalette.TealAccent,
+                    startAngle = -90f,
+                    sweepAngle = 360f * holdProgress,
+                    useCenter = false,
+                    topLeft = Offset(stroke / 2, stroke / 2),
+                    size = Size(size.width - stroke, size.height - stroke),
+                    style = Stroke(width = stroke, cap = StrokeCap.Round),
+                )
+            }
         }
 
         // The seal rides on the flap's tip and fades as the flap lifts.
@@ -432,6 +525,9 @@ private val LetterHeight = 140.dp
 private val LetterLiftDistance = 60.dp
 
 private val SealSize = 60.dp
+
+/** The long-press ring sits just outside the seal. */
+private val HoldRingSize = SealSize + 12.dp
 private val GroupGap = 28.dp
 
 private val BackColor = Color(0xFFCFC8BA)
@@ -474,5 +570,14 @@ private fun UnopenedRecordScreenPreview() {
 private fun EnvelopeOpenPreview() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Envelope(flip = 1f, letterLift = LetterLiftDistance)
+    }
+}
+
+/** The closed envelope part way through a long press, showing the ring round the seal. */
+@Preview(showBackground = true, backgroundColor = 0xFF1C1C1C, widthDp = 320, heightDp = 260)
+@Composable
+private fun EnvelopeHoldPreview() {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Envelope(flip = 0f, letterLift = 0.dp, holdProgress = 0.6f)
     }
 }

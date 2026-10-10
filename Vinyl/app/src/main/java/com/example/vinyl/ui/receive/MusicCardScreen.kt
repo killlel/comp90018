@@ -15,10 +15,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ButtonDefaults
@@ -73,36 +78,70 @@ data class MusicCardUiState(
     /** False when there is no location to point at, which hides the compass chip. */
     val hasDirection: Boolean = false,
     val isKept: Boolean = false,
-    /** Why the last keep didn't go through. */
+    /** Why the last keep (or, from the Collection, the last star or remove) didn't go through. */
     val keepError: String? = null,
+    /** The Collection's star. Null hides it: the receive flow, and cards the reader sent. */
+    val isFavourite: Boolean? = null,
+    /** A card the reader sent themselves, opened from their Collection. Signed "you". */
+    val isOwn: Boolean = false,
 )
 
 /**
- * Page 4 of the receive flow, full screen: the opened music card.
+ * The opened music card. Page 4 of the receive flow shows it full screen; the details sheet
+ * (from the Home shelf or the Collection) shows it in a bottom sheet with [inSheet].
  *
- * The round play button plays the 30 second preview here and never navigates. The way out is
- * [onPlayOnTurntable], or the system back, both of which the caller sends to Home.
+ * The round play button plays the 30 second preview here and never navigates.
+ *
+ * @param onToggleKeep the bookmark. Null hides it, as in the Collection.
+ * @param onPlayOnTurntable null hides the button; the store links then fill the row.
+ * @param onToggleFavourite the star, shown when [MusicCardUiState.isFavourite] isn't null.
+ * @param onRemove the menu's "Remove from Collection". Null hides the menu.
+ * @param inSheet draws a drag handle instead of clearing the status bar, and stops and releases
+ *   the preview when the app goes to the background (full screen it only pauses).
+ * @param playerActive false stops and releases the preview at once, for a sheet that is closing
+ *   but still drawn while it slides away.
  */
 @Composable
 fun MusicCardScreen(
     state: MusicCardUiState,
-    onToggleKeep: () -> Unit,
+    onToggleKeep: (() -> Unit)?,
     onOpenCompass: () -> Unit,
-    onPlayOnTurntable: () -> Unit,
+    onPlayOnTurntable: (() -> Unit)?,
+    onToggleFavourite: () -> Unit = {},
+    onRemove: (() -> Unit)? = null,
+    inSheet: Boolean = false,
+    playerActive: Boolean = true,
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(VinylPalette.SheetSurface)
-            .statusBarsPadding()
+            .then(if (inSheet) Modifier else Modifier.statusBarsPadding())
             .navigationBarsPadding()
             .padding(horizontal = 20.dp, vertical = 12.dp),
     ) {
-        TopBar(isKept = state.isKept, onToggleKeep = onToggleKeep)
+        if (inSheet) {
+            // The sheet's drag strip covers the top 32dp, so the buttons start below it.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .size(width = 36.dp, height = 4.dp)
+                    .clip(CircleShape)
+                    .background(VinylPalette.Cream.copy(alpha = 0.3f)),
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        TopBar(
+            state = state,
+            onToggleKeep = onToggleKeep,
+            onToggleFavourite = onToggleFavourite,
+            onRemove = onRemove,
+        )
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        PlayerCard(state = state)
+        PlayerCard(state = state, releaseOnBackground = inSheet, active = playerActive)
 
         state.keepError?.let {
             Text(
@@ -131,31 +170,103 @@ fun MusicCardScreen(
     }
 }
 
+/**
+ * The title, centred, with the card's actions at the right: the bookmark in the receive flow, the
+ * star and the menu in the Collection. The title is kept clear of the actions on both sides, so it
+ * stays centred whichever are shown.
+ */
 @Composable
-private fun TopBar(isKept: Boolean, onToggleKeep: () -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        // Balances the bookmark so the title stays centred.
-        Spacer(modifier = Modifier.size(48.dp))
+private fun TopBar(
+    state: MusicCardUiState,
+    onToggleKeep: (() -> Unit)?,
+    onToggleFavourite: () -> Unit,
+    onRemove: (() -> Unit)?,
+) {
+    val actionCount = listOf(onToggleKeep != null, state.isFavourite != null, onRemove != null).count { it }
+    Box(
+        modifier = Modifier.fillMaxWidth().height(TopBarTouchSize),
+        contentAlignment = Alignment.Center,
+    ) {
         Text(
             text = "Card details",
             color = VinylPalette.Cream,
             style = ReceiveFlowStyle.Title,
             textAlign = TextAlign.Center,
-            modifier = Modifier.weight(1f),
-        )
-        Box(
-            // 48dp touch target; the bookmark itself stays 24dp.
+            maxLines = 1,
             modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .clickable(role = Role.Button, onClick = onToggleKeep),
-            contentAlignment = Alignment.Center,
-        ) {
+                .fillMaxWidth()
+                .padding(horizontal = TopBarTouchSize * actionCount),
+        )
+        Row(modifier = Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically) {
+            state.isFavourite?.let { favourite ->
+                TopBarButton(onClick = onToggleFavourite) {
+                    Icon(
+                        if (favourite) Icons.Rounded.Star else Icons.Outlined.StarBorder,
+                        contentDescription = if (favourite) "Remove from favourites" else "Add to favourites",
+                        tint = if (favourite) VinylPalette.TealAccent else VinylPalette.Cream,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
+            onRemove?.let { OverflowMenu(onRemove = it) }
+            onToggleKeep?.let { keep ->
+                TopBarButton(onClick = keep) {
+                    Icon(
+                        if (state.isKept) Icons.Rounded.Bookmark else Icons.Outlined.BookmarkBorder,
+                        contentDescription = if (state.isKept) "Remove from collection" else "Keep this music card",
+                        tint = if (state.isKept) VinylPalette.TealAccent else VinylPalette.Cream,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** A 48dp touch target around a 24dp icon. */
+@Composable
+private fun TopBarButton(onClick: () -> Unit, icon: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(TopBarTouchSize)
+            .clip(CircleShape)
+            .clickable(role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        icon()
+    }
+}
+
+/** The three-dot menu. Its one item takes the card off the shelf, with an undo afterwards. */
+@Composable
+private fun OverflowMenu(onRemove: () -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        TopBarButton(onClick = { open = true }) {
             Icon(
-                if (isKept) Icons.Rounded.Bookmark else Icons.Outlined.BookmarkBorder,
-                contentDescription = if (isKept) "Remove from collection" else "Keep this music card",
-                tint = if (isKept) VinylPalette.TealAccent else VinylPalette.Cream,
+                Icons.Rounded.MoreVert,
+                contentDescription = "More options",
+                tint = VinylPalette.Cream,
                 modifier = Modifier.size(24.dp),
+            )
+        }
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            containerColor = ReceiveFlowStyle.IconWell,
+        ) {
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        "Remove from Collection",
+                        color = VinylPalette.Cream,
+                        style = ReceiveFlowStyle.text(15.sp, FontWeight.Normal, 22.sp),
+                    )
+                },
+                onClick = {
+                    open = false
+                    onRemove()
+                },
             )
         }
     }
@@ -166,7 +277,7 @@ private fun TopBar(isKept: Boolean, onToggleKeep: () -> Unit) {
  * along the bottom edge fills while it plays; the preview stops at 0:30.
  */
 @Composable
-private fun PlayerCard(state: MusicCardUiState) {
+private fun PlayerCard(state: MusicCardUiState, releaseOnBackground: Boolean, active: Boolean) {
     val audio = rememberAudioPreviewController()
     val url = state.previewUrl
     var elapsedMs by remember { mutableLongStateOf(0L) }
@@ -187,18 +298,32 @@ private fun PlayerCard(state: MusicCardUiState) {
         }
     }
 
-    // Leaving the app (the Home button, another app on top) pauses the preview; it stays paused,
-    // at the same point, until the play button is pressed again.
+    // Leaving the app (the Home button, another app on top): full screen, the preview pauses and
+    // stays at the same point until the play button is pressed again; in the sheet it stops and
+    // is released, and starts over from 0:30.
     val lifecycleOwner = LocalLifecycleOwner.current
     val currentUrl by rememberUpdatedState(url)
+    val currentReleaseOnBackground by rememberUpdatedState(releaseOnBackground)
     DisposableEffect(lifecycleOwner, audio) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP && audio.isPlaying && audio.currentUrl == currentUrl) {
+            if (event != Lifecycle.Event.ON_STOP) return@LifecycleEventObserver
+            if (currentReleaseOnBackground) {
+                audio.release()
+                elapsedMs = 0L
+            } else if (audio.isPlaying && audio.currentUrl == currentUrl) {
                 audio.toggle(currentUrl) // pauses
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // A sheet that is closing is still drawn while it slides away; the sound stops straight away.
+    LaunchedEffect(active) {
+        if (!active) {
+            audio.release()
+            elapsedMs = 0L
+        }
     }
 
     val onPlayPause: () -> Unit = {
@@ -375,7 +500,7 @@ private fun Letter(state: MusicCardUiState, onOpenCompass: () -> Unit, modifier:
             horizontalAlignment = Alignment.End,
         ) {
             Text(
-                text = "- someone, somewhere",
+                text = if (state.isOwn) "— you" else "- someone, somewhere",
                 color = VinylPalette.Background.copy(alpha = 0.75f),
                 style = ReceiveFlowStyle.text(15.sp, FontWeight.Light, 22.sp),
             )
@@ -451,12 +576,41 @@ private fun CompassChip(onClick: () -> Unit) {
 /**
  * Apple Music and Spotify together in one pill, then "Play on turntable". Each service opens a
  * search for this song, the same links the Collection's card uses: the card only knows the title
- * and artist. The row spans exactly the letter card's width.
+ * and artist. The row spans exactly the letter card's width. With no [onPlayOnTurntable] the pill
+ * takes the whole row, each service a labelled half.
  */
 @Composable
-private fun BottomRow(trackName: String, artistName: String, onPlayOnTurntable: () -> Unit) {
+private fun BottomRow(trackName: String, artistName: String, onPlayOnTurntable: (() -> Unit)?) {
     val uriHandler = LocalUriHandler.current
     val query = Uri.encode("$trackName $artistName")
+    val openAppleMusic = { uriHandler.openUri("https://music.apple.com/search?term=$query") }
+    val openSpotify = { uriHandler.openUri("https://open.spotify.com/search/$query") }
+
+    if (onPlayOnTurntable == null) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+                .clip(CircleShape)
+                .background(ReceiveFlowStyle.PanelBrush)
+                .border(1.5.dp, ReceiveFlowStyle.PanelBorder, CircleShape),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            StoreHalf(label = "Apple Music", onClickLabel = "Open in Apple Music", onClick = openAppleMusic) {
+                AppleMusicIcon(contentDescription = null)
+            }
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .height(24.dp)
+                    .background(ReceiveFlowStyle.PanelBorder),
+            )
+            StoreHalf(label = "Spotify", onClickLabel = "Open in Spotify", onClick = openSpotify) {
+                SpotifyIcon(contentDescription = null)
+            }
+        }
+        return
+    }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -478,34 +632,19 @@ private fun BottomRow(trackName: String, artistName: String, onPlayOnTurntable: 
                 modifier = Modifier
                     .size(StreamingTouchSize)
                     .clip(CircleShape)
-                    .clickable(role = Role.Button) {
-                        uriHandler.openUri("https://music.apple.com/search?term=$query")
-                    },
+                    .clickable(role = Role.Button, onClick = openAppleMusic),
                 contentAlignment = Alignment.Center,
             ) {
-                Image(
-                    painter = painterResource(R.drawable.ic_apple_music),
-                    contentDescription = "Open in Apple Music",
-                    modifier = Modifier.size(StreamingIconSize),
-                )
+                AppleMusicIcon(contentDescription = "Open in Apple Music")
             }
             Box(
                 modifier = Modifier
                     .size(StreamingTouchSize)
                     .clip(CircleShape)
-                    .clickable(role = Role.Button) {
-                        uriHandler.openUri("https://open.spotify.com/search/$query")
-                    },
+                    .clickable(role = Role.Button, onClick = openSpotify),
                 contentAlignment = Alignment.Center,
             ) {
-                // The file keeps a little empty canvas around its circle, so it is drawn just
-                // larger than its slot to make the circle itself the slot's size. Only that
-                // transparent margin spills past the slot's edge.
-                Image(
-                    painter = painterResource(R.drawable.ic_spotify),
-                    contentDescription = "Open in Spotify",
-                    modifier = Modifier.requiredSize(SpotifyCanvasWidth, SpotifyCanvasHeight),
-                )
+                SpotifyIcon(contentDescription = "Open in Spotify")
             }
         }
         OutlinedButton(
@@ -541,6 +680,55 @@ private fun BottomRow(trackName: String, artistName: String, onPlayOnTurntable: 
     }
 }
 
+/** One labelled half of the full-width store pill: the official icon, then the service's name. */
+@Composable
+private fun RowScope.StoreHalf(
+    label: String,
+    onClickLabel: String,
+    onClick: () -> Unit,
+    icon: @Composable () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxHeight()
+            .clickable(role = Role.Button, onClickLabel = onClickLabel, onClick = onClick),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(modifier = Modifier.size(StreamingIconSize), contentAlignment = Alignment.Center) { icon() }
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+            text = label,
+            color = VinylPalette.Cream,
+            style = ReceiveFlowStyle.text(15.sp, FontWeight.Medium, 22.sp),
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun AppleMusicIcon(contentDescription: String?) {
+    Image(
+        painter = painterResource(R.drawable.ic_apple_music),
+        contentDescription = contentDescription,
+        modifier = Modifier.size(StreamingIconSize),
+    )
+}
+
+/**
+ * The file keeps a little empty canvas around its circle, so it is drawn just larger than its
+ * slot to make the circle itself the slot's size. Only that transparent margin spills past.
+ */
+@Composable
+private fun SpotifyIcon(contentDescription: String?) {
+    Image(
+        painter = painterResource(R.drawable.ic_spotify),
+        contentDescription = contentDescription,
+        modifier = Modifier.requiredSize(SpotifyCanvasWidth, SpotifyCanvasHeight),
+    )
+}
+
 private const val PreviewMs = 30_000L
 
 /** Messages this long or shorter are set large and centred on the letter. */
@@ -553,6 +741,7 @@ private val ChipInk = Color(0xFF0A6F69)
 /** Apple Music and Spotify icons inside their shared pill. */
 private val StreamingIconSize = 36.dp
 private val StreamingTouchSize = 48.dp
+private val TopBarTouchSize = 48.dp
 
 // Icon_Spotify.svg is 236.05 x 225.25 with a circle about 218.7 across. Scaled so the circle
 // matches [StreamingIconSize], the whole canvas is this size.
@@ -596,5 +785,69 @@ private fun MusicCardScreenKeptNoLocationPreview() {
         onToggleKeep = {},
         onOpenCompass = {},
         onPlayOnTurntable = {},
+    )
+}
+
+/** History mode, as the Collection opens it: star and menu, no bookmark, compass or turntable. */
+@Preview(showBackground = true, backgroundColor = 0xFF1C1C1C, widthDp = 390, heightDp = 743)
+@Composable
+private fun MusicCardHistoryPreview() {
+    MusicCardScreen(
+        state = MusicCardUiState(
+            trackName = "Roygbiv",
+            artistName = "Boards of Canada",
+            previewUrl = "https://example.com/preview.m4a",
+            mood = MoodTag.Nostalgic,
+            message = "Sounds like an old home video of a summer you half remember.",
+            sentDateLabel = "6 Oct",
+            isFavourite = true,
+        ),
+        onToggleKeep = null,
+        onOpenCompass = {},
+        onPlayOnTurntable = null,
+        onRemove = {},
+        inSheet = true,
+    )
+}
+
+/** A card the reader sent: no star or menu, signed by them. */
+@Preview(showBackground = true, backgroundColor = 0xFF1C1C1C, widthDp = 390, heightDp = 743)
+@Composable
+private fun MusicCardSentPreview() {
+    MusicCardScreen(
+        state = MusicCardUiState(
+            trackName = "Liability",
+            artistName = "Lorde",
+            previewUrl = "https://example.com/preview.m4a",
+            mood = MoodTag.Lonely,
+            message = "For when you feel like too much for everyone. You are not.",
+            sentDateLabel = "5 Oct",
+            isOwn = true,
+        ),
+        onToggleKeep = null,
+        onOpenCompass = {},
+        onPlayOnTurntable = null,
+        inSheet = true,
+    )
+}
+
+/** Receive mode in the sheet, for a song with no preview: the play button is greyed out. */
+@Preview(showBackground = true, backgroundColor = 0xFF1C1C1C, widthDp = 390, heightDp = 743)
+@Composable
+private fun MusicCardNoPreviewUrlPreview() {
+    MusicCardScreen(
+        state = MusicCardUiState(
+            trackName = "Heaven or Las Vegas",
+            artistName = "Cocteau Twins",
+            previewUrl = null,
+            mood = MoodTag.Romantic,
+            message = "You won't catch half the words. You don't need to.",
+            sentDateLabel = "7 Oct",
+            hasDirection = true,
+        ),
+        onToggleKeep = {},
+        onOpenCompass = {},
+        onPlayOnTurntable = {},
+        inSheet = true,
     )
 }

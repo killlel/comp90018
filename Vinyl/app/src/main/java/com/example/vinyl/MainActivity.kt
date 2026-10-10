@@ -55,6 +55,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.runtime.key
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -126,6 +131,10 @@ import com.example.vinyl.data.model.VinylRecord
 import com.example.vinyl.data.model.RecordSource
 import com.example.vinyl.ui.daily.distanceLabelAndNote
 import com.example.vinyl.ui.daily.sentTimeLabel
+import com.example.vinyl.ui.daily.sentDateLabel
+import com.example.vinyl.repository.RoomRepository
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import com.example.vinyl.ui.theme.VinylPalette
 import com.example.vinyl.ui.theme.VinylTheme
 import com.example.vinyl.ui.write.WriteCardScreen
@@ -344,7 +353,18 @@ private fun VinylApp(
     // there is shown below as a music card, over the bottom bar like the receive flow.
     val collectionViewModel: CollectionViewModel = viewModel()
     val collectionState by collectionViewModel.uiState.collectAsState()
-    var collectionCompassOpen by rememberSaveable { mutableStateOf(false) }
+
+    // A card from the Home shelf that was already opened this session skips the envelope and
+    // shows straight away in a details sheet. In memory only: a new launch starts empty, so each
+    // card's first opening still goes through the envelope.
+    val openedThisSession = remember { mutableSetOf<String>() }
+    var shelfCard by remember { mutableStateOf<ArrivedRecordOption?>(null) }
+    var shelfCompassOpen by remember { mutableStateOf(false) }
+
+    // "Removed. Undo" after taking a card off the Collection shelf.
+    val snackbarHostState = remember { SnackbarHostState() }
+    val appScope = rememberCoroutineScope()
+    val roomRepository = remember { RoomRepository() }
 
     // Same activity-scoped instance HomeScreen uses. Its "Arrived today" shelf shows the latest
     // hand, so it reloads after the receive flow closes in case a new one was dealt.
@@ -355,10 +375,67 @@ private fun VinylApp(
     val playbackViewModel: PlaybackViewModel = viewModel()
     val playOnHome: (NowPlaying) -> Unit = { track ->
         receiveFlowStep = null
-        collectionCompassOpen = false
+        shelfCard = null
+        shelfCompassOpen = false
         collectionViewModel.closeRecord()
         selectedTab = AppTab.Home
         playbackViewModel.play(track)
+    }
+
+    // "Play on turntable" on a received card, from page 4 or the shelf's details sheet.
+    val playCardOnTurntable: (ArrivedRecordOption) -> Unit = { option ->
+        val track = NowPlaying(
+            submissionId = option.submissionId,
+            title = option.trackName,
+            artist = option.artistName,
+            artworkUrl = option.artworkUrl,
+            previewUrl = option.previewUrl,
+        )
+        // Already on the turntable: go back to it rather than restarting the song, and resume it
+        // if it was paused there.
+        val current = playbackViewModel.nowPlaying.value
+        val alreadyPlaying = current != null && current.submissionId == track.submissionId &&
+            current.title == track.title && current.artist == track.artist
+        if (alreadyPlaying) {
+            if (playbackViewModel.clock.value?.isPaused == true) playbackViewModel.togglePause()
+            receiveFlowStep = null
+            shelfCard = null
+            shelfCompassOpen = false
+            selectedTab = AppTab.Home
+        } else {
+            playOnHome(track)
+        }
+    }
+
+    // Takes a card off the Collection shelf, closes its sheet and offers an undo. The undo keeps
+    // the card again and restores its star, then reloads the Collection.
+    val removeFromCollection: (VinylRecord) -> Unit = { record ->
+        val countBefore = collectionState.totalCount
+        collectionViewModel.closeRecord()
+        collectionViewModel.remove(record)
+        appScope.launch {
+            // Waits for the remove to land (or fail) before offering to undo it.
+            val settled = withTimeoutOrNull(RemoveSettleTimeoutMs) {
+                collectionViewModel.uiState.first { it.actionError != null || it.totalCount < countBefore }
+            } ?: return@launch
+            if (settled.actionError != null) {
+                snackbarHostState.showSnackbar(settled.actionError)
+                return@launch
+            }
+            val result = snackbarHostState.showSnackbar(
+                message = "Removed.",
+                actionLabel = "Undo",
+                duration = SnackbarDuration.Short,
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                roomRepository.keep(record.id)
+                    .onSuccess {
+                        if (record.isFavourite) roomRepository.setFavourite(record.id, true)
+                        collectionViewModel.refresh()
+                    }
+                    .onFailure { snackbarHostState.showSnackbar("Couldn't put it back. Try again.") }
+            }
+        }
     }
 
     // The hand of cards Arrived Today last showed, so its rise-in plays once per hand. A plain
@@ -401,6 +478,7 @@ private fun VinylApp(
 
     Scaffold(
         containerColor = VinylPalette.Background,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             NavigationBar(
                 containerColor = VinylPalette.PanelDark,
@@ -457,9 +535,12 @@ private fun VinylApp(
                     // needs it loaded too: an unopened card's back button returns there.
                     onOpenCard = { card ->
                         roomViewModel.load(mood = null)
-                        receiveFlowStep = ReceiveFlowStep.Unopened(
-                            card.toArrivedOption(readerLat = locationState.lat, readerLng = locationState.lng),
-                        )
+                        val option = card.toArrivedOption(readerLat = locationState.lat, readerLng = locationState.lng)
+                        if (option.sessionKey in openedThisSession) {
+                            shelfCard = option
+                        } else {
+                            receiveFlowStep = ReceiveFlowStep.Unopened(option)
+                        }
                     },
                     onSeeAllArrived = {
                         roomViewModel.load(mood = null)
@@ -481,8 +562,9 @@ private fun VinylApp(
     // The receive flow is the same kind of overlay. Each step goes where its own on-screen
     // back or close button goes: an unopened record steps back to the picker, the compass back
     // to its card; every other step closes the flow. Declared last so it wins while the flow is on top.
-    BackHandler(enabled = collectionState.openRecord != null) {
-        if (collectionCompassOpen) collectionCompassOpen = false else collectionViewModel.closeRecord()
+    BackHandler(enabled = collectionState.openRecord != null) { collectionViewModel.closeRecord() }
+    BackHandler(enabled = shelfCard != null) {
+        if (shelfCompassOpen) shelfCompassOpen = false else shelfCard = null
     }
     BackHandler(enabled = receiveFlowStep != null) {
         // Arrived Today and the music card have no back arrow: back from them goes to Home.
@@ -611,7 +693,10 @@ private fun VinylApp(
                     mood = step.option.mood,
                     sentDateLabel = step.option.sentDateLabel,
                 ),
-                onOpen = { receiveFlowStep = ReceiveFlowStep.Opened(step.option) },
+                onOpen = {
+                    openedThisSession += step.option.sessionKey
+                    receiveFlowStep = ReceiveFlowStep.Opened(step.option)
+                },
                 onBack = { receiveFlowStep = ReceiveFlowStep.ArrivedToday },
             )
         }
@@ -635,25 +720,7 @@ private fun VinylApp(
                 ),
                 onToggleKeep = { submissionId?.let(roomViewModel::toggleKeep) },
                 onOpenCompass = { receiveFlowStep = ReceiveFlowStep.Direction(step.option) },
-                onPlayOnTurntable = {
-                    val track = NowPlaying(
-                        submissionId = submissionId,
-                        title = step.option.trackName,
-                        artist = step.option.artistName,
-                        artworkUrl = step.option.artworkUrl,
-                        previewUrl = step.option.previewUrl,
-                    )
-                    // Already on the turntable: just go back to it rather than restarting the song.
-                    val current = playbackViewModel.nowPlaying.value
-                    val alreadyPlaying = current != null && current.submissionId == track.submissionId &&
-                        current.title == track.title && current.artist == track.artist
-                    if (alreadyPlaying) {
-                        receiveFlowStep = null
-                        selectedTab = AppTab.Home
-                    } else {
-                        playOnHome(track)
-                    }
-                },
+                onPlayOnTurntable = { playCardOnTurntable(step.option) },
             )
         }
 
@@ -684,99 +751,90 @@ private fun VinylApp(
         else -> Unit
     }
 
-    collectionState.openRecord.let { record ->
-        CollectionCardOverlay(
-            record = record,
-            actionError = collectionState.actionError,
-            readerLat = locationState.lat,
-            readerLng = locationState.lng,
-            compassOpen = collectionCompassOpen,
-            onOpenCompass = { collectionCompassOpen = true },
-            onCloseCompass = { collectionCompassOpen = false },
-            onToggleFavourite = { record?.let(collectionViewModel::toggleFavourite) },
-            onRemove = { record?.let(collectionViewModel::remove) },
-            onPlay = {
-                record?.let {
-                    playOnHome(
-                        NowPlaying(
-                            submissionId = it.id,
-                            title = it.songName,
-                            artist = it.artist,
-                            artworkUrl = it.coverUrl,
-                            previewUrl = it.previewUrl,
-                        ),
-                    )
-                }
-            },
-            onClose = {
-                collectionCompassOpen = false
-                collectionViewModel.closeRecord()
-            },
-        )
-    }
+    // A card from the Home shelf that was opened earlier this session: receive mode in a sheet,
+    // with the bookmark, the compass and "Play on turntable".
+    val roomStateForShelf by roomViewModel.uiState.collectAsState()
+    ShelfCardSheet(
+        option = shelfCard,
+        compassOpen = shelfCompassOpen,
+        keptIds = roomStateForShelf.keptIds,
+        keepError = roomStateForShelf.keepError,
+        readerLat = locationState.lat,
+        readerLng = locationState.lng,
+        onToggleKeep = { id -> roomViewModel.toggleKeep(id) },
+        onOpenCompass = { shelfCompassOpen = true },
+        onCloseCompass = { shelfCompassOpen = false },
+        onPlayOnTurntable = playCardOnTurntable,
+        onClose = {
+            shelfCompassOpen = false
+            shelfCard = null
+        },
+    )
+
+    CollectionCardSheet(
+        record = collectionState.openRecord,
+        actionError = collectionState.actionError,
+        onToggleFavourite = { collectionState.openRecord?.let(collectionViewModel::toggleFavourite) },
+        onRemove = { collectionState.openRecord?.let(removeFromCollection) },
+        onClose = collectionViewModel::closeRecord,
+    )
 }
 
+/** Identifies a card in the session's set of opened cards: its record id, else its delivery's. */
+private val ArrivedRecordOption.sessionKey: String get() = submissionId ?: id
+
+/** How long to wait for a remove to reach the server before giving up on offering an undo. */
+private const val RemoveSettleTimeoutMs = 10_000L
+
 /**
- * A record opened from the Collection, shown as the same music card the receive flow ends on.
- * Received cards can be starred, removed, and pointed at with the compass; a card you sent is
- * only shown.
+ * A card from the Home shelf in receive mode, in a bottom sheet: the same music card page 4
+ * shows, without the envelope. The compass opens over it and its back arrow returns here.
  *
- * [record] is null when nothing is open. It's still drawn then, so the sheet can slide out
+ * [option] is null when nothing is open. It's still drawn then, so the sheet can slide out
  * showing the card it's closing.
  */
 @Composable
-private fun CollectionCardOverlay(
-    record: VinylRecord?,
-    actionError: String?,
+private fun ShelfCardSheet(
+    option: ArrivedRecordOption?,
+    compassOpen: Boolean,
+    keptIds: Set<String>,
+    keepError: String?,
     readerLat: Double?,
     readerLng: Double?,
-    compassOpen: Boolean,
+    onToggleKeep: (String) -> Unit,
     onOpenCompass: () -> Unit,
     onCloseCompass: () -> Unit,
-    onToggleFavourite: () -> Unit,
-    onRemove: () -> Unit,
-    onPlay: () -> Unit,
+    onPlayOnTurntable: (ArrivedRecordOption) -> Unit,
     onClose: () -> Unit,
 ) {
-    // The card to draw: the open one, or while sliding out, the one just closed. Null only
-    // before the first open - the sheet is still composed then, so its first slide-up plays.
-    val shown = rememberLastNonNull(record)
-    val received = shown?.source == RecordSource.RECEIVED
-    // Removing is a delete on the server, so it's confirmed first.
-    var confirmRemove by rememberSaveable(shown?.id) { mutableStateOf(false) }
-    // Your own card has no distance to show, nor a reason for not showing one.
-    val (distanceLabel, distanceNote) = if (shown != null && received) {
-        distanceLabelAndNote(shown.senderLat, shown.senderLng, readerLat, readerLng)
-    } else {
-        null to null
-    }
+    val shown = rememberLastNonNull(option)
+    val showCompass = option != null && compassOpen && option.distanceLabel != null
 
-    val showCompass = record != null && compassOpen && distanceLabel != null
-
-    // The sheet slides down under the compass and back up when the compass closes.
-    AnimatedBottomSheet(visible = record != null && !showCompass, onDismiss = onClose) {
+    AnimatedBottomSheet(visible = option != null && !showCompass, onDismiss = onClose, dismissOnSwipe = true) {
         if (shown == null) return@AnimatedBottomSheet
-        ReceivedCardScreen(
-            state = ReceivedCardUiState(
-                trackName = shown.songName,
-                artistName = shown.artist,
-                artworkUrl = shown.coverUrl,
-                mood = shown.moodTag,
-                message = shown.message.orEmpty(),
-                senderDistanceLabel = distanceLabel,
-                senderDistanceNote = distanceNote,
-                sentTimeLabel = sentTimeLabel(shown.sentAt),
-                keepError = actionError,
-                isFavourite = if (received) shown.isFavourite else null,
-                isOwn = !received,
-            ),
-            onClose = onClose,
-            onKeep = null,
-            onRemove = if (received) ({ confirmRemove = true }) else null,
-            onToggleFavourite = onToggleFavourite,
-            onViewDirection = onOpenCompass,
-            onPlay = onPlay,
-        )
+        val submissionId = shown.submissionId
+        // A fresh player for each card, so one card's progress never carries over to the next.
+        key(shown.sessionKey) {
+            MusicCardScreen(
+                state = MusicCardUiState(
+                    trackName = shown.trackName,
+                    artistName = shown.artistName,
+                    artworkUrl = shown.artworkUrl,
+                    previewUrl = shown.previewUrl,
+                    mood = shown.mood,
+                    message = shown.messagePreview,
+                    sentDateLabel = shown.sentDateLabel,
+                    hasDirection = shown.distanceLabel != null,
+                    isKept = submissionId != null && submissionId in keptIds,
+                    keepError = keepError,
+                ),
+                onToggleKeep = { submissionId?.let(onToggleKeep) },
+                onOpenCompass = onOpenCompass,
+                onPlayOnTurntable = { onPlayOnTurntable(shown) },
+                inSheet = true,
+                playerActive = option != null && !showCompass,
+            )
+        }
     }
 
     if (showCompass && shown != null) {
@@ -789,35 +847,61 @@ private fun CollectionCardOverlay(
         )
         val senderCityLabel by rememberSenderCityLabel(shown.senderLat, shown.senderLng)
         CompassScreen(
-            state = CompassUiState(distanceLabel = distanceLabel, cityLabel = senderCityLabel),
+            state = CompassUiState(distanceLabel = shown.distanceLabel, cityLabel = senderCityLabel),
             compassState = compassState,
             onBack = onCloseCompass,
         )
     }
-
-    if (record != null && shown != null && confirmRemove) {
-        AlertDialog(
-            onDismissRequest = { confirmRemove = false },
-            containerColor = VinylPalette.SheetSurface,
-            titleContentColor = VinylPalette.TextPrimary,
-            textContentColor = VinylPalette.TextMuted,
-            title = { Text("Remove this music card?") },
-            text = { Text("“${shown.songName}” will be taken off your shelf. This can't be undone.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmRemove = false
-                    onRemove()
-                }) { Text("Remove", color = RemoveConfirmFg) }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmRemove = false }) { Text("Cancel", color = VinylPalette.TextMuted) }
-            },
-        )
-    }
 }
 
-/** The same soft red the old Collection dialog and Settings' sign-out use for a destructive action. */
-private val RemoveConfirmFg = Color(0xFFE57373)
+/**
+ * A record opened from the Collection, in history mode: the music card with the star and a menu
+ * to remove it, and no bookmark, compass or turntable. The compass and the distance belong to the
+ * day a card arrives, so this sheet reads no location and starts no sensor. A card the reader
+ * sent is only shown, signed by them.
+ *
+ * [record] is null when nothing is open. It's still drawn then, so the sheet can slide out
+ * showing the card it's closing.
+ */
+@Composable
+private fun CollectionCardSheet(
+    record: VinylRecord?,
+    actionError: String?,
+    onToggleFavourite: () -> Unit,
+    onRemove: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val shown = rememberLastNonNull(record)
+
+    AnimatedBottomSheet(visible = record != null, onDismiss = onClose, dismissOnSwipe = true) {
+        if (shown == null) return@AnimatedBottomSheet
+        val received = shown.source == RecordSource.RECEIVED
+        key(shown.id) {
+            MusicCardScreen(
+                state = MusicCardUiState(
+                    trackName = shown.songName,
+                    artistName = shown.artist,
+                    artworkUrl = shown.coverUrl,
+                    previewUrl = shown.previewUrl,
+                    mood = shown.moodTag,
+                    message = shown.message.orEmpty(),
+                    sentDateLabel = sentDateLabel(shown.sentAt),
+                    hasDirection = false,
+                    keepError = actionError,
+                    isFavourite = if (received) shown.isFavourite else null,
+                    isOwn = !received,
+                ),
+                onToggleKeep = null,
+                onOpenCompass = {},
+                onPlayOnTurntable = null,
+                onToggleFavourite = onToggleFavourite,
+                onRemove = if (received) onRemove else null,
+                inSheet = true,
+                playerActive = record != null,
+            )
+        }
+    }
+}
 
 /**
  * A manually-built bottom sheet — not Material3's ModalBottomSheet, to avoid depending on an
