@@ -153,7 +153,7 @@ fun WriteCardScreen(
         } else {
             LazyColumn(
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 28.dp),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 32.dp, bottom = 28.dp),
                 verticalArrangement = Arrangement.spacedBy(22.dp),
             ) {
                 item { CreateHeader() }
@@ -223,7 +223,7 @@ private fun CreateHeader() {
         )
         Spacer(Modifier.height(2.dp))
         Text(
-            text = "Send one song and a few words to someone in the world.",
+            text = "A song and a few words, for someone.",
             color = VinylPalette.Cream.copy(alpha = 0.58f),
             style = formText(14.sp, FontWeight.Light, 20.sp),
         )
