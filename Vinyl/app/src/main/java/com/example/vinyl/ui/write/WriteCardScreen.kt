@@ -41,6 +41,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.ContentScale
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.example.vinyl.data.THUMB_ARTWORK_PX
+import com.example.vinyl.data.itunesArtworkAt
 import com.example.vinyl.data.onboarding.GenreOption
 import com.example.vinyl.data.MoodOptions
 import com.example.vinyl.data.Track
@@ -288,7 +290,7 @@ private fun SelectedTrackCard(
         ) {
             if (track.artworkUrl != null) {
                 AsyncImage(
-                    model = track.artworkUrl,
+                    model = itunesArtworkAt(track.artworkUrl, THUMB_ARTWORK_PX),
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
@@ -653,7 +655,7 @@ private fun CardPreview(state: WriteCardUiState, modifier: Modifier = Modifier) 
             ) {
                 if (track.artworkUrl != null) {
                     AsyncImage(
-                        model = track.artworkUrl,
+                        model = itunesArtworkAt(track.artworkUrl, THUMB_ARTWORK_PX),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
