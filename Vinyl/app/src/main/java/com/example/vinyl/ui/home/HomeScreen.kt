@@ -143,17 +143,16 @@ fun HomeScreen(
                 TopBar(avatar = avatar, onOpenSettings = onOpenSettings)
 
                 TodaysCardsShelf(
-                    cards = state.arrivedToday,
+                    // Opened cards only: each joins the shelf as its envelope is opened.
+                    cards = state.onShelf,
                     // A hand dealt but not yet opened: pulled, just not on the shelf yet.
-                    waitingToOpen = state.pendingToday.isNotEmpty(),
+                    waitingToOpen = state.todayHand.isNotEmpty(),
                     onOpenCard = onOpenCard,
                 )
 
-                // One pull a day. It's used once today's cards are on the shelf, or the server
-                // says so (say, pulled on another phone) — but a hand dealt and not yet shown can
-                // always be opened.
-                val usedToday = state.arrivedToday.isNotEmpty() ||
-                    (state.pendingToday.isEmpty() && !state.canPull)
+                // One pull a day, opened one envelope at a time. The button opens today's sealed
+                // envelopes until every one is open, then rests until the next 06:00.
+                val usedToday = state.doneForToday
                 OpenCardsButton(
                     canDraw = !state.isLoading && state.error == null && !usedToday,
                     usedToday = usedToday,
