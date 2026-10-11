@@ -22,6 +22,4 @@ object VinylColors {
     val ShelfEdge = Color(0xFF221717)
     // Thin highlight around a record sleeve.
     val SleeveBorder = Color(0xFF716F6D)
-    val NavBar = Color(0xFF0F0F0F)
-    val Divider = Color(0xFF484746)
 }

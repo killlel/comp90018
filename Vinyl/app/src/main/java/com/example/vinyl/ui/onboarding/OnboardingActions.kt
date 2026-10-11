@@ -21,26 +21,10 @@ import com.example.vinyl.ui.theme.PoppinsFontFamily
 import com.example.vinyl.ui.theme.VinylPalette
 
 /** Shared dimensions retained for permission-page callers. */
-internal val OnboardingActionAreaHeight: Dp = 128.dp
 internal val OnboardingButtonHeight: Dp = 56.dp
 internal val OnboardingHorizontalPadding: Dp = 28.dp
 internal val OnboardingActionMinimumHeight: Dp = 112.dp
 internal val OnboardingBottomPadding: Dp = 20.dp
-
-/** Fixed-height block at the bottom of a page. Its content is stacked from the top. */
-@Composable
-internal fun OnboardingActionArea(
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(OnboardingActionAreaHeight),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        content = content,
-    )
-}
 
 /** The big pill button ("Share my city", "Turn On", ...). */
 @Composable

@@ -14,12 +14,13 @@ directly.
 | `supabase/migrations/20260904000003_functions.sql` | The RPCs the app actually calls |
 | `supabase/migrations/20260918…` – `20260924…` | Sprint 2 profile changes, applied in filename order: profile location, genre lookup, favorite genres, avatars and generated usernames (`20260924000001_usernames_and_avatars.sql`, `20260924000002_user_name_generate.sql`) |
 | `supabase/migrations/20261004000001_matchmaking_v2.sql` | The real matchmaker: rewrites the scoring in `request_recommendations`, adds `p_genres` |
-| `supabase/migrations/20261004000002_split_matchmaker.sql` | The split path: `candidate_card`, `get_candidates`, `get_genre_weights`, `commit_recommendations` |
+| `supabase/migrations/20261004000002_split_matchmaker.sql` | The split path (`get_candidates`, `get_genre_weights`, `commit_recommendations`); removed in 0018 |
 | `supabase/migrations/20261005000001_shelf_favourites.sql` | `shelf_items.is_favourite`, for the Collection's Favourites filter |
-| `supabase/migrations/20261008000001_cap_genre_weight.sql` | Scales genre rarity to 0–1 in `request_recommendations` and `get_genre_weights`, so genre can never outweigh mood |
+| `supabase/migrations/20261008000001_cap_genre_weight.sql` | Scales genre rarity to 0–1 in `request_recommendations`, so genre can never outweigh mood |
 | `supabase/migrations/20261010000001_sent_preview_url.sql` | Adds `preview_url` to `get_my_submissions`, so records you sent can be played from the Collection |
-| `supabase/migrations/20261010000002_daily_pull_limit.sql` | One pull of up to three cards a day, turning over at 06:00 local time: `get_pull_status`, and the limit in front of `request_recommendations` and `commit_recommendations` |
+| `supabase/migrations/20261010000002_daily_pull_limit.sql` | One pull of up to three cards a day, turning over at 06:00 local time: `get_pull_status`, and the limit in front of `request_recommendations` |
 | `supabase/migrations/20261011000001_envelope_style.sql` | `submissions.envelope_style`, a new `p_envelope_style` argument on `submit_song`, and `get_envelope_styles`, so the recipient sees the sender's envelope |
+| `supabase/migrations/20261011000002_remove_unused_features.sql` | Removes features never shipped: reactions, context, and the split matcher. Every remaining function keeps its behaviour |
 | `supabase/seed.sql` | 10 demo accounts and 60 demo records — real iTunes tracks with covers and previews |
 | `supabase/tests/smoke_test.sql` | CRUD + privacy checks, self-asserting (30 checks) |
 | `docs/matching.md` | How the matchmaker scores and picks, and why |
@@ -42,19 +43,15 @@ reads go through `SECURITY DEFINER` functions that return a column list with no
 **Matchmaking has to run in the database.** A user must not be able to browse
 the pool of songs they have not been matched to, which rules out doing the
 filtering client-side. `request_recommendations()` is therefore a function.
-The *filter* has to stay on the server; the *ranking* is arithmetic over rows
-that are already anonymous, so it may also run on the device (the split path in
-§4). The algorithm itself is explained in `matching.md`.
+Filtering and ranking both run there, in one call. The algorithm itself is
+explained in `matching.md`.
 
-Two smaller decisions worth knowing:
+One smaller decision worth knowing:
 
 - **Coordinates are rounded to 2 decimal places (~1.1 km) by a trigger before
   they are written.** A precise location never exists on disk, so it cannot leak
   even if a policy is later misconfigured. GPS work should send the real fix and
   let the database blunt it.
-- **Reaction counts, not reaction rows, go back to the submitter.** Per-reaction
-  timestamps could be correlated against when a record was handed out to work
-  back to who reacted.
 
 ---
 
@@ -69,8 +66,6 @@ erDiagram
     submissions    ||--o{  recommendations : "is matched into"
     profiles       ||--o{  shelf_items     : owns
     submissions    ||--o{  shelf_items     : "is saved as"
-    profiles       ||--o{  reactions       : sends
-    submissions    ||--o{  reactions       : receives
     genres         }o..o{  submissions     : "validated against (trigger, not FK)"
     genres         }o..o{  profiles        : "validated against (trigger, not FK)"
     avatars        ||--o{  profiles        : "chosen picture"
@@ -120,7 +115,6 @@ erDiagram
         uuid    track_id   FK
         text    message    "1-280 chars"
         enum    mood
-        enum    context
         text_   genres
         float8  lat        "rounded to 2dp"
         float8  lng        "rounded to 2dp"
@@ -132,8 +126,7 @@ erDiagram
         uuid  recipient_id  FK,UK
         uuid  submission_id FK,UK
         enum  mood
-        enum  context
-        real  score         "null if the client sent none"
+        real  score
     }
     shelf_items {
         uuid id            PK
@@ -141,12 +134,6 @@ erDiagram
         uuid submission_id FK,UK
         text note
         bool is_favourite
-    }
-    reactions {
-        uuid id            PK
-        uuid submission_id FK,UK
-        uuid reactor_id    FK,UK "NEVER exposed to the submitter"
-        enum kind
     }
 ```
 
@@ -165,9 +152,8 @@ free-form `settings` blob: a jsonb bag gives a preference no type, no default
 and no `NOT NULL`, and a string key anyone can misspell. If something new needs
 storing, add a column — migrations are cheap.
 
-There are no `default_mood` / `default_context` columns. Mood is asked fresh
-each day — that question *is* the ritual — and context is not used at all (see
-`matching.md` §3).
+There is no `default_mood` column. Mood is asked fresh each day — that question
+*is* the ritual.
 
 `favorite_genres` is the one lasting taste preference, set at onboarding. It
 holds slugs from `genres` and carries three states in a single nullable column:
@@ -265,9 +251,8 @@ so the upsert cannot race.
 
 ### `submissions`
 One song passed into the pool: the track, a message of 1–280 characters, a mood,
-an optional context, genre tags, a coarse location, and `is_active` so a sender
-can retract. **The sender can read their own rows; nobody else can read this
-table at all.**
+genre tags, a coarse location, and `is_active` so a sender can retract. **The
+sender can read their own rows; nobody else can read this table at all.**
 
 `envelope_style` is the look of the envelope the sender chose in the Write
 screen, stored as a **slug** (`rainbow`, `sunset`, `ocean`, `berry`, `cute`,
@@ -282,13 +267,10 @@ about the sender.
 The matchmaker's output, persisted. This is what lets the record room survive an
 app restart, and the `(recipient_id, submission_id)` unique constraint is what
 stops the shake gesture from serving the same record twice. Recipients can read
-their own rows; **only `request_recommendations()` and
-`commit_recommendations()` can write them**, so a client cannot hand itself a
-match. `commit_recommendations()` takes ids from the client, so it re-checks
-every one against the same eligibility rules before writing.
+their own rows; **only `request_recommendations()` can write them**, so a client
+cannot hand itself a match.
 
-`score` holds what the matcher gave the record, for tuning later. It is null
-when the split path commits without scores.
+`score` holds what the matcher gave the record, for tuning later.
 
 ### `shelf_items`
 The record shelf. Owner-only, and the insert policy additionally requires that
@@ -297,14 +279,8 @@ were never given. `is_favourite` is the owner's star in their Collection; it
 lives and dies with the row, so taking a record off the shelf unstars it. It is
 deliberately not on `room_card` — read it from `shelf_items` directly.
 
-### `reactions`
-`(submission_id, reactor_id)` is unique, so reacting again updates in place
-rather than erroring. **The reactor can read their own rows. The submitter
-cannot read this table at all** — that is deliberate and is the Sprint 3
-anonymity requirement, enforced in Sprint 1 so no later screen can leak it.
-
 ### Enums
-`mood_tag`, `context_tag`, `reaction_kind`. Values are listed at the top of
+`mood_tag`. Its values are listed at the top of
 `20260904000001_schema.sql`. Adding one is
 `alter type public.mood_tag add value 'wistful';` — values cannot be removed or
 reordered, so agree changes with the team first.
@@ -318,20 +294,15 @@ passed **by name**, so anything with a default can be omitted.
 
 | Function | Returns | Notes |
 | --- | --- | --- |
-| `request_recommendations(p_mood, p_context?, p_limit?, p_genres?, p_tz?)` | `room_card[]` | Runs the matchmaker and persists the result. Never returns your own songs or ones you have already seen. `p_genres` is today's genre **slugs**; leave it out to use `favorite_genres`. **One pull a day:** deals at most 3, and once a pull has dealt anything the next raises `daily pull limit reached` (`P0001`) until 06:00 in `p_tz` (an IANA zone such as `Australia/Melbourne`, the default). An empty pool returns zero rows — a normal state, not an error, and it doesn't use up the day's pull. |
+| `request_recommendations(p_mood, p_limit?, p_genres?, p_tz?)` | `room_card[]` | Runs the matchmaker and persists the result. Never returns your own songs or ones you have already seen. `p_genres` is today's genre **slugs**; leave it out to use `favorite_genres`. **One pull a day:** deals at most 3, and once a pull has dealt anything the next raises `daily pull limit reached` (`P0001`) until 06:00 in `p_tz` (an IANA zone such as `Australia/Melbourne`, the default). An empty pool returns zero rows — a normal state, not an error, and it doesn't use up the day's pull. |
 | `get_pull_status(p_tz?)` | `{dealt_today, remaining, next_refresh_at}` | Whether today's pull has been made: `remaining` is 3 before it and 0 after. `next_refresh_at` is the next 06:00 in `p_tz`. Read-only. |
 | `get_room(p_limit?)` | `room_card[]` | Replays the current room. Call this on app start instead of re-matching. |
 | `get_shelf(p_limit?)` | `room_card[]` | Saved records, newest save first. |
-| `get_candidates(p_limit?)` | `candidate_card[]` | Split path. Eligible records in random order, for ranking on the device. **Read-only — marks nothing as seen.** Default 20, capped at 50. |
-| `get_genre_weights()` | `{slug, weight}[]` | Split path. How rare each genre is across the whole pool (IDF), scaled to 0–1: 1.0 is a genre only one record carries. Changes slowly; fetch once per session. |
-| `commit_recommendations(p_submission_ids, p_mood, p_context?, p_scores?, p_tz?)` | `room_card[]` | Split path. Records the cards actually shown and returns them. Re-checks every id; ineligible ones are dropped silently. Same one-pull-a-day limit as `request_recommendations`: only the first 3 ids are used, and a second pull the same day is refused. |
 | `submit_song(...)` | `uuid` | Upserts the track and creates the submission in one call. Required: `p_provider`, `p_provider_track_id`, `p_title`, `p_artist`, `p_message`, `p_mood`. Pass `p_attach_location = true` to snapshot the sender's saved location onto the record. Optional `p_envelope_style` is the sender's envelope slug (null = default look). **Does not accept coordinates** — see below. |
 | `get_envelope_styles(p_submission_ids)` | `{submission_id, envelope_style}[]` | The envelope slug for records **in your own room**; ids you were never dealt return nothing, so it can't be used to probe the pool. Max 50 ids a call. Returns no sender identity. |
 | `update_my_location(p_lat?, p_lng?)` | `void` | Sets the caller's coarse home location (onboarding / settings). Call with no arguments to clear it. |
 | `reroll_username()` | `text` | Onboarding only. Replaces the caller's username with a fresh unique one, saves it and returns it. Raises `42501` once `onboarding_completed` is true. |
-| `add_reaction(p_submission_id, p_kind)` | `integer` | New total reaction count. Reacting twice updates in place. Fails if the record is not in your room. |
-| `get_reactions(p_submission_id)` | `{kind, total}[]` | Submitter only. Counts per kind, no identities, no timestamps. |
-| `get_my_submissions(p_limit?)` | rows | "Records I've sent", with reaction totals and the song's preview. |
+| `get_my_submissions(p_limit?)` | rows | "Records I've sent", with the song's preview. |
 
 Saving and unsaving a shelf item is a plain insert/delete on `shelf_items` — no
 RPC needed, RLS covers it. Starring one is an update of `is_favourite` on the
@@ -352,9 +323,9 @@ The anonymised shape of a song as a recipient sees it. Note the absence of
 `sender_id` — that omission *is* the privacy model.
 
 ```
-recommendation_id, submission_id, message, mood, context, genres,
+recommendation_id, submission_id, message, mood, genres,
 lat, lng, submitted_at, track_title, track_artist, track_album,
-artwork_url, preview_url, reaction_count, saved
+artwork_url, preview_url, saved
 ```
 
 Kotlin, for `com.example.vinyl.data`:
@@ -366,7 +337,6 @@ data class RoomCard(
     @SerialName("submission_id")     val submissionId: String,
     val message: String,
     val mood: String,
-    val context: String? = null,
     val genres: List<String> = emptyList(),
     val lat: Double? = null,
     val lng: Double? = null,
@@ -376,7 +346,6 @@ data class RoomCard(
     @SerialName("track_album")    val trackAlbum: String? = null,
     @SerialName("artwork_url")    val artworkUrl: String? = null,
     @SerialName("preview_url")    val previewUrl: String? = null,
-    @SerialName("reaction_count") val reactionCount: Int = 0,
     val saved: Boolean = false,
 )
 ```
@@ -388,7 +357,7 @@ suspend fun room(limit: Int = 3): List<RoomCard> =
         .decodeList()
 ```
 
-**`room_card` is frozen at these 16 fields** until every build has
+**`room_card` is frozen at these 14 fields** until every build has
 `ignoreUnknownKeys = true` (see §6).
 
 The envelope style is **not** on `room_card`, for that reason. The app fetches
@@ -396,23 +365,6 @@ it with `get_envelope_styles()` right after any call that deals cards and merges
 it into `RoomCard.envelopeStyle` (a client-only field, default `null`, which
 also keeps cards cached by older builds readable). If that second call fails,
 the cards still load and the envelope falls back to the default look.
-
-### `candidate_card`
-
-What `get_candidates()` returns: a record offered for ranking but not yet
-delivered. Same fields as `room_card` minus `recommendation_id` (no match
-exists yet) and `saved` (you can't shelve what you were never given), plus one:
-
-```
-submission_id, message, mood, context, genres, lat, lng, submitted_at,
-track_title, track_artist, track_album, artwork_url, preview_url,
-reaction_count, times_recommended
-```
-
-`times_recommended` is how many people have been shown this record, across
-everyone. It feeds the fairness term. It is a number, never a list of who.
-
-The Kotlin class is `CandidateCard` in `RoomRepository.kt`.
 
 ---
 
@@ -483,7 +435,7 @@ envelope until one is assigned.
 
 Running it also deletes the Sprint 1 hand-typed seed (`tracks.provider =
 'manual'`, ids `seed-NN`), which had no covers or previews. That cascades to any
-room, shelf item or reaction pointing at those records. Records sent from the
+room or shelf item pointing at those records. Records sent from the
 app are never touched.
 
 The demo accounts keep `onboarding_completed = false` on purpose: the smoke test
@@ -533,7 +485,7 @@ unknown JSON keys by default, so any build without `ignoreUnknownKeys = true`
 in `SupabaseClient.kt` throws `JsonDecodingException` on every `get_room`,
 `get_shelf` and `request_recommendations` call. This was tested, not assumed.
 Wait until every teammate has that change, or put the field on a separate type
-(as `candidate_card` does).
+or function (as `get_envelope_styles()` does).
 
 Migrations run by hand in the SQL editor are **not recorded** in the CLI's
 ledger, so `npx supabase migration list` will wrongly show them as pending.
@@ -546,8 +498,8 @@ Prefer `db push`. If you did run one by hand, see `migration repair` in §5.
 | Criterion | Where it is met |
 | --- | --- |
 | Tables exist with correct relationships and constraints | `20260904000001_schema.sql` — 6 tables, FKs with explicit delete behaviour, 4 unique constraints |
-| Required fields non-nullable, basic validation enforced | `not null` throughout, `check` constraints on message length, coordinate range and lat/lng pairing, enums for mood/context/reaction |
-| Sample CRUD queries succeed against each table | `tests/smoke_test.sql`, self-asserting (12 checks in Sprint 1, 30 now) |
+| Required fields non-nullable, basic validation enforced | `not null` throughout, `check` constraints on message length, coordinate range and lat/lng pairing, an enum for mood |
+| Sample CRUD queries succeed against each table | `tests/smoke_test.sql`, self-asserting (12 checks in Sprint 1, 24 now) |
 | Schema documented for the team | This file — ER diagram, table notes, and the RPC contract in §4 |
 
 ## 8. Notes for the team
@@ -584,7 +536,7 @@ Prefer `db push`. If you did run one by hand, see `migration repair` in §5.
   true`) as soon as it is merged. Until every build has it, no field can be
   added to `room_card`.
 - **Raina:** `room_card` is the exact payload a vinyl card renders from.
-  `context`, `track_album`, `artwork_url`, `preview_url`, `lat` and `lng` are all
+  `track_album`, `artwork_url`, `preview_url`, `lat` and `lng` are all
   nullable — cards need to look right without them. The envelope look comes
   separately, from `get_envelope_styles()`, and may be missing: draw the default.
 - **Everyone:** the anon key is public by design and safe in the app (Scott

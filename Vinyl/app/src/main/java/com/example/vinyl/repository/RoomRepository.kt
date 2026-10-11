@@ -1,6 +1,5 @@
 package com.example.vinyl.repository
 
-import com.example.vinyl.data.ContextTag
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.data.Supabase
 import com.example.vinyl.data.deviceTimeZone
@@ -33,7 +32,6 @@ data class RoomCard(
     @SerialName("submission_id") val submissionId: String,
     val message: String = "",
     val mood: String? = null,
-    val context: String? = null,
     val genres: List<String> = emptyList(),
     val lat: Double? = null,
     val lng: Double? = null,
@@ -43,55 +41,12 @@ data class RoomCard(
     @SerialName("track_album") val trackAlbum: String? = null,
     @SerialName("artwork_url") val artworkUrl: String? = null,
     @SerialName("preview_url") val previewUrl: String? = null,
-    @SerialName("reaction_count") val reactionCount: Int = 0,
     val saved: Boolean = false,
     /** The sender's EnvelopeStyle slug. Not in room_card; merged in from get_envelope_styles(). */
     @SerialName("envelope_style") val envelopeStyle: String? = null,
 ) {
     /** Null for a value the app's enum doesn't know, rather than failing to decode. */
     val moodTag: MoodTag? get() = MoodTag.entries.firstOrNull { it.wireValue == mood }
-}
-
-/**
- * A letter offered for ranking but not yet delivered — the `candidate_card` composite.
- *
- * Separate from [RoomCard] on purpose. A candidate has no `recommendation_id`, because no match
- * exists yet, and cannot be `saved`, because you cannot shelve what you were never given. Keeping
- * the types apart also means a field added here can never break the decoders that read room_card.
- *
- * Carries [timesRecommended], a count across every user that the client has no way to see for
- * itself. It is a number, never a list of who.
- */
-@Serializable
-data class CandidateCard(
-    @SerialName("submission_id") val submissionId: String,
-    val message: String = "",
-    val mood: String? = null,
-    val context: String? = null,
-    val genres: List<String> = emptyList(),
-    val lat: Double? = null,
-    val lng: Double? = null,
-    @SerialName("submitted_at") val submittedAt: String? = null,
-    @SerialName("track_title") val trackTitle: String = "",
-    @SerialName("track_artist") val trackArtist: String = "",
-    @SerialName("track_album") val trackAlbum: String? = null,
-    @SerialName("artwork_url") val artworkUrl: String? = null,
-    @SerialName("preview_url") val previewUrl: String? = null,
-    @SerialName("reaction_count") val reactionCount: Int = 0,
-    @SerialName("times_recommended") val timesRecommended: Int = 0,
-) {
-    val moodTag: MoodTag? get() = MoodTag.entries.firstOrNull { it.wireValue == mood }
-
-    /**
-     * [submittedAt] as epoch millis, or null if missing or unparseable. Postgres sends ISO-8601;
-     * a value we cannot read is treated as absent rather than throwing, so one odd timestamp
-     * degrades a single card instead of failing the whole list.
-     */
-    val submittedAtEpochMs: Long?
-        get() = submittedAt?.let {
-            runCatching { java.time.OffsetDateTime.parse(it).toInstant().toEpochMilli() }
-                .getOrNull()
-        }
 }
 
 /**
@@ -107,20 +62,18 @@ data class ShelfEntry(
 
 /**
  * One record the caller sent — a row from `get_my_submissions()`. Their own submission, so it
- * carries no recipient or reactor identity, only totals.
+ * carries no recipient identity.
  */
 @Serializable
 data class SentCard(
     @SerialName("submission_id") val submissionId: String,
     val message: String = "",
     val mood: String? = null,
-    val context: String? = null,
     @SerialName("is_active") val isActive: Boolean = true,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("track_title") val trackTitle: String = "",
     @SerialName("track_artist") val trackArtist: String = "",
     @SerialName("artwork_url") val artworkUrl: String? = null,
-    @SerialName("reaction_count") val reactionCount: Int = 0,
     /** The song's 30-second preview, so a record you sent plays like one you received. */
     @SerialName("preview_url") val previewUrl: String? = null,
 ) {
@@ -148,10 +101,6 @@ fun Throwable.isDailyPullLimit(): Boolean = message?.contains(DAILY_PULL_LIMIT_M
 
 private const val DAILY_PULL_LIMIT_MESSAGE = "daily pull limit reached"
 
-/** One genre and how rare it is in the pool — the idf the client cannot compute for itself. */
-@Serializable
-data class GenreWeight(val slug: String, val weight: Double)
-
 @Serializable
 data class EnvelopeStyleRow(
     @SerialName("submission_id") val submissionId: String,
@@ -170,11 +119,10 @@ open class RoomRepository(private val supabase: SupabaseClient = Supabase.client
      */
     open suspend fun requestRecommendations(
         mood: MoodTag,
-        context: ContextTag? = null,
         limit: Int = DEFAULT_LIMIT,
         genres: Collection<String> = emptyList(),
     ): Result<List<RoomCard>> = runCatching {
-        val params = requestRecommendationsParams(mood, context, limit, genres, deviceTimeZone())
+        val params = requestRecommendationsParams(mood, limit, genres, deviceTimeZone())
         supabase.postgrest.rpc("request_recommendations", params).decodeList<RoomCard>().withEnvelopeStyles()
     }
 
@@ -271,52 +219,6 @@ open class RoomRepository(private val supabase: SupabaseClient = Supabase.client
     private fun requireUserId(): String = supabase.auth.currentUserOrNull()?.id
         ?: error("No signed-in user; the shelf is unavailable")
 
-    /**
-     * Candidates to rank on the device. **Writes nothing** — nothing here is marked as seen, so
-     * over-fetching twenty and showing three does not burn the other seventeen.
-     *
-     * The server has already applied the rules that may never move to the client: not your own,
-     * not one you have seen, active only, and no sender id in the projection.
-     */
-    open suspend fun getCandidates(limit: Int = CANDIDATE_LIMIT): Result<List<CandidateCard>> =
-        runCatching {
-            val params = buildJsonObject { put("p_limit", limit) }
-            supabase.postgrest.rpc("get_candidates", params).decodeList<CandidateCard>()
-        }
-
-    /**
-     * Genre rarity across the whole pool. Changes only as the pool grows, so fetch once per
-     * session rather than per match.
-     */
-    open suspend fun getGenreWeights(): Result<List<GenreWeight>> = runCatching {
-        supabase.postgrest.rpc("get_genre_weights").decodeList<GenreWeight>()
-    }
-
-    /**
-     * Records the cards actually shown, and returns them with their recommendation ids.
-     *
-     * The server re-checks every id rather than trusting the client — otherwise naming a
-     * submission would be enough to hand yourself a match. Ineligible ids are dropped quietly, so
-     * a card that went inactive between fetch and commit is a race rather than an error.
-     */
-    open suspend fun commitRecommendations(
-        submissionIds: List<String>,
-        mood: MoodTag,
-        context: ContextTag? = null,
-        scores: List<Double>? = null,
-    ): Result<List<RoomCard>> = runCatching {
-        val params = buildJsonObject {
-            put("p_submission_ids", JsonArray(submissionIds.map { JsonPrimitive(it) }))
-            put("p_mood", mood.wireValue)
-            put("p_context", context?.wireValue)
-            if (scores != null) {
-                put("p_scores", JsonArray(scores.map { JsonPrimitive(it) }))
-            }
-            put("p_tz", deviceTimeZone())
-        }
-        supabase.postgrest.rpc("commit_recommendations", params).decodeList<RoomCard>().withEnvelopeStyles()
-    }
-
     private companion object {
         const val SHELF_TABLE = "shelf_items"
 
@@ -325,9 +227,6 @@ open class RoomRepository(private val supabase: SupabaseClient = Supabase.client
 
         /** The shelf is browsed rather than dealt out, so it is not capped at three. */
         const val SHELF_LIMIT = 50
-
-        /** Enough room to rank meaningfully without pulling the pool down a call at a time. */
-        const val CANDIDATE_LIMIT = 20
     }
 }
 
@@ -339,7 +238,6 @@ open class RoomRepository(private val supabase: SupabaseClient = Supabase.client
  */
 internal fun requestRecommendationsParams(
     mood: MoodTag,
-    context: ContextTag?,
     limit: Int,
     genres: Collection<String> = emptyList(),
     /** The phone's zone, so the server knows when this user's day turns over. */
@@ -347,7 +245,6 @@ internal fun requestRecommendationsParams(
 ): JsonObject =
     buildJsonObject {
         put("p_mood", mood.wireValue)
-        put("p_context", context?.wireValue)
         put("p_limit", limit)
         if (genres.isNotEmpty()) {
             put("p_genres", JsonArray(genres.map { JsonPrimitive(it) }))

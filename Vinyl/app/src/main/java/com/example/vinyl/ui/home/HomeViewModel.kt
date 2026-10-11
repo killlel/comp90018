@@ -29,7 +29,6 @@ data class HomeUiState(
     /** Whether today's pull has been made, from the server. Null until it answers. */
     val pullStatus: PullStatus? = null,
 ) {
-    val arrivedCount: Int get() = arrivedToday.size
     val todayHand: List<RoomCard> get() = arrivedToday.ifEmpty { pendingToday }
 
     /** Today's pull is still to make. Unknown counts as yes: the server has the final say. */

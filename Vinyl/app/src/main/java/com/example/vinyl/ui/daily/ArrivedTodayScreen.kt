@@ -82,7 +82,6 @@ data class ArrivedRecordOption(
 
 data class ArrivedTodayUiState(
     val moodLabel: String,
-    val genreLabel: String? = null,
     val fallbackNote: String? = null,
     val options: List<ArrivedRecordOption>,
 )

@@ -1091,18 +1091,6 @@ private fun settingsLocationValue(state: LocationUiState): String? = when {
 
 
 @Composable
-private fun PlaceholderTab(label: String) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(VinylPalette.Background),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(label, color = VinylPalette.TextMuted, fontSize = 16.sp)
-    }
-}
-
-@Composable
 private fun AuthScreen(
     modifier: Modifier = Modifier,
     callbackError: String? = null,

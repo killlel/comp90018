@@ -1,7 +1,6 @@
 package com.example.vinyl
 
 
-import com.example.vinyl.data.ContextTag
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.data.Track
 import com.example.vinyl.repository.requestRecommendationsParams
@@ -43,17 +42,16 @@ class SubmissionParamsTest {
         track: Track = this.track,
         message: String = "Hits differently depending on how old you are.",
         mood: MoodTag? = MoodTag.Sad,
-        context: ContextTag? = null,
         genres: List<String> = emptyList(),
         attachLocation: Boolean = false,
         envelopeStyle: String? = null,
-    ) = submitSongParams(track, message, mood, context, genres, attachLocation, envelopeStyle = envelopeStyle)
+    ) = submitSongParams(track, message, mood, genres, attachLocation, envelopeStyle = envelopeStyle)
 
     /** Every argument of the SQL function submit_song(). A name outside this set fails with PGRST202. */
     private val submitSongArguments = setOf(
         "p_provider", "p_provider_track_id", "p_title", "p_artist", "p_message", "p_mood",
         "p_album", "p_artwork_url", "p_preview_url", "p_duration_ms", "p_track_genres",
-        "p_context", "p_genres", "p_attach_location", "p_envelope_style",
+        "p_genres", "p_attach_location", "p_envelope_style",
     )
     private val submitSongRequired = setOf(
             "p_provider", "p_provider_track_id", "p_title", "p_artist", "p_message", "p_mood",
@@ -119,13 +117,6 @@ class SubmissionParamsTest {
     }
 
     @Test
-    fun `sends the context only when there is one`() {
-        assertTrue(params(context = null).getValue("p_context") is JsonNull)
-        assertEquals("commuting", params(context = ContextTag.Commuting).getValue("p_context").jsonPrimitive.content)
-        assertEquals("working_out", params(context = ContextTag.WorkingOut).getValue("p_context").jsonPrimitive.content)
-    }
-
-    @Test
     fun `sends a yes or no for the location and never coordinates`() {
         assertTrue(params(attachLocation = true).getValue("p_attach_location").jsonPrimitive.boolean)
         assertFalse(params(attachLocation = false).getValue("p_attach_location").jsonPrimitive.boolean)
@@ -171,35 +162,28 @@ class SubmissionParamsTest {
     // ------------------------------------------------------------ request_recommendations
 
     @Test
-    fun `pulling records sends the mood, a limit and no context by default`() {
-        val p = requestRecommendationsParams(MoodTag.Sad, context = null, limit = 3)
+    fun `pulling records sends the mood and a limit by default`() {
+        val p = requestRecommendationsParams(MoodTag.Sad, limit = 3)
         assertEquals("sad", p.getValue("p_mood").jsonPrimitive.content)
         assertEquals(3, p.getValue("p_limit").jsonPrimitive.int)
-        assertTrue(p.getValue("p_context") is JsonNull)
-        assertEquals(setOf("p_mood", "p_context", "p_limit"), p.keys)
-    }
-
-    @Test
-    fun `pulling records sends the context when there is one`() {
-        val p = requestRecommendationsParams(MoodTag.Calm, ContextTag.Studying, 3)
-        assertEquals("studying", p.getValue("p_context").jsonPrimitive.content)
+        assertEquals(setOf("p_mood", "p_limit"), p.keys)
     }
 
     @Test
     fun `pulling records sends today's genres as slugs`() {
-        val p = requestRecommendationsParams(MoodTag.Happy, null, 3, genres = listOf("k_pop", "jazz"))
+        val p = requestRecommendationsParams(MoodTag.Happy, 3, genres = listOf("k_pop", "jazz"))
         assertEquals(listOf("k_pop", "jazz"), p.getValue("p_genres").jsonArray.map { it.jsonPrimitive.content })
     }
 
     @Test
     fun `no genres leaves p_genres out so the server uses the favourites`() {
-        val p = requestRecommendationsParams(MoodTag.Happy, null, 3, genres = emptyList())
+        val p = requestRecommendationsParams(MoodTag.Happy, 3, genres = emptyList())
         assertTrue("p_genres" !in p)
     }
 
     @Test
     fun `pulling records sends the phone's time zone for the 6am turnover`() {
-        val p = requestRecommendationsParams(MoodTag.Happy, null, 3, timeZone = "Australia/Melbourne")
+        val p = requestRecommendationsParams(MoodTag.Happy, 3, timeZone = "Australia/Melbourne")
         assertEquals("Australia/Melbourne", p.getValue("p_tz").jsonPrimitive.content)
     }
 }

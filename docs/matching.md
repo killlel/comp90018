@@ -9,12 +9,10 @@ way. The exact contracts (argument names, return types) are in
 | Where it lives | What it is |
 | --- | --- |
 | `supabase/migrations/20261004000001_matchmaking_v2.sql` | `request_recommendations()`: the whole algorithm in SQL. **This is the one the app calls.** |
-| `supabase/migrations/20261004000002_split_matchmaker.sql` | `get_candidates()`, `get_genre_weights()`, `commit_recommendations()`: the split path |
-| `supabase/migrations/20261008000001_cap_genre_weight.sql` | Caps the genre term so it can never outweigh mood (current version of both functions above) |
-| `supabase/migrations/20261010000002_daily_pull_limit.sql` | One pull a day. Moves both dealers to `app_private` unchanged (`deal_recommendations`, `commit_recommendations_unchecked`); the public names are now wrappers that check the limit first. **Scoring changes go in `app_private.deal_recommendations`.** |
-| `Vinyl/app/.../matchmaking/Matchmaker.kt` | The same scoring in Kotlin, for the split path |
-| `Vinyl/app/src/test/.../matchmaking/MatchmakerTest.kt` | 15 unit tests, one or two per term |
-| `supabase/tests/smoke_test.sql` checks 26–30 | The split path's security and genre weights, tested against a real database |
+| `supabase/migrations/20261008000001_cap_genre_weight.sql` | Caps the genre term so it can never outweigh mood (the current scoring) |
+| `supabase/migrations/20261010000002_daily_pull_limit.sql` | One pull a day. Moves the scoring to `app_private.deal_recommendations` unchanged; `request_recommendations` is now a wrapper that checks the limit first. **Scoring changes go in `app_private.deal_recommendations`.** |
+| `supabase/migrations/20261011000002_remove_unused_features.sql` | Removes the context term (it always scored zero) and the on-device path; the scoring is otherwise unchanged |
+| `supabase/tests/smoke_test.sql` checks 2–5 and 22–24 | Matching, its security rules and the daily limit, tested against a real database |
 
 ---
 
@@ -85,17 +83,14 @@ If the record's mood equals today's answer, add 3. Otherwise add nothing.
 Mood is the question the user actually answered, so it gets the biggest
 weight, and the genre term is capped below it (see below).
 
-On the device, a null mood ("let the crate decide") skips this term, and the
-other three decide the order. The SQL path always needs a mood.
+A mood is always needed. "Let the crate decide" picks one at random.
 
-### Context: not used
+### Context: removed
 
-The code still has a context term (+1.0 for the same listening moment, like
-`commuting`), but **it always adds zero, and we've dropped it from the plan.**
+An early design added +1.0 for the same listening moment (like `commuting`).
 A match needs both the sender's record and the receiver's request to carry a
-context, and neither ever does: the write screen doesn't ask, and nothing
-infers it. The column and the `p_context` argument stay, because both are
-optional and removing them would mean recreating three functions for no gain.
+context, and neither ever did: the write screen didn't ask, and nothing
+inferred it. So the term always added zero, and migration 0018 removed it.
 
 ### Genre overlap (up to 2.0), using IDF
 
@@ -151,9 +146,6 @@ everything"), the term is skipped and genre has no effect.
 
 **Rarity is measured over the whole pool**, not over the records you can still
 receive. Otherwise your own history would change how rare a genre looks to you.
-This is also why the device cannot calculate it. It only sees the 20 candidates
-it was sent, a biased sample, so the server sends the numbers ready-made
-(`get_genre_weights()`).
 
 ### Freshness (1.5, decaying), the Hacker News formula
 
@@ -205,9 +197,7 @@ circulation = −0.8 × ln(1 + times shown)
 The logarithm makes it grow more slowly over time. A popular record gets
 nudged down, but it never disappears.
 
-"Times shown" is a count across all users, which the device can't see. The
-server sends it on each candidate as `times_recommended`: just a number, never
-who.
+"Times shown" is a count across all users: just a number, never who.
 
 ---
 
@@ -272,61 +262,24 @@ from everything else, which may or may not be B.
 
 ---
 
-## 6. Two ways to run it
+## 6. Where it runs
 
-The same algorithm exists twice. **Only the first is in use.**
-
-### All in SQL (in use)
+Everything happens in one database call:
 
 ```
-request_recommendations(p_mood, p_context?, p_limit?, p_genres?)
+request_recommendations(p_mood, p_limit?, p_genres?, p_tz?)
 ```
 
-One call does everything: filter, score, pick, save as delivered, return the
-cards.
+It checks today's pull (one a day, see `database.md`), then filters, scores,
+picks, saves the cards as delivered and returns them. The scoring lives in
+`app_private.deal_recommendations`, which the app cannot call directly.
 
-**Its limit:** it saves everything it returns. If the app wanted 20 to rank on
-the device and asked for 20, all 20 would be marked as seen, and the 17 not
-shown could never be offered again.
+The filter rules from §2 and the absence of `sender_id` are enforced there, so
+no ranking choice can leak a record you aren't allowed to see.
 
-### Split (built, nothing calls it yet)
-
-```
-get_genre_weights()               rarity (0–1) of every genre; cacheable for the session
-get_candidates(p_limit => 20)     read-only: filtered, anonymous, saves nothing
-   … Matchmaker.kt ranks and picks on the device …
-commit_recommendations(ids, mood) saves only the three actually shown
-```
-
-**Why it exists:** to rank on the device without wasting records, and so the
-ranking can be changed without a migration.
-
-**The safety catch:** `commit_recommendations` takes submission ids *from the
-client*, so it checks every rule from §2 again instead of trusting them.
-Otherwise, naming a submission id would be enough to get a match for any
-record in the database. Ids that fail the check are dropped silently: a record
-that was deactivated between fetch and commit is a timing issue, not an attack.
-
-**Other limits:**
-
-| Limit | Why |
-| --- | --- |
-| `get_candidates` returns at most 50 | So the pool can't be copied out one call at a time |
-| Candidates come back in random order | A server-side order would quietly re-impose a ranking the device can't undo |
-| `commit_recommendations` takes at most 10 ids | Same reason as the 50 |
-| Candidates use their own type, `candidate_card` | Adding a field to `room_card` would break every older build (see `database.md` §6) |
-
-### Where the line is
-
-| Server, always (security) | Either side (arithmetic) | Server provides the numbers |
-| --- | --- | --- |
-| Not your own record | Mood | Genre rarity (IDF) |
-| Never one you've seen | Genre overlap | Times shown (circulation) |
-| Active only | Freshness | |
-| No `sender_id` in the output | One per artist, random slot | |
-
-The right-hand column is arithmetic that needs a view of *all* users. The
-device can't have that view, so the server sends the result as plain numbers.
+An earlier design could also rank on the phone (`get_candidates` → rank in
+Kotlin → `commit_recommendations`). The app never switched to it, so migration
+0018 removed it.
 
 ---
 
@@ -339,11 +292,10 @@ tuning the weights should know them.
   the server fall back to the onboarding favourites, so a user can't switch
   genre off for one pull. Today the only way is answering "I listen to
   everything" at onboarding.
-- **The two paths compare artists slightly differently.** Kotlin ignores case
-  and surrounding spaces ("Adele" = " adele"). SQL compares exactly. This only
-  matters for records whose artist names differ only in case or spacing.
+- **Artists are compared exactly.** "Adele" and " adele" count as different
+  artists for the one-per-artist rule.
 - **The random slot is truly random.** Two calls with the same inputs can
-  return different third cards. Tests pin it by injecting a seeded `Random`.
+  return different third cards.
 - **Weights are opinions, not measurements.** See §3.
 
 ---
@@ -372,44 +324,24 @@ where this app actually is. Each one is a standard, citable idea:
 
 ## 9. How it is tested
 
-**On the device, `MatchmakerTest.kt` (15 tests).** `Matchmaker` is plain
-Kotlin, with no Android, no network and no clock of its own. The current time
-and the random generator are passed in, so every test is repeatable. Each term
-is tested on its own:
-
-| Test | Proves |
-| --- | --- |
-| mood match outranks a mood mismatch | Mood term |
-| a rare genre beats a common one | IDF |
-| a genre match never outweighs a mood match | The genre cap |
-| raw idf from an older server is clamped rather than trusted | The cap holds even before the migration |
-| picking many genres does not simply outscore picking one | Dividing by genres picked |
-| freshness decays smoothly rather than falling off a cliff | Hacker News curve |
-| a heavily circulated record is pushed down | Circulation |
-| the same artist is never returned twice | Diversity |
-| artist matching ignores case and padding | Diversity |
-| the last slot is exploration, not the next best card | Epsilon-greedy |
-| a null mood still ranks on the other terms | Null mood |
-| no genre preference means no genre filter | `null` / `{}` favourites |
-| an unreadable timestamp is treated as new, not ancient | Bad input degrades one card |
-| an empty pool returns nothing rather than throwing | Edge case |
-| fewer candidates than slots returns what there is | Edge case |
-
 **In the database, `smoke_test.sql`:**
 
 | Check | Proves |
 | --- | --- |
-| 26 | `get_candidates()` saves nothing |
-| 27 | `commit_recommendations()` refuses your own submission |
-| 28 | `commit_recommendations()` refuses a record you've already seen |
-| 29 | Rarer genres get a higher weight |
-| 30 | Every genre weight is between 0 and 1, so genre can't outweigh mood |
-| 31 | `get_pull_status()` counts the cards dealt today |
-| 32 | A second pull the same day is refused |
-| 33 | The day turns over at 06:00 local time, not midnight |
+| 2 | Matching returns a room |
+| 3 | The room is saved and can be replayed |
+| 4 | A recipient can't read other people's records directly |
+| 5 | A client can't hand itself a match |
+| 22 | `get_pull_status()` counts the cards dealt today |
+| 23 | A second pull the same day is refused |
+| 24 | The day turns over at 06:00 local time, not midnight |
 
-Checks 26–28 are security checks. **If a change breaks one, the change is
+Checks 4–5 are security checks. **If a change breaks one, the change is
 wrong.**
+
+The weights themselves have no automated test since the Kotlin copy of the
+scoring (and its unit tests) went in 0018. The worked example in §5 is the
+reference: re-run it by hand after changing a weight.
 
 ---
 
@@ -417,11 +349,11 @@ wrong.**
 
 | You want to… | Change |
 | --- | --- |
-| Re-weight a term | The `w_*` constants in `app_private.deal_recommendations` (new migration), and `Matchmaker.Weights` to match. Keep `w_genre` below `w_mood` or genre can outrank mood again |
+| Re-weight a term | The `w_*` constants in `app_private.deal_recommendations` (new migration). Keep `w_genre` below `w_mood` or genre can outrank mood again |
 | Make old records fade faster | Raise `gravity` |
 | Make popular records fade faster | Raise `w_crowded` / `circulation` |
-| Add a scoring term | Both paths, plus a unit test that isolates it |
-| Change who is eligible | **Both** `app_private.deal_recommendations` and `app_private.candidate_cards`, **and** the re-check in `app_private.commit_recommendations_unchecked`. All three must agree, or one of them leaks |
+| Add a scoring term | `app_private.deal_recommendations` (new migration), and a worked example in §5 |
+| Change who is eligible | The `eligible` step in `app_private.deal_recommendations` (new migration), and smoke test checks 4–5 |
 | Change the daily limit or the 06:00 turnover | `app_private.pull_status` / `pull_window` (new migration), and `PULL_DAY_STARTS_AT_HOUR` in `data/PullDay.kt` to match |
 
 Never edit an applied migration. Add a new file that re-creates the function.

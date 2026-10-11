@@ -82,7 +82,6 @@ sequenceDiagram
     DB-->>App: style slug per card
     App-->>Recipient: Sealed envelope in sender's style
     Recipient->>App: Shake (accelerometer) or hold to open
-    App->>DB: rpc commit_recommendations
     App-->>Recipient: Opened card, 30s preview plays in the card
 
     opt Where is it from?
@@ -187,11 +186,8 @@ app/src/main/java/com/example/vinyl/
 ├── repository/                        # Submission & room repositories
 │   ├── SubmissionRepository.kt        # Sends cards (submit_song, incl. envelope style)
 │   ├── FakeSubmissionRepository.kt    # Mock implementation
-│   └── RoomRepository.kt              # Daily hand: request/commit recommendations,
+│   └── RoomRepository.kt              # Daily hand: request_recommendations,
 │                                      #   room cards, envelope styles (get_envelope_styles)
-│
-├── matchmaking/
-│   └── Matchmaker.kt                  # Matching logic
 │
 ├── sensor/                            # Accelerometer & magnetometer
 │   ├── ShakeAlgorithm.kt              # Pure shake logic (3 peaks over 2.7g, cooldown), JVM-testable
@@ -220,7 +216,7 @@ app/src/main/java/com/example/vinyl/
     │
     ├── onboarding/                    # Feature: first-run setup
     │   ├── OnboardingPagerScreen.kt / OnboardingViewModel.kt
-    │   ├── WelcomePage.kt, NamePage.kt, UsernameAvatarPage.kt, IconPage.kt,
+    │   ├── WelcomePage.kt, NamePage.kt, IconPage.kt,
     │   │   GenrePage.kt, ReadyPage.kt
     │   └── OnboardingActions.kt, OnboardingHeader.kt, OnboardingPageLayout.kt
     │
@@ -229,9 +225,6 @@ app/src/main/java/com/example/vinyl/
     │   ├── WriteCardViewModel.kt      # Card creation state; sends the style slug
     │   ├── WriteCardUiState.kt        # UI state + EnvelopeStyle enum (slug helpers)
     │   └── SendingAnimation.kt
-    │
-    ├── submission/
-    │   └── SubmissionViewModel.kt
     │
     ├── daily/                         # Feature: daily prompt & receive flow
     │   ├── MoodQuestionnaireScreen.kt # Daily mood prompt

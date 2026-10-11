@@ -1,6 +1,5 @@
 package com.example.vinyl.repository
 
-import com.example.vinyl.data.ContextTag
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.data.Track
 import kotlinx.coroutines.delay
@@ -13,7 +12,7 @@ import kotlinx.coroutines.delay
  */
 class FakeSubmissionRepository : SubmissionRepository() {
     override suspend fun submitSong(
-        track: Track, message: String, mood: MoodTag?, context: ContextTag?,
+        track: Track, message: String, mood: MoodTag?,
         submissionGenres: List<String>, attachLocation: Boolean, envelopeStyle: String?,
     ): Result<String> {
         delay(500) // simulate network latency so the send animation still has something to wait on
