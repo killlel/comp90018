@@ -48,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -113,6 +114,8 @@ fun MusicCardScreen(
     inSheet: Boolean = false,
     playerActive: Boolean = true,
 ) {
+    val isCollectionDetails = state.isFavourite != null || state.isOwn
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -142,7 +145,12 @@ fun MusicCardScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        PlayerCard(state = state, releaseOnBackground = inSheet, active = playerActive)
+        PlayerCard(
+            state = state,
+            releaseOnBackground = inSheet,
+            active = playerActive,
+            useCollectionHeight = isCollectionDetails,
+        )
 
         state.keepError?.let {
             Text(
@@ -167,6 +175,7 @@ fun MusicCardScreen(
             trackName = state.trackName,
             artistName = state.artistName,
             onPlayOnTurntable = onPlayOnTurntable,
+            balanceStoreIcons = isCollectionDetails,
         )
     }
 }
@@ -266,7 +275,12 @@ private fun TopBarButton(onClick: () -> Unit, icon: @Composable () -> Unit) {
  * along the bottom edge fills while it plays; the preview stops at 0:30.
  */
 @Composable
-private fun PlayerCard(state: MusicCardUiState, releaseOnBackground: Boolean, active: Boolean) {
+private fun PlayerCard(
+    state: MusicCardUiState,
+    releaseOnBackground: Boolean,
+    active: Boolean,
+    useCollectionHeight: Boolean,
+) {
     val audio = rememberAudioPreviewController()
     val url = state.previewUrl
     var elapsedMs by remember { mutableLongStateOf(0L) }
@@ -328,12 +342,15 @@ private fun PlayerCard(state: MusicCardUiState, releaseOnBackground: Boolean, ac
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (useCollectionHeight) Modifier.height(CollectionPlayerCardHeight) else Modifier)
             .clip(ReceiveFlowStyle.PanelShape)
             .background(ReceiveFlowStyle.PanelBrush)
             .border(1.dp, ReceiveFlowStyle.PanelBorder, ReceiveFlowStyle.PanelShape),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            modifier = Modifier
+                .then(if (useCollectionHeight) Modifier.fillMaxSize() else Modifier)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val coverShape = RoundedCornerShape(8.dp)
@@ -572,7 +589,12 @@ private fun CompassChip(onClick: () -> Unit) {
  * takes the whole row, each service a labelled half.
  */
 @Composable
-private fun BottomRow(trackName: String, artistName: String, onPlayOnTurntable: (() -> Unit)?) {
+private fun BottomRow(
+    trackName: String,
+    artistName: String,
+    onPlayOnTurntable: (() -> Unit)?,
+    balanceStoreIcons: Boolean,
+) {
     val uriHandler = LocalUriHandler.current
     val query = Uri.encode("$trackName $artistName")
     val openAppleMusic = { uriHandler.openUri("https://music.apple.com/search?term=$query") }
@@ -615,11 +637,16 @@ private fun BottomRow(trackName: String, artistName: String, onPlayOnTurntable: 
                 .clip(CircleShape)
                 .background(ReceiveFlowStyle.PanelBrush)
                 .border(1.5.dp, ReceiveFlowStyle.PanelBorder, CircleShape)
-                .padding(horizontal = 3.dp),
+                .padding(
+                    horizontal = if (balanceStoreIcons) StoreCapsuleHorizontalPadding else 3.dp,
+                ),
+            horizontalArrangement = Arrangement.spacedBy(
+                if (balanceStoreIcons) StoreTouchGap else 0.dp,
+            ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // Both official icons are drawn as supplied: no backing shape, no tint. Each sits in
-            // a 48dp touch target; the padding keeps the pill and the icons where they were.
+            // its own 48dp touch target, with optical sizing balancing their different silhouettes.
             Box(
                 modifier = Modifier
                     .size(StreamingTouchSize)
@@ -627,7 +654,10 @@ private fun BottomRow(trackName: String, artistName: String, onPlayOnTurntable: 
                     .clickable(role = Role.Button, onClick = openAppleMusic),
                 contentAlignment = Alignment.Center,
             ) {
-                AppleMusicIcon(contentDescription = "Open in Apple Music")
+                AppleMusicIcon(
+                    contentDescription = "Open in Apple Music",
+                    size = if (balanceStoreIcons) AppleMusicOpticalSize else StreamingIconSize,
+                )
             }
             Box(
                 modifier = Modifier
@@ -700,11 +730,14 @@ private fun RowScope.StoreHalf(
 }
 
 @Composable
-private fun AppleMusicIcon(contentDescription: String?) {
+private fun AppleMusicIcon(
+    contentDescription: String?,
+    size: Dp = StreamingIconSize,
+) {
     Image(
         painter = painterResource(R.drawable.ic_apple_music),
         contentDescription = contentDescription,
-        modifier = Modifier.size(StreamingIconSize),
+        modifier = Modifier.size(size),
     )
 }
 
@@ -730,8 +763,12 @@ private val LetterTextInset = 28.dp
 
 /** Apple Music and Spotify icons inside their shared pill. */
 private val StreamingIconSize = 36.dp
+private val AppleMusicOpticalSize = 34.dp
 private val StreamingTouchSize = 48.dp
+private val StoreCapsuleHorizontalPadding = 8.dp
+private val StoreTouchGap = 6.dp
 private val TopBarTouchSize = 48.dp
+private val CollectionPlayerCardHeight = 96.dp
 
 // Icon_Spotify.svg is 236.05 x 225.25 with a circle about 218.7 across. Scaled so the circle
 // matches [StreamingIconSize], the whole canvas is this size.
