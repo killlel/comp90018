@@ -84,7 +84,7 @@ internal fun distanceLabelAndNote(
 }
 
 /**
- * Turns a room card into a picker option, working out the distance from the letter's centroid to
+ * Turns a room card into a picker option, working out the distance from the sender's city centre to
  * the reader's own.
  *
  * Exactly one of `distanceLabel` / `distanceNote` comes back non-null. When both ends are
