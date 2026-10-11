@@ -104,49 +104,78 @@ fun ArrivedTodayScreen(
 ) {
     ArrivedTodayLayout(helper = if (onRetry == null) helperFor(state.options.size) else null) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState()),
+            modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            state.fallbackNote?.let {
-                Spacer(modifier = Modifier.height(12.dp))
-                FallbackChip(text = it)
-            }
-
-            onRetry?.let {
-                Spacer(modifier = Modifier.height(12.dp))
-                TextButton(onClick = it, modifier = Modifier.heightIn(min = 48.dp)) {
-                    Text(
-                        "Try again",
-                        color = VinylPalette.TealAccent,
-                        style = ReceiveFlowStyle.text(14.sp, FontWeight.Medium),
+            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                if (state.options.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState()),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            state.options.forEachIndexed { index, option ->
+                                RiseIn(index = index, animate = animateIn) {
+                                    ArrivedRecordCard(option = option, onClick = { onSelect(option) })
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(24.dp))
+                    }
+                } else if (state.fallbackNote != null) {
+                    ArrivedTodayStatus(
+                        isError = onRetry != null,
+                        onRetry = onRetry,
+                        modifier = Modifier.align(Alignment.Center),
                     )
                 }
             }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                state.options.forEachIndexed { index, option ->
-                    RiseIn(index = index, animate = animateIn) {
-                        ArrivedRecordCard(option = option, onClick = { onSelect(option) })
-                    }
-                }
+            TextButton(onClick = onNotNow, modifier = Modifier.height(44.dp)) {
+                Text(
+                    "Back to Home",
+                    color = VinylPalette.TealAccent,
+                    style = ReceiveFlowStyle.text(14.sp, FontWeight.Medium),
+                )
             }
-
-            Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+}
 
-        TextButton(
-            onClick = onNotNow,
-            modifier = Modifier.align(Alignment.BottomCenter).height(44.dp),
-        ) {
-            Text(
-                "Back to Home",
-                color = VinylPalette.TealAccent,
-                style = ReceiveFlowStyle.text(14.sp, FontWeight.Medium),
-            )
+@Composable
+private fun ArrivedTodayStatus(
+    isError: Boolean,
+    onRetry: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = if (isError) "Couldn't load today's music cards" else "No music cards yet",
+            color = VinylPalette.Cream,
+            style = ReceiveFlowStyle.text(16.sp, FontWeight.Medium, 24.sp),
+            textAlign = TextAlign.Center,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = if (isError) "Check your connection and try again." else "Check back later.",
+            color = VinylPalette.TextMuted,
+            style = ReceiveFlowStyle.Helper,
+            textAlign = TextAlign.Center,
+        )
+        onRetry?.let { retry ->
+            Spacer(modifier = Modifier.height(12.dp))
+            TextButton(onClick = retry, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(
+                    "Try again",
+                    color = VinylPalette.TealAccent,
+                    style = ReceiveFlowStyle.text(14.sp, FontWeight.Medium),
+                )
+            }
         }
     }
 }
@@ -157,22 +186,19 @@ fun ArrivedTodayScreen(
  */
 @Composable
 fun ArrivedTodayLoading() {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(VinylPalette.SheetSurface),
-    ) {
-        ArrivedTodayLayout(helper = null) {}
+    ArrivedTodayLayout(helper = null) {
         Box(
-            modifier = Modifier.align(Alignment.Center).size(LoadingSize),
+            modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) {
-            CircularProgressIndicator(
-                color = VinylPalette.TealAccent,
-                strokeWidth = 2.dp,
-                modifier = Modifier.fillMaxSize(),
-            )
-            LoadingRecord(modifier = Modifier.size(LoadingSize - 24.dp))
+            Box(modifier = Modifier.size(LoadingSize), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(
+                    color = VinylPalette.TealAccent,
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                LoadingRecord(modifier = Modifier.size(LoadingSize - 24.dp))
+            }
         }
     }
 }
@@ -256,19 +282,6 @@ private fun ArrivedTodayLayout(helper: String?, content: @Composable BoxScope.()
         }
         Box(modifier = Modifier.fillMaxWidth().weight(1f), content = content)
     }
-}
-
-@Composable
-private fun FallbackChip(text: String) {
-    Text(
-        text = text,
-        color = VinylPalette.TealAccent,
-        style = ReceiveFlowStyle.text(12.sp, FontWeight.Normal, 16.sp),
-        textAlign = TextAlign.Center,
-        modifier = Modifier
-            .border(1.dp, VinylPalette.TealAccent.copy(alpha = 0.7f), CircleShape)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-    )
 }
 
 /**
