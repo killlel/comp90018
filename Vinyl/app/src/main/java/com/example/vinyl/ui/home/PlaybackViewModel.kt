@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import com.example.vinyl.network.AudioPlaybackArbiter
 
 /** The song on the Home turntable: enough to draw the card and the label, and to play it. */
 data class NowPlaying(
@@ -91,6 +92,7 @@ class PlaybackViewModel : ViewModel() {
 
     fun play(track: NowPlaying) {
         stop()
+        AudioPlaybackArbiter.claim(this, ::pauseForOtherAudio)
         val now = SystemClock.elapsedRealtime()
         _nowPlaying.value = track.copy(startedAtMillis = now)
         _clock.value = PlaybackClock(now, SILENT_PLAY_MILLIS, isLoading = true)
@@ -109,6 +111,7 @@ class PlaybackViewModel : ViewModel() {
     fun togglePause() {
         val clock = _clock.value ?: return
         val now = SystemClock.elapsedRealtime()
+        if (clock.isPaused) AudioPlaybackArbiter.claim(this, ::pauseForOtherAudio)
         if (clock.isLoading) {
             _clock.value = if (clock.isPaused) clock.resumedAt(now) else clock.pausedAt(now)
             return
@@ -155,6 +158,7 @@ class PlaybackViewModel : ViewModel() {
         releasePlayer()
         _clock.value = null
         _nowPlaying.value = null
+        AudioPlaybackArbiter.release(this)
     }
 
     private fun startAudio(url: String) {
@@ -227,8 +231,15 @@ class PlaybackViewModel : ViewModel() {
         player = null
     }
 
+    /** A card or the Write screen started playing: hold the turntable where it is. */
+    private fun pauseForOtherAudio() {
+        val clock = _clock.value ?: return
+        if (!clock.isPaused) togglePause()
+    }
+
     override fun onCleared() {
         releasePlayer()
+        AudioPlaybackArbiter.release(this)
     }
 
     private companion object {

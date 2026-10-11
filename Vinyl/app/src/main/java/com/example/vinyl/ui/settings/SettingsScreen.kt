@@ -14,8 +14,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -75,6 +73,9 @@ import com.example.vinyl.ui.theme.Accent
 import com.example.vinyl.ui.theme.ThemeState
 import com.example.vinyl.ui.theme.VinylPalette
 import com.example.vinyl.ui.theme.VinylTheme
+import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.text.style.TextOverflow
 
 private val CardBg = Color(0xFF1C1C1C)
 private val SignOutBg = Color(0xFF2A1616)
@@ -109,7 +110,6 @@ fun SettingsScreen(
         DailyReminder.setEnabled(context, granted)
         notificationsEnabled = granted
     }
-    var selectedGenres by rememberSaveable { mutableStateOf(setOf("Indie", "Electronic")) }
     var signedOutNote by rememberSaveable { mutableStateOf(false) }
     val avatarAppearance = rememberAvatarAppearance()
     var avatarIcon by rememberSaveable { mutableStateOf(avatarAppearance.iconIndex) }
@@ -190,9 +190,7 @@ fun SettingsScreen(
                         avatarAppearance.save(avatarIcon, avatarGradient, avatarImageUrl)
                     },
                 )
-                SettingsPage.Preferences -> PreferencesPage(selectedGenres) { genre ->
-                    selectedGenres = if (genre in selectedGenres) selectedGenres - genre else selectedGenres + genre
-                }
+                SettingsPage.Preferences -> PreferencesPage()
                 SettingsPage.About -> AboutPage()
                 SettingsPage.Help -> HelpPage()
             }
@@ -467,14 +465,10 @@ private fun AccountPage(
     }
 }
 
-private val PreviewGenres = listOf(
-    "Pop", "Rock", "Hip Hop", "R&B", "Electronic", "Indie",
-    "Jazz", "Classical", "Folk", "Metal", "Country", "Ambient",
-)
-
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun PreferencesPage(selected: Set<String>, onToggle: (String) -> Unit) {
+private fun PreferencesPage(viewModel: PreferencesViewModel = viewModel()) {
+    val state by viewModel.uiState.collectAsState()
+
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp).padding(top = 8.dp, bottom = 32.dp),
@@ -482,35 +476,92 @@ private fun PreferencesPage(selected: Set<String>, onToggle: (String) -> Unit) {
         Text("Default genres", color = VinylPalette.TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Select the genres you want to hear more of. You can change these anytime.",
+            "Used when you don't pick genres for the day. Leave all unselected to match without a genre preference.",
             color = VinylPalette.TextMuted,
             fontSize = 14.sp,
             lineHeight = 20.sp,
         )
         Spacer(Modifier.height(20.dp))
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(GroupRadius)).background(CardBg).padding(16.dp)) {
-            // Each chip sits in a 48dp-tall touch target; the row gap shrinks by the same amount
-            // so the chips keep their spacing.
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                PreviewGenres.forEach { genre ->
-                    val on = genre in selected
-                    Box(
-                        Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(50))
-                            .toggleable(value = on, role = Role.Checkbox, onValueChange = { onToggle(genre) }),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            genre,
-                            color = if (on) VinylPalette.Background else VinylPalette.TextPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.clip(RoundedCornerShape(50))
-                                .background(if (on) VinylPalette.TealAccent else Color(0xFF2A2A2A))
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
-                        )
-                    }
+
+        when {
+            state.isLoading -> Text("Loading genres…", color = VinylPalette.TextMuted, fontSize = 14.sp)
+            state.options.isEmpty() -> {
+                Text(
+                    state.error ?: "No genres available right now.",
+                    color = Color(0xFFE08787),
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                )
+                TextButton(onClick = viewModel::load, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text("Try again", color = VinylPalette.TealAccent)
                 }
             }
+            else -> {
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(GroupRadius)).background(CardBg).padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    state.options.chunked(3).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            row.forEach { genre ->
+                                PreferenceGenreCell(
+                                    label = genre.label,
+                                    selected = genre.slug in state.selected,
+                                    onToggle = { viewModel.toggle(genre.slug) },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            // Keeps a short last row aligned to the same column widths.
+                            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                        }
+                    }
+                }
+                state.error?.let {
+                    Spacer(Modifier.height(12.dp))
+                    Text(it, color = Color(0xFFE08787), fontSize = 13.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreferenceGenreCell(
+    label: String,
+    selected: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .clip(shape)
+            .background(if (selected) VinylPalette.TealAccent.copy(alpha = 0.16f) else Color(0xFF2A2A2A))
+            .border(1.dp, if (selected) VinylPalette.TealAccent else Color.Transparent, shape)
+            .toggleable(value = selected, role = Role.Checkbox, onValueChange = { onToggle() })
+            .padding(horizontal = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (selected) {
+                Icon(
+                    Icons.Rounded.Check,
+                    contentDescription = null,
+                    tint = VinylPalette.TealAccent,
+                    modifier = Modifier.size(14.dp),
+                )
+                Spacer(Modifier.width(4.dp))
+            }
+            Text(
+                text = label,
+                color = if (selected) VinylPalette.TealAccent else VinylPalette.TextPrimary,
+                fontSize = 13.sp,
+                fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
         }
     }
 }

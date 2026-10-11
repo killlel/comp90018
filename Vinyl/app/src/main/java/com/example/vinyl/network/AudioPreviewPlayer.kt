@@ -10,41 +10,74 @@ import androidx.compose.runtime.setValue
 
 class AudioPreviewController {
     private var player: MediaPlayer? = null
+    private var prepared = false
+
     var isPlaying by mutableStateOf(false)
     var currentUrl by mutableStateOf<String?>(null)
 
     fun toggle(url: String?) {
         if (url == null) return
-        if (currentUrl == url && isPlaying) {
-            player?.pause()
-            isPlaying = false
-            return
-        }
+
+        // Same track: pause or resume, but only once the player is ready.
         if (currentUrl == url && player != null) {
-            player?.start()
-            isPlaying = true
+            if (!prepared) return   // still loading; the prepared listener will start it
+            if (isPlaying) {
+                pause()
+            } else {
+                AudioPlaybackArbiter.claim(this, ::yieldToOther)
+                runCatching { player?.start() }
+                    .onSuccess { isPlaying = true }
+                    .onFailure { release() }
+            }
             return
         }
+
+        // Different track (or nothing loaded yet): start fresh.
         release()
+        AudioPlaybackArbiter.claim(this, ::yieldToOther)
         currentUrl = url
+        prepared = false
         player = MediaPlayer().apply {
-            setDataSource(url)
             setOnPreparedListener {
-                it.start()
-                this@AudioPreviewController.isPlaying = true   // qualified, avoids MediaPlayer's own isPlaying
+                prepared = true
+                runCatching { it.start() }
+                    .onSuccess { this@AudioPreviewController.isPlaying = true }
+                    .onFailure { this@AudioPreviewController.release() }
             }
             setOnCompletionListener {
-                this@AudioPreviewController.isPlaying = false  // same fix here
+                // Rewind so a second tap replays from the start instead of doing nothing.
+                runCatching { it.seekTo(0) }
+                this@AudioPreviewController.isPlaying = false
             }
-            prepareAsync()
+            setOnErrorListener { _, _, _ ->
+                this@AudioPreviewController.release()
+                true
+            }
+            runCatching {
+                setDataSource(url)
+                prepareAsync()
+            }.onFailure { this@AudioPreviewController.release() }
         }
     }
 
+    fun pause() {
+        if (!isPlaying) return
+        runCatching { player?.pause() }
+        isPlaying = false
+    }
+
+    /** Another player has started: hold where we are, or drop the load if not ready yet. */
+    private fun yieldToOther() {
+        if (prepared) pause() else release()
+    }
+
     fun release() {
-        player?.release()
+        runCatching { player?.release() }
         player = null
+        prepared = false
         isPlaying = false
         currentUrl = null
+        AudioPlaybackArbiter.release(this)
     }
 }
 

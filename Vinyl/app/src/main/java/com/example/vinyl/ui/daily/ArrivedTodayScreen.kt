@@ -77,6 +77,7 @@ data class ArrivedRecordOption(
     val previewUrl: String? = null,
     /** The day it was sent, for example "8 Oct". Null when the send time is unknown. */
     val sentDateLabel: String? = null,
+    val envelopeStyle: String? = null,
 )
 
 data class ArrivedTodayUiState(

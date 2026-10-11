@@ -43,6 +43,15 @@ enum class EnvelopeStyle(
         listOf(Color(0xFFE64980), Color(0xFFFF8FA3), Color(0xFFFFC2D1)),
         motif = EnvelopeMotif.HEARTS,
     ),
+    ;
+    /** What is stored in the database. Never rename an entry without a migration. */
+    val slug: String get() = name.lowercase()
+
+    companion object {
+        /** Null (old cards) or an unknown slug falls back to the default look. */
+        fun fromSlug(slug: String?): EnvelopeStyle =
+            entries.firstOrNull { it.slug == slug } ?: Rainbow
+    }
 }
 
 data class WriteCardUiState(

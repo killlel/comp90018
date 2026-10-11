@@ -45,6 +45,8 @@ data class RoomCard(
     @SerialName("preview_url") val previewUrl: String? = null,
     @SerialName("reaction_count") val reactionCount: Int = 0,
     val saved: Boolean = false,
+    /** The sender's EnvelopeStyle slug. Not in room_card; merged in from get_envelope_styles(). */
+    @SerialName("envelope_style") val envelopeStyle: String? = null,
 ) {
     /** Null for a value the app's enum doesn't know, rather than failing to decode. */
     val moodTag: MoodTag? get() = MoodTag.entries.firstOrNull { it.wireValue == mood }
@@ -150,6 +152,11 @@ private const val DAILY_PULL_LIMIT_MESSAGE = "daily pull limit reached"
 @Serializable
 data class GenreWeight(val slug: String, val weight: Double)
 
+@Serializable
+data class EnvelopeStyleRow(
+    @SerialName("submission_id") val submissionId: String,
+    @SerialName("envelope_style") val envelopeStyle: String? = null,
+)
 /**
  * The recipient side of the letter flow. Wraps the Sprint 1 RPCs, which are all
  * `security definer` and scope everything to `auth.uid()` server-side.
@@ -168,7 +175,7 @@ open class RoomRepository(private val supabase: SupabaseClient = Supabase.client
         genres: Collection<String> = emptyList(),
     ): Result<List<RoomCard>> = runCatching {
         val params = requestRecommendationsParams(mood, context, limit, genres, deviceTimeZone())
-        supabase.postgrest.rpc("request_recommendations", params).decodeList<RoomCard>()
+        supabase.postgrest.rpc("request_recommendations", params).decodeList<RoomCard>().withEnvelopeStyles()
     }
 
     /**
@@ -184,7 +191,7 @@ open class RoomRepository(private val supabase: SupabaseClient = Supabase.client
     /** Replays letters already delivered, without picking new ones. */
     open suspend fun getRoom(limit: Int = DEFAULT_LIMIT): Result<List<RoomCard>> = runCatching {
         val params = buildJsonObject { put("p_limit", limit) }
-        supabase.postgrest.rpc("get_room", params).decodeList<RoomCard>()
+        supabase.postgrest.rpc("get_room", params).decodeList<RoomCard>().withEnvelopeStyles()
     }
 
     /**
@@ -244,6 +251,23 @@ open class RoomRepository(private val supabase: SupabaseClient = Supabase.client
         supabase.postgrest.rpc("get_my_submissions", params).decodeList<SentCard>()
     }
 
+    /**
+     * Fills in each card's envelope style. A failure here (offline, or the function not deployed
+     * yet) leaves the cards as they were: the envelope falls back to the default look.
+     */
+    private suspend fun List<RoomCard>.withEnvelopeStyles(): List<RoomCard> {
+        if (isEmpty()) return this
+        val styles = runCatching {
+            val params = buildJsonObject {
+                put("p_submission_ids", JsonArray(map { JsonPrimitive(it.submissionId) }))
+            }
+            supabase.postgrest.rpc("get_envelope_styles", params)
+                .decodeList<EnvelopeStyleRow>()
+                .associate { it.submissionId to it.envelopeStyle }
+        }.getOrDefault(emptyMap())
+        return map { card -> styles[card.submissionId]?.let { card.copy(envelopeStyle = it) } ?: card }
+    }
+
     private fun requireUserId(): String = supabase.auth.currentUserOrNull()?.id
         ?: error("No signed-in user; the shelf is unavailable")
 
@@ -290,7 +314,7 @@ open class RoomRepository(private val supabase: SupabaseClient = Supabase.client
             }
             put("p_tz", deviceTimeZone())
         }
-        supabase.postgrest.rpc("commit_recommendations", params).decodeList<RoomCard>()
+        supabase.postgrest.rpc("commit_recommendations", params).decodeList<RoomCard>().withEnvelopeStyles()
     }
 
     private companion object {
@@ -329,4 +353,5 @@ internal fun requestRecommendationsParams(
             put("p_genres", JsonArray(genres.map { JsonPrimitive(it) }))
         }
         if (timeZone != null) put("p_tz", timeZone)
+
     }

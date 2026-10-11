@@ -107,6 +107,7 @@ class WriteCardViewModel(
                 context = null,
                 submissionGenres = state.selectedGenres.toList(),
                 attachLocation = state.attachLocation,
+                envelopeStyle = state.envelopeStyle.slug,
             ).onSuccess { id ->
                 // Reset for the next letter, but keep the genres we already loaded.
                 _uiState.update { WriteCardUiState(submittedId = id, genreOptions = it.genreOptions) }

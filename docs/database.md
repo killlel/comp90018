@@ -19,6 +19,7 @@ directly.
 | `supabase/migrations/20261008000001_cap_genre_weight.sql` | Scales genre rarity to 0–1 in `request_recommendations` and `get_genre_weights`, so genre can never outweigh mood |
 | `supabase/migrations/20261010000001_sent_preview_url.sql` | Adds `preview_url` to `get_my_submissions`, so records you sent can be played from the Collection |
 | `supabase/migrations/20261010000002_daily_pull_limit.sql` | One pull of up to three cards a day, turning over at 06:00 local time: `get_pull_status`, and the limit in front of `request_recommendations` and `commit_recommendations` |
+| `supabase/migrations/20261011000001_envelope_style.sql` | `submissions.envelope_style`, a new `p_envelope_style` argument on `submit_song`, and `get_envelope_styles`, so the recipient sees the sender's envelope |
 | `supabase/seed.sql` | 10 demo accounts and 60 demo records — real iTunes tracks with covers and previews |
 | `supabase/tests/smoke_test.sql` | CRUD + privacy checks, self-asserting (30 checks) |
 | `docs/matching.md` | How the matchmaker scores and picks, and why |
@@ -123,6 +124,7 @@ erDiagram
         text_   genres
         float8  lat        "rounded to 2dp"
         float8  lng        "rounded to 2dp"
+        text    envelope_style "sender's EnvelopeStyle slug, null on old records"
         boolean is_active
     }
     recommendations {
@@ -267,6 +269,15 @@ an optional context, genre tags, a coarse location, and `is_active` so a sender
 can retract. **The sender can read their own rows; nobody else can read this
 table at all.**
 
+`envelope_style` is the look of the envelope the sender chose in the Write
+screen, stored as a **slug** (`rainbow`, `sunset`, `ocean`, `berry`, `cute`,
+`midnight`, `simple`, `sweetheart`), never a label. It is nullable: records sent
+before it existed have none, and the app shows its default look. A check
+constraint (`submissions_envelope_style_valid`) accepts only those eight slugs,
+so **adding a style in the app needs a migration that extends the check**. A
+style is a look, not an identity, so showing it to a recipient reveals nothing
+about the sender.
+
 ### `recommendations`
 The matchmaker's output, persisted. This is what lets the record room survive an
 app restart, and the `(recipient_id, submission_id)` unique constraint is what
@@ -314,7 +325,8 @@ passed **by name**, so anything with a default can be omitted.
 | `get_candidates(p_limit?)` | `candidate_card[]` | Split path. Eligible records in random order, for ranking on the device. **Read-only — marks nothing as seen.** Default 20, capped at 50. |
 | `get_genre_weights()` | `{slug, weight}[]` | Split path. How rare each genre is across the whole pool (IDF), scaled to 0–1: 1.0 is a genre only one record carries. Changes slowly; fetch once per session. |
 | `commit_recommendations(p_submission_ids, p_mood, p_context?, p_scores?, p_tz?)` | `room_card[]` | Split path. Records the cards actually shown and returns them. Re-checks every id; ineligible ones are dropped silently. Same one-pull-a-day limit as `request_recommendations`: only the first 3 ids are used, and a second pull the same day is refused. |
-| `submit_song(...)` | `uuid` | Upserts the track and creates the submission in one call. Required: `p_provider`, `p_provider_track_id`, `p_title`, `p_artist`, `p_message`, `p_mood`. Pass `p_attach_location = true` to snapshot the sender's saved location onto the record. **Does not accept coordinates** — see below. |
+| `submit_song(...)` | `uuid` | Upserts the track and creates the submission in one call. Required: `p_provider`, `p_provider_track_id`, `p_title`, `p_artist`, `p_message`, `p_mood`. Pass `p_attach_location = true` to snapshot the sender's saved location onto the record. Optional `p_envelope_style` is the sender's envelope slug (null = default look). **Does not accept coordinates** — see below. |
+| `get_envelope_styles(p_submission_ids)` | `{submission_id, envelope_style}[]` | The envelope slug for records **in your own room**; ids you were never dealt return nothing, so it can't be used to probe the pool. Max 50 ids a call. Returns no sender identity. |
 | `update_my_location(p_lat?, p_lng?)` | `void` | Sets the caller's coarse home location (onboarding / settings). Call with no arguments to clear it. |
 | `reroll_username()` | `text` | Onboarding only. Replaces the caller's username with a fresh unique one, saves it and returns it. Raises `42501` once `onboarding_completed` is true. |
 | `add_reaction(p_submission_id, p_kind)` | `integer` | New total reaction count. Reacting twice updates in place. Fails if the record is not in your room. |
@@ -378,6 +390,12 @@ suspend fun room(limit: Int = 3): List<RoomCard> =
 
 **`room_card` is frozen at these 16 fields** until every build has
 `ignoreUnknownKeys = true` (see §6).
+
+The envelope style is **not** on `room_card`, for that reason. The app fetches
+it with `get_envelope_styles()` right after any call that deals cards and merges
+it into `RoomCard.envelopeStyle` (a client-only field, default `null`, which
+also keeps cards cached by older builds readable). If that second call fails,
+the cards still load and the envelope falls back to the default look.
 
 ### `candidate_card`
 
@@ -460,6 +478,9 @@ stored the way the app stores one: the 100px artwork URL and the iTunes genre on
 can change over time — if one stops playing, search iTunes for that song again
 and update its row in the VALUES list.
 
+The seed does not set `envelope_style`, so demo records show the default
+envelope until one is assigned.
+
 Running it also deletes the Sprint 1 hand-typed seed (`tracks.provider =
 'manual'`, ids `seed-NN`), which had no covers or previews. That cascades to any
 room, shelf item or reaction pointing at those records. Records sent from the
@@ -475,6 +496,10 @@ PostgREST sets, then `set role authenticated`), runs CRUD against every table,
 and asserts the privacy guarantees. It runs inside a transaction that rolls
 back, so it leaves nothing behind. A clean run ends with
 `=== ALL CHECKS PASSED ===`.
+
+It does not yet cover the envelope style. Still to add: `submit_song` stores
+the style, `get_envelope_styles` returns nothing for ids you were never dealt,
+and the check constraint rejects an unknown slug.
 
 **Before every `db push`,** run everything against a throwaway database first:
 
@@ -549,7 +574,9 @@ Prefer `db push`. If you did run one by hand, see `migration repair` in §5.
   screen now sends slugs.
 - **Natalie:** submission is one call, `submit_song()`. Validate a non-empty
   message and a selected song client-side for a good error message; the database
-  rejects both anyway, so nothing bad gets stored if a check is missed.
+  rejects both anyway, so nothing bad gets stored if a check is missed. The
+  sender's envelope pick goes in as `p_envelope_style` (the
+  `EnvelopeStyle.slug`).
 - **Collection is live.** It reads `get_shelf()` (kept records),
   `get_my_submissions()` (sent) and `shelf_items` (stars and kept-at times).
   "Keep this record" in the receive flow inserts into `shelf_items`.
@@ -558,7 +585,8 @@ Prefer `db push`. If you did run one by hand, see `migration repair` in §5.
   added to `room_card`.
 - **Raina:** `room_card` is the exact payload a vinyl card renders from.
   `context`, `track_album`, `artwork_url`, `preview_url`, `lat` and `lng` are all
-  nullable — cards need to look right without them.
+  nullable — cards need to look right without them. The envelope look comes
+  separately, from `get_envelope_styles()`, and may be missing: draw the default.
 - **Everyone:** the anon key is public by design and safe in the app (Scott
   already reads it from `local.properties`). The **service_role** key bypasses
   every policy on this page — it must never go near the Android module.

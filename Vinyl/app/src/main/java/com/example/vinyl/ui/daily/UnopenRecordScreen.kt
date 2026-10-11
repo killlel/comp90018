@@ -43,24 +43,25 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -72,6 +73,8 @@ import com.example.vinyl.data.MoodTag
 import com.example.vinyl.haptics.vibrateOnce
 import com.example.vinyl.ui.theme.ThemeState
 import com.example.vinyl.ui.theme.VinylPalette
+import com.example.vinyl.ui.write.EnvelopeMotif
+import com.example.vinyl.ui.write.EnvelopeStyle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.cos
@@ -88,6 +91,8 @@ data class UnopenedRecordUiState(
     val mood: MoodTag? = null,
     /** The day it was sent, for example "8 Oct". Null hides the "Sent" line. */
     val sentDateLabel: String? = null,
+    /** The sender's envelope look. Cards sent before styles were saved use the default. */
+    val envelopeStyle: EnvelopeStyle = EnvelopeStyle.Rainbow,
 )
 
 /**
@@ -101,6 +106,8 @@ data class UnopenedRecordUiState(
  * the envelope opens it, and the "Open card" action stays available for Switch Access and the
  * actions menu. Either way the flap flips up, the letter slides out, and then [onOpen] moves on
  * to the music card.
+ *
+ * The envelope is drawn in the sender's [UnopenedRecordUiState.envelopeStyle].
  */
 @Composable
 fun UnopenedRecordScreen(
@@ -242,6 +249,7 @@ fun UnopenedRecordScreen(
             flip = flip.value,
             letterLift = LetterLiftDistance * letterLift.value,
             holdProgress = holdProgress.value,
+            style = state.envelopeStyle,
             modifier = Modifier
                 .graphicsLayer {
                     rotationZ = wobble * WobbleDegrees * wobbleAmount.value + nudge.value
@@ -358,9 +366,18 @@ private fun animationsRemoved(context: Context): Boolean =
  * The turn is drawn as a flat vertical squash with no perspective, so the flap keeps the body's
  * exact width the whole way and lands with its base on the body's top edge. As it opens the
  * body's top corners square off, so the open flap meets them without a notch.
+ *
+ * Colours and the motif come from [style]: the body is a diagonal gradient of its colours, the
+ * flap a darker shade of the first one.
  */
 @Composable
-private fun Envelope(flip: Float, letterLift: Dp, holdProgress: Float = 0f, modifier: Modifier = Modifier) {
+private fun Envelope(
+    flip: Float,
+    letterLift: Dp,
+    holdProgress: Float = 0f,
+    style: EnvelopeStyle = EnvelopeStyle.Rainbow,
+    modifier: Modifier = Modifier,
+) {
     val turn = cos(Math.PI * flip).toFloat() // 1 closed, 0 edge-on, -1 open
     val flapOpen = turn < 0f
     // Square by the time the flap is edge-on, before its open side shows.
@@ -368,8 +385,8 @@ private fun Envelope(flip: Float, letterLift: Dp, holdProgress: Float = 0f, modi
 
     Box(modifier = modifier.size(EnvelopeWidth, EnvelopeHeight)) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            drawBack(bodyTopCorner.toPx(), BodyCorner.toPx())
-            if (flapOpen) drawFlap(turn, open = true)
+            drawBack(bodyTopCorner.toPx(), BodyCorner.toPx(), bodyBrush(style))
+            if (flapOpen) drawFlap(turn, open = true, color = flapColor(style))
         }
 
         // The letter sits between the back and the front pocket.
@@ -382,11 +399,12 @@ private fun Envelope(flip: Float, letterLift: Dp, holdProgress: Float = 0f, modi
         )
 
         Canvas(modifier = Modifier.fillMaxSize()) {
-            drawPocket(bodyTopCorner.toPx(), BodyCorner.toPx())
-            if (!flapOpen) drawFlap(turn, open = false)
+            drawPocket(bodyTopCorner.toPx(), BodyCorner.toPx(), bodyBrush(style), style.showFold)
+            drawMotif(style.motif)
+            if (!flapOpen) drawFlap(turn, open = false, color = flapColor(style))
         }
 
-        // The long-press ring: a thin accent arc round the seal that fills while the envelope is held.
+        // The long-press ring: a thin arc round the seal that fills while the envelope is held.
         // It rides on the flap's tip with the seal and fades with it.
         if (holdProgress > 0f) {
             Canvas(
@@ -407,8 +425,7 @@ private fun Envelope(flip: Float, letterLift: Dp, holdProgress: Float = 0f, modi
                 val inset = stroke / 2 + outline
                 val arcTopLeft = Offset(inset, inset)
                 val arcSize = Size(size.width - inset * 2, size.height - inset * 2)
-                // A 1dp cream edge on both sides: against the darker accents' flaps the arc alone
-                // is under 3:1.
+                // A 1dp cream edge on both sides keeps the arc readable on any envelope colour.
                 drawArc(
                     color = VinylPalette.Cream,
                     startAngle = -90f,
@@ -419,7 +436,6 @@ private fun Envelope(flip: Float, letterLift: Dp, holdProgress: Float = 0f, modi
                     style = Stroke(width = stroke + outline * 2, cap = StrokeCap.Round),
                 )
                 drawArc(
-                    // Half of the ring is over the cream pocket, where the light accent vanishes.
                     color = ThemeState.accent.onCream,
                     startAngle = -90f,
                     sweepAngle = 360f * holdProgress,
@@ -444,21 +460,30 @@ private fun Envelope(flip: Float, letterLift: Dp, holdProgress: Float = 0f, modi
                 .graphicsLayer { alpha = (1f - flip * 2.5f).coerceIn(0f, 1f) }
                 .size(SealSize)
                 .shadow(8.dp, CircleShape, ambientColor = Color.Black.copy(alpha = 0.25f), spotColor = Color.Black.copy(alpha = 0.25f))
-                .background(sealColor(), CircleShape),
+                .background(VinylPalette.TealAccent, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 Icons.Rounded.MusicNote,
                 contentDescription = null,
-                tint = ThemeState.accent.onCream,
+                tint = VinylPalette.Background,
                 modifier = Modifier.size(34.dp),
             )
         }
     }
 }
 
+/** The style's colours as a diagonal gradient across the envelope. */
+private fun DrawScope.bodyBrush(style: EnvelopeStyle): Brush {
+    val colors = if (style.colors.size < 2) listOf(style.colors[0], style.colors[0]) else style.colors
+    return Brush.linearGradient(colors, start = Offset.Zero, end = Offset(size.width, size.height))
+}
+
+/** The flap is a darker shade of the style's first colour. */
+private fun flapColor(style: EnvelopeStyle): Color = lerp(style.colors.first(), Color.Black, 0.2f)
+
 /** The back panel: rounded all round when closed, square on top once open. */
-private fun DrawScope.drawBack(topCorner: Float, bottomCorner: Float) {
+private fun DrawScope.drawBack(topCorner: Float, bottomCorner: Float, brush: Brush) {
     val path = Path().apply {
         addRoundRect(
             RoundRect(
@@ -470,11 +495,11 @@ private fun DrawScope.drawBack(topCorner: Float, bottomCorner: Float) {
             ),
         )
     }
-    drawPath(path, BackColor)
+    drawPath(path, brush)
 }
 
 /** The front pocket, its top edge cut into a V that dips to [PocketDip] of the height. */
-private fun DrawScope.drawPocket(topCorner: Float, bottomCorner: Float) {
+private fun DrawScope.drawPocket(topCorner: Float, bottomCorner: Float, brush: Brush, showFold: Boolean) {
     val w = size.width
     val h = size.height
     val tip = Offset(w / 2f, h * PocketDip)
@@ -492,7 +517,12 @@ private fun DrawScope.drawPocket(topCorner: Float, bottomCorner: Float) {
         quadraticTo(0f, h, 0f, h - bottomCorner)
         close()
     }
-    drawPath(path, VinylPalette.Cream)
+    drawPath(path, brush)
+    if (showFold) {
+        val fold = Color.White.copy(alpha = 0.12f)
+        drawLine(fold, Offset.Zero, tip, strokeWidth = 1.dp.toPx())
+        drawLine(fold, Offset(w, 0f), tip, strokeWidth = 1.dp.toPx())
+    }
 }
 
 /**
@@ -500,7 +530,7 @@ private fun DrawScope.drawPocket(topCorner: Float, bottomCorner: Float) {
  * flips it upward). Closed, its top corners are rounded off to sit inside the body's rounded
  * corners; open, it is a plain triangle exactly as wide as the body.
  */
-private fun DrawScope.drawFlap(turn: Float, open: Boolean) {
+private fun DrawScope.drawFlap(turn: Float, open: Boolean, color: Color) {
     val w = size.width
     val tip = Offset(w / 2f, size.height * FlapDepth)
     val corner = if (open) 0f else FlapCorner.toPx()
@@ -515,7 +545,29 @@ private fun DrawScope.drawFlap(turn: Float, open: Boolean) {
         close()
     }
     scale(scaleX = 1f, scaleY = turn, pivot = Offset(w / 2f, 0f)) {
-        drawPath(path, VinylPalette.TealAccent)
+        drawPath(path, color)
+    }
+}
+
+/** Stars (Midnight) or small hearts (Sweetheart), at fixed spots on the body. */
+private fun DrawScope.drawMotif(motif: EnvelopeMotif) {
+    if (motif == EnvelopeMotif.NONE) return
+    val spots = listOf(0.15f to 0.24f, 0.25f to 0.56f, 0.36f to 0.80f, 0.85f to 0.71f)
+    val color = Color.White.copy(alpha = 0.75f)
+    spots.forEach { (fx, fy) ->
+        val c = Offset(size.width * fx, size.height * fy)
+        if (motif == EnvelopeMotif.MOON) {
+            drawCircle(color, radius = 2.dp.toPx(), center = c)
+        } else {
+            val s = 6.dp.toPx()
+            val heart = Path().apply {
+                moveTo(c.x, c.y + s * 0.35f)
+                cubicTo(c.x - s, c.y - s * 0.2f, c.x - s * 0.5f, c.y - s * 0.9f, c.x, c.y - s * 0.35f)
+                cubicTo(c.x + s * 0.5f, c.y - s * 0.9f, c.x + s, c.y - s * 0.2f, c.x, c.y + s * 0.35f)
+                close()
+            }
+            drawPath(heart, color)
+        }
     }
 }
 
@@ -528,8 +580,8 @@ private fun towards(from: Offset, to: Offset, distance: Float): Offset {
     return Offset(from.x + dx / length * distance, from.y + dy / length * distance)
 }
 
-private val EnvelopeWidth = 240.dp
-private val EnvelopeHeight = 160.dp
+private val EnvelopeWidth = 220.dp
+private val EnvelopeHeight = 220.dp
 private val BodyCorner = 16.dp
 private val FlapCorner = 14.dp
 
@@ -540,10 +592,10 @@ private const val FlapDepth = 0.56f
 private const val PocketDip = 0.54f
 
 // The letter is tall enough that, lifted, its bottom edge still sits below the V's tip
-// (12 + 140 - 60 = 92dp, against a tip at 86dp), so no back panel shows under it.
+// (12 + 190 - 60 = 142dp, against a tip at about 123dp), so no back panel shows under it.
 private val LetterInset = 16.dp
 private val LetterTop = 12.dp
-private val LetterHeight = 140.dp
+private val LetterHeight = 190.dp
 private val LetterLiftDistance = 60.dp
 
 private val SealSize = 60.dp
@@ -552,11 +604,7 @@ private val SealSize = 60.dp
 private val HoldRingSize = SealSize + 12.dp
 private val GroupGap = 28.dp
 
-private val BackColor = Color(0xFFCFC8BA)
 private val LetterColor = Color(0xFFFBF9F4)
-
-/** A near-white disc with a hint of the accent, like the original mint seal on teal. */
-private fun sealColor(): Color = ThemeState.accent.color.copy(alpha = 0.12f).compositeOver(Color.White)
 
 private const val WobbleMs = 1800
 private const val WobbleDegrees = 2.5f
@@ -582,6 +630,7 @@ private fun UnopenedRecordScreenPreview() {
             sentTimeLabel = "3 hr. ago",
             mood = MoodTag.Romantic,
             sentDateLabel = "8 Oct",
+            envelopeStyle = EnvelopeStyle.Midnight,
         ),
         onOpen = {},
     )
@@ -592,15 +641,15 @@ private fun UnopenedRecordScreenPreview() {
 @Composable
 private fun EnvelopeOpenPreview() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Envelope(flip = 1f, letterLift = LetterLiftDistance)
+        Envelope(flip = 1f, letterLift = LetterLiftDistance, style = EnvelopeStyle.Midnight)
     }
 }
 
 /** The closed envelope part way through a long press, showing the ring round the seal. */
-@Preview(showBackground = true, backgroundColor = 0xFF1C1C1C, widthDp = 320, heightDp = 260)
+@Preview(showBackground = true, backgroundColor = 0xFF1C1C1C, widthDp = 320, heightDp = 300)
 @Composable
 private fun EnvelopeHoldPreview() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Envelope(flip = 0f, letterLift = 0.dp, holdProgress = 0.6f)
+        Envelope(flip = 0f, letterLift = 0.dp, holdProgress = 0.6f, style = EnvelopeStyle.Sweetheart)
     }
 }

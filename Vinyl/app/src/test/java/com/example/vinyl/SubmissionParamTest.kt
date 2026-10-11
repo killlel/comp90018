@@ -16,6 +16,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.example.vinyl.ui.write.EnvelopeStyle
 
 /**
  * Checks exactly what the app sends to the database when a letter is sent (`submit_song`) and when
@@ -39,20 +40,21 @@ class SubmissionParamsTest {
             )
 
     private fun params(
-            track: Track = this.track,
-            message: String = "Hits differently depending on how old you are.",
-            mood: MoodTag? = MoodTag.Sad,
-            context: ContextTag? = null,
-            genres: List<String> = emptyList(),
-    attachLocation: Boolean = false,
-            ) = submitSongParams(track, message, mood, context, genres, attachLocation)
+        track: Track = this.track,
+        message: String = "Hits differently depending on how old you are.",
+        mood: MoodTag? = MoodTag.Sad,
+        context: ContextTag? = null,
+        genres: List<String> = emptyList(),
+        attachLocation: Boolean = false,
+        envelopeStyle: String? = null,
+    ) = submitSongParams(track, message, mood, context, genres, attachLocation, envelopeStyle = envelopeStyle)
 
     /** Every argument of the SQL function submit_song(). A name outside this set fails with PGRST202. */
     private val submitSongArguments = setOf(
-            "p_provider", "p_provider_track_id", "p_title", "p_artist", "p_message", "p_mood",
-            "p_album", "p_artwork_url", "p_preview_url", "p_duration_ms", "p_track_genres",
-            "p_context", "p_genres", "p_attach_location",
-            )
+        "p_provider", "p_provider_track_id", "p_title", "p_artist", "p_message", "p_mood",
+        "p_album", "p_artwork_url", "p_preview_url", "p_duration_ms", "p_track_genres",
+        "p_context", "p_genres", "p_attach_location", "p_envelope_style",
+    )
     private val submitSongRequired = setOf(
             "p_provider", "p_provider_track_id", "p_title", "p_artist", "p_message", "p_mood",
             )
@@ -137,6 +139,33 @@ class SubmissionParamsTest {
         val names = params().keys
         assertTrue("unknown arguments: ${names - submitSongArguments}", names.all { it in submitSongArguments })
         assertTrue("missing arguments: ${submitSongRequired - names}", names.containsAll(submitSongRequired))
+    }
+
+    @Test
+    fun `sends the envelope style slug that was picked`() {
+        assertEquals("midnight", params(envelopeStyle = "midnight").getValue("p_envelope_style").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `sends null for the envelope style when none was chosen`() {
+        assertTrue(params().getValue("p_envelope_style") is JsonNull)
+    }
+
+    @Test
+    fun `envelope style slugs match the database check constraint`() {
+        // Same eight values as submissions_envelope_style_valid. Renaming an enum entry
+        // without a migration would change a stored slug and break old records.
+        assertEquals(
+            setOf("rainbow", "sunset", "ocean", "berry", "cute", "midnight", "simple", "sweetheart"),
+            EnvelopeStyle.entries.map { it.slug }.toSet(),
+        )
+    }
+
+    @Test
+    fun `an envelope style slug reads back to the same style, and unknown ones fall back to rainbow`() {
+        EnvelopeStyle.entries.forEach { assertEquals(it, EnvelopeStyle.fromSlug(it.slug)) }
+        assertEquals(EnvelopeStyle.Rainbow, EnvelopeStyle.fromSlug("nonsense"))
+        assertEquals(EnvelopeStyle.Rainbow, EnvelopeStyle.fromSlug(null))
     }
 
     // ------------------------------------------------------------ request_recommendations

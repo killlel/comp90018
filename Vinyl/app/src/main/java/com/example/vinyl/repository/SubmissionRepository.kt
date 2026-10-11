@@ -46,8 +46,9 @@ open class SubmissionRepository(
         context: ContextTag? = null,
         submissionGenres: List<String> = emptyList(),
         attachLocation: Boolean = false,
+        envelopeStyle: String? = null,
     ): Result<String> = runCatching {
-        val params = submitSongParams(track, message, mood, context, submissionGenres, attachLocation)
+        val params = submitSongParams(track, message, mood, context, submissionGenres, attachLocation, envelopeStyle)
 
         // submit_song() returns a bare uuid
         supabase.postgrest.rpc("submit_song", params).decodeAs<String>()
@@ -66,6 +67,7 @@ internal fun submitSongParams(
     context: ContextTag?,
     submissionGenres: List<String>,
     attachLocation: Boolean,
+    envelopeStyle: String? = null,
 ): JsonObject = buildJsonObject {
     put("p_provider", "itunes")
     put("p_provider_track_id", track.trackId.toString())
@@ -84,4 +86,5 @@ internal fun submitSongParams(
     put("p_genres", JsonArray(submissionGenres.map { JsonPrimitive(it) }))
 
     put("p_attach_location", attachLocation)
+    put("p_envelope_style", envelopeStyle)
 }
