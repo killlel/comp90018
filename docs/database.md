@@ -21,6 +21,7 @@ directly.
 | `supabase/migrations/20261010000002_daily_pull_limit.sql` | One pull of up to three cards a day, turning over at 06:00 local time: `get_pull_status`, and the limit in front of `request_recommendations` |
 | `supabase/migrations/20261011000001_envelope_style.sql` | `submissions.envelope_style`, a new `p_envelope_style` argument on `submit_song`, and `get_envelope_styles`, so the recipient sees the sender's envelope |
 | `supabase/migrations/20261011000002_remove_unused_features.sql` | Removes features never shipped: reactions, context, and the split matcher. Every remaining function keeps its behaviour |
+| `supabase/migrations/20261012000001_wildcard_flag.sql` | Flags the random pick in each hand: `recommendations.is_wildcard`, and `wildcard` on `room_card` |
 | `supabase/seed.sql` | 10 demo accounts and 60 demo records — real iTunes tracks with covers and previews |
 | `supabase/tests/smoke_test.sql` | CRUD + privacy checks, self-asserting (30 checks) |
 | `docs/matching.md` | How the matchmaker scores and picks, and why |
@@ -270,7 +271,8 @@ stops the shake gesture from serving the same record twice. Recipients can read
 their own rows; **only `request_recommendations()` can write them**, so a client
 cannot hand itself a match.
 
-`score` holds what the matcher gave the record, for tuning later.
+`score` holds what the matcher gave the record, for tuning later. `is_wildcard` is true for
+the hand's random pick (its last slot, see `matching.md` §4), so the app can label it.
 
 ### `shelf_items`
 The record shelf. Owner-only, and the insert policy additionally requires that
@@ -325,7 +327,7 @@ The anonymised shape of a song as a recipient sees it. Note the absence of
 ```
 recommendation_id, submission_id, message, mood, genres,
 lat, lng, submitted_at, track_title, track_artist, track_album,
-artwork_url, preview_url, saved
+artwork_url, preview_url, saved, wildcard
 ```
 
 Kotlin, for `com.example.vinyl.data`:
@@ -347,6 +349,7 @@ data class RoomCard(
     @SerialName("artwork_url")    val artworkUrl: String? = null,
     @SerialName("preview_url")    val previewUrl: String? = null,
     val saved: Boolean = false,
+    val wildcard: Boolean = false,
 )
 ```
 
@@ -357,7 +360,7 @@ suspend fun room(limit: Int = 3): List<RoomCard> =
         .decodeList()
 ```
 
-**`room_card` is frozen at these 14 fields** until every build has
+**`room_card` is frozen at these 15 fields** until every build has
 `ignoreUnknownKeys = true` (see §6).
 
 The envelope style is **not** on `room_card`, for that reason. The app fetches

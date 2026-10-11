@@ -12,6 +12,7 @@ way. The exact contracts (argument names, return types) are in
 | `supabase/migrations/20261008000001_cap_genre_weight.sql` | Caps the genre term so it can never outweigh mood (the current scoring) |
 | `supabase/migrations/20261010000002_daily_pull_limit.sql` | One pull a day. Moves the scoring to `app_private.deal_recommendations` unchanged; `request_recommendations` is now a wrapper that checks the limit first. **Scoring changes go in `app_private.deal_recommendations`.** |
 | `supabase/migrations/20261011000002_remove_unused_features.sql` | Removes the context term (it always scored zero) and the on-device path; the scoring is otherwise unchanged |
+| `supabase/migrations/20261012000001_wildcard_flag.sql` | Records which card is the random pick (`is_wildcard`), so the app can label it. Picks and scores unchanged |
 | `supabase/tests/smoke_test.sql` checks 2–5 and 22–24 | Matching, its security rules and the daily limit, tested against a real database |
 
 ---
@@ -230,6 +231,10 @@ usually take the best known option, and sometimes try something else. Here,
 
 If only one record is asked for, there is no random slot.
 
+The random pick is saved with `is_wildcard = true` and comes back on its card as
+`wildcard`, so the picker can label it "Wildcard · picked at random". That way
+a card outside your usual taste reads as a deliberate surprise, not a mistake.
+
 ---
 
 ## 5. A worked example
@@ -335,6 +340,7 @@ where this app actually is. Each one is a standard, citable idea:
 | 22 | `get_pull_status()` counts the cards dealt today |
 | 23 | A second pull the same day is refused |
 | 24 | The day turns over at 06:00 local time, not midnight |
+| 25 | A full hand marks exactly one card as the wildcard |
 
 Checks 4–5 are security checks. **If a change breaks one, the change is
 wrong.**
