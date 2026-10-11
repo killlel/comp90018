@@ -9,6 +9,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,7 +39,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -98,7 +98,7 @@ fun NowPlayingPanel(
                         fontSize = 19.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.scrollIfTooLong(),
                     )
                 }
 
@@ -131,7 +131,7 @@ fun NowPlayingPanel(
                 color = VinylPalette.TextMuted,
                 fontSize = 14.sp,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.scrollIfTooLong(),
             )
 
             Spacer(Modifier.weight(1f))
@@ -139,6 +139,16 @@ fun NowPlayingPanel(
         }
     }
 }
+
+/**
+ * A line that doesn't fit scrolls sideways, so a long title or artist can be read in full instead
+ * of ending in "…". Text that fits stays still.
+ */
+private fun Modifier.scrollIfTooLong(): Modifier =
+    basicMarquee(iterations = Int.MAX_VALUE, repeatDelayMillis = MARQUEE_PAUSE_MILLIS)
+
+/** How long a scrolled line rests at the start before it goes round again. */
+private const val MARQUEE_PAUSE_MILLIS = 2_000
 
 /** The selected card's real artwork, with a stable fallback while it loads or when none exists. */
 @Composable
