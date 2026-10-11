@@ -161,7 +161,7 @@ See `database.md` for the full schema.
 
 ```
 app/src/main/java/com/example/vinyl/
-├── MainActivity.kt                    # Entry point, navigation graph, receive-flow wiring
+├── MainActivity.kt                    # The activity: sign-in/app switch, onboarding gate, tab shell, overlay back handling
 │
 ├── data/                              # Data models & backend setup
 │   ├── GoogleAuthRepository.kt        # Google Sign-In / auth
@@ -212,9 +212,14 @@ app/src/main/java/com/example/vinyl/
     ├── theme/                         # Color.kt, Theme.kt, ThemeState.kt, Type.kt, VinylPalette.kt
     │
     ├── components/                    # Reusable UI
+    │   ├── AnimatedBottomSheet.kt     # Bottom sheet that slides in and out, with swipe-to-dismiss
     │   ├── ShelfLedge.kt
     │   ├── VinylSleeveThumbnail.kt
+    │   ├── VinylSnackbar.kt           # Snackbar in the app's panel style ("Removed. Undo")
     │   └── VinylWordmark.kt
+    │
+    ├── auth/                          # Feature: sign-in
+    │   └── AuthScreen.kt              # Google sign-in (Credential Manager first, browser fallback)
     │
     ├── onboarding/                    # Feature: first-run setup
     │   ├── OnboardingPagerScreen.kt / OnboardingViewModel.kt
@@ -240,6 +245,8 @@ app/src/main/java/com/example/vinyl/
     │   └── ReceiveFlowStyle.kt
     │
     ├── receive/                       # Feature: view a received card
+    │   ├── ReceiveFlow.kt             # The receive flow: step state, mood sheet and the four full-screen steps
+    │   ├── CardSheets.kt              # Bottom sheets for an opened card (Home shelf, Collection)
     │   ├── MusicCardScreen.kt         # Opened card: in-card preview, compass chip, store buttons
     │   ├── CompassScreen.kt           # Rotating compass rose pointing to the sender
     │   ├── DetectCompassBearing.kt    # Turns sensor heading into compass UI state
@@ -268,6 +275,41 @@ app/src/main/java/com/example/vinyl/
         ├── SettingsScreen.kt / PreferencesViewModel.kt
         └── AvatarMakerScreen.kt / AvatarAppearance.kt
 ```
+
+### Where things live
+
+`MainActivity.kt` only wires the app together. Each feature has its own file, so a screen can be read
+without scrolling past another one:
+
+- `MainActivity` is the activity. It switches between sign-in and the app, handles the two intents
+  that arrive outside the UI (the sign-in callback and a tap on the daily reminder), and signs out.
+- `OnboardingGate` runs first-run setup once per account, then shows the app.
+- `VinylApp` is the tab shell (Collection, Home, Create). It owns the state that links the screens
+  (selected tab, receive-flow step, card open in a sheet) and hands each job to a small composable:
+  `VinylBottomBar`, `OverlayBackHandlers`, `ReceiveFlow`, and `offerUndoAfterRemove` for the
+  "Removed. Undo" snackbar.
+- `ReceiveFlow` (in `ui/receive/`) draws one receive step at a time. It only reads the step and the
+  chosen mood and reports changes, because Home and the daily reminder also start the flow.
+
+## Testing
+
+```
+./gradlew assembleDebug                  # compiles
+./gradlew testDebugUnitTest              # JVM unit tests (no device needed)
+./gradlew check                          # unit tests + lint
+./gradlew connectedDebugAndroidTest      # Compose tests; needs an emulator or phone
+```
+
+Instrumented tests are in `app/src/androidTest/java/com/example/vinyl/ui/`:
+
+| File | What it covers |
+| ---- | -------------- |
+| `settings/SignOutTest.kt` | The sign-out row and its confirm / cancel dialog |
+| `receive/ReceiveFlowTest.kt` | Arrived Today, the sealed envelope (tap, press and hold, back) and the opened music card. Checks that nothing names the song or artist before a letter is opened. |
+| `write/SendFlowTest.kt` | The "Write a music card" form: required markers, message counter, Preview and Send off until the card is complete |
+
+Picking a song (iTunes) and sending (Supabase) are not covered by the app tests. The database side is
+covered by `supabase/tests/smoke_test.sql` (25 checks), run in the Supabase SQL editor.
 
 ## Backend
 
