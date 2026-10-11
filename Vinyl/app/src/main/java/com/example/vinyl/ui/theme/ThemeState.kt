@@ -69,7 +69,10 @@ object ThemeState {
 internal fun vinylColorScheme(base: ColorScheme): ColorScheme {
     val context = LocalContext.current
     val inPreview = LocalInspectionMode.current
-    remember(context) { if (!inPreview) ThemeState.load(context) }
+    remember(context) {
+        if (!inPreview) ThemeState.load(context)
+        true
+    }
     val accent = ThemeState.accent
     return remember(base, accent) {
         base.copy(
