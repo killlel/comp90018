@@ -473,6 +473,28 @@ private fun Envelope(
     }
 }
 
+/**
+ * A sealed envelope in [style], shrunk to [size], for lists of cards still to open. It is the
+ * full-size drawing scaled down, so a style looks the same here as on the envelope screen.
+ */
+@Composable
+internal fun EnvelopeThumbnail(style: EnvelopeStyle, size: Dp, modifier: Modifier = Modifier) {
+    val scale = size / EnvelopeWidth
+    Box(modifier = modifier.size(size), contentAlignment = Alignment.Center) {
+        Envelope(
+            flip = 0f,
+            letterLift = 0.dp,
+            style = style,
+            modifier = Modifier
+                .requiredSize(EnvelopeWidth, EnvelopeHeight)
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                },
+        )
+    }
+}
+
 /** The style's colours as a diagonal gradient across the envelope. */
 private fun DrawScope.bodyBrush(style: EnvelopeStyle): Brush {
     val colors = if (style.colors.size < 2) listOf(style.colors[0], style.colors[0]) else style.colors

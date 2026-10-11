@@ -8,6 +8,7 @@ import com.example.vinyl.repository.PullStatus
 import com.example.vinyl.repository.RoomCard
 import com.example.vinyl.repository.RoomRepository
 import com.example.vinyl.ui.daily.ReceiveCardStore
+import com.example.vinyl.ui.daily.openKey
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,20 +20,35 @@ import kotlinx.coroutines.launch
 data class HomeUiState(
     val isLoading: Boolean = true,
     /**
-     * The latest hand of music cards, newest first — what the Arrived Today picker shows. Empty
-     * until the user has pulled once, which is a normal state, not an error.
+     * The cards today's pull dealt, newest first. Empty until the pull, which is a normal state,
+     * not an error.
      */
-    val arrivedToday: List<RoomCard> = emptyList(),
-    /** A delivered hand waiting for the first Play on turntable action. */
-    val pendingToday: List<RoomCard> = emptyList(),
+    val todayHand: List<RoomCard> = emptyList(),
+    /** Which cards have been opened on this phone, by [openKey], in the order they were opened. */
+    val openedKeys: List<String> = emptyList(),
     val error: String? = null,
     /** Whether today's pull has been made, from the server. Null until it answers. */
     val pullStatus: PullStatus? = null,
 ) {
-    val todayHand: List<RoomCard> get() = arrivedToday.ifEmpty { pendingToday }
+    /**
+     * Today's cards that have been opened, in the order they were opened: the first opened stands
+     * on the left of the shelf and each later one joins on its right.
+     */
+    val onShelf: List<RoomCard>
+        get() = openedKeys.mapNotNull { key -> todayHand.firstOrNull { it.openKey == key } }
+
+    /** Today's cards still sealed: these wait in the picker. */
+    val unopened: List<RoomCard> get() = todayHand.filterNot { it.openKey in openedKeys }
 
     /** Today's pull is still to make. Unknown counts as yes: the server has the final say. */
     val canPull: Boolean get() = pullStatus?.canPull ?: true
+
+    /**
+     * Nothing left to do today: every card of the hand is open, or the server says today's pull
+     * is made and there's no hand here to open (it was made on another phone and not loaded).
+     */
+    val doneForToday: Boolean
+        get() = if (todayHand.isNotEmpty()) unopened.isEmpty() else !canPull
 }
 
 /**
@@ -72,49 +88,41 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 showHand(cached)
                 return@launch
             }
-            if (cardStore.manuallyPreparedTestHand() != null) {
-                _uiState.update { HomeUiState(isLoading = false, pullStatus = it.pullStatus) }
-                return@launch
-            }
-            if (status != null && status.dealtToday == 0) {
-                _uiState.update { HomeUiState(isLoading = false, pullStatus = it.pullStatus) }
+            if (cardStore.manuallyPreparedTestHand() != null || (status != null && status.dealtToday == 0)) {
+                showHand(emptyList())
                 return@launch
             }
 
             _uiState.update { it.copy(isLoading = true, error = null) }
             val result = repository.getRoom(limit = status?.dealtToday ?: HAND_SIZE)
             val cards = result.getOrNull().orEmpty()
-            _uiState.update {
-                HomeUiState(
-                    isLoading = false,
-                    arrivedToday = if (status != null) {
-                        cardStore.saveToday(cards, shelfVisible = true)
-                    } else {
-                        cardStore.resolveExisting(cards)
-                    },
-                    error = result.exceptionOrNull()?.message,
-                    pullStatus = it.pullStatus,
-                )
-            }
+            showHand(
+                cards = if (status != null) cardStore.saveToday(cards) else cardStore.resolveExisting(cards),
+                error = result.exceptionOrNull()?.message,
+            )
         }
     }
 
+    /** Remembers a hand the receive flow was just dealt. */
     fun showToday(cards: List<RoomCard>) {
         showHand(cardStore.saveToday(cards))
     }
 
-    fun publishToday() {
-        cardStore.publishToday()
-        showHand(cardStore.todayCards())
+    /** A card was opened: it moves from the picker to the shelf. */
+    fun markOpened(key: String) {
+        cardStore.markOpened(key)
+        _uiState.update { it.copy(openedKeys = cardStore.openedKeys()) }
     }
 
-    private fun showHand(cards: List<RoomCard>) {
+    private fun showHand(cards: List<RoomCard>, error: String? = null) {
         _uiState.update {
-            if (cardStore.isShelfVisible()) {
-                HomeUiState(isLoading = false, arrivedToday = cards, pullStatus = it.pullStatus)
-            } else {
-                HomeUiState(isLoading = false, pendingToday = cards, pullStatus = it.pullStatus)
-            }
+            HomeUiState(
+                isLoading = false,
+                todayHand = cards,
+                openedKeys = cardStore.openedKeys(),
+                error = error,
+                pullStatus = it.pullStatus,
+            )
         }
     }
 

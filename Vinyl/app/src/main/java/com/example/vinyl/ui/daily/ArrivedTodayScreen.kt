@@ -8,19 +8,17 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
-import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.foundation.Canvas
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.ui.geometry.Offset
@@ -29,16 +27,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalInspectionMode
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -46,12 +41,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
-import com.example.vinyl.R
 import com.example.vinyl.data.MoodTag
-import com.example.vinyl.data.THUMB_ARTWORK_PX
-import com.example.vinyl.data.itunesArtworkAt
 import com.example.vinyl.ui.theme.VinylPalette
+import com.example.vinyl.ui.write.EnvelopeStyle
 import kotlinx.coroutines.delay
 
 data class ArrivedRecordOption(
@@ -78,6 +70,8 @@ data class ArrivedRecordOption(
     /** The day it was sent, for example "8 Oct". Null when the send time is unknown. */
     val sentDateLabel: String? = null,
     val envelopeStyle: String? = null,
+    /** Picked at random to fill the hand's last slot, rather than as one of its top matches. */
+    val isWildcard: Boolean = false,
 )
 
 data class ArrivedTodayUiState(
@@ -299,6 +293,11 @@ private fun RiseIn(index: Int, animate: Boolean, content: @Composable () -> Unit
 
 private val LoadingSize = 150.dp
 
+/**
+ * One sealed card in the picker. It shows what the outside of a letter would: the envelope the
+ * sender chose, the mood, how far it came and when, and the first line of the note. The song and
+ * its cover stay inside until it's opened. The hand's random pick says so.
+ */
 @Composable
 private fun ArrivedRecordCard(option: ArrivedRecordOption, onClick: () -> Unit) {
     Row(
@@ -311,18 +310,22 @@ private fun ArrivedRecordCard(option: ArrivedRecordOption, onClick: () -> Unit) 
             .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CoverWithDisc(artworkUrl = option.artworkUrl)
+        EnvelopeThumbnail(style = EnvelopeStyle.fromSlug(option.envelopeStyle), size = EnvelopeThumbSize)
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
+            if (option.isWildcard) {
+                WildcardTag()
+                Spacer(modifier = Modifier.height(4.dp))
+            }
             Text(
-                text = option.trackName,
+                text = sealedTitle(option.moodLabel),
                 color = VinylPalette.Cream,
                 style = ReceiveFlowStyle.text(15.sp, FontWeight.Medium, 22.sp),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = option.artistName,
+                text = listOfNotNull(option.distanceLabel, option.sentTimeLabel).joinToString(" · "),
                 color = VinylPalette.Cream.copy(alpha = 0.7f),
                 style = ReceiveFlowStyle.text(12.sp, FontWeight.Light, 18.sp),
                 maxLines = 1,
@@ -353,49 +356,42 @@ private fun ArrivedRecordCard(option: ArrivedRecordOption, onClick: () -> Unit) 
     }
 }
 
-/** A 64dp cover with a 60dp record peeking out from behind its right edge. */
+/**
+ * The hint on the hand's random pick: the last card is drawn at random from beyond the top
+ * matches, so it may be something you wouldn't have asked for.
+ */
 @Composable
-private fun CoverWithDisc(artworkUrl: String?) {
-    val coverShape = RoundedCornerShape(6.dp)
-    Box(modifier = Modifier.width(CoverSize + DiscPeek).height(CoverSize)) {
-        Image(
-            painter = painterResource(R.drawable.black_vinyl),
+private fun WildcardTag() {
+    Row(
+        modifier = Modifier
+            .border(1.dp, VinylPalette.TealAccent.copy(alpha = 0.7f), CircleShape)
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Rounded.Shuffle,
             contentDescription = null,
-            modifier = Modifier.size(DiscSize).align(Alignment.CenterEnd),
+            tint = VinylPalette.TealAccent,
+            modifier = Modifier.size(12.dp),
         )
-        Box(
-            modifier = Modifier
-                .size(CoverSize)
-                .align(Alignment.CenterStart)
-                .clip(coverShape)
-                .background(ReceiveFlowStyle.IconWell),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (artworkUrl != null) {
-                AsyncImage(
-                    model = itunesArtworkAt(artworkUrl, THUMB_ARTWORK_PX),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                // Not every song has artwork: a flat panel with a note instead.
-                Icon(
-                    Icons.Rounded.MusicNote,
-                    contentDescription = null,
-                    tint = VinylPalette.Cream.copy(alpha = 0.55f),
-                    modifier = Modifier.size(26.dp),
-                )
-            }
-        }
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = "Wildcard · picked at random",
+            color = VinylPalette.TealAccent,
+            style = ReceiveFlowStyle.text(11.sp, FontWeight.Medium, 16.sp),
+        )
     }
 }
 
-private val CoverSize = 64.dp
-private val DiscSize = 60.dp
+/** "A happy record", "An energetic record": the outside of the envelope names only the mood. */
+internal fun sealedTitle(moodLabel: String): String {
+    val mood = moodLabel.trim().lowercase()
+    if (mood.isEmpty()) return "A sealed record"
+    val article = if (mood.first() in "aeiou") "An" else "A"
+    return "$article $mood record"
+}
 
-/** How far the record shows past the cover's right edge. */
-private val DiscPeek = 20.dp
+private val EnvelopeThumbSize = 64.dp
 
 @Preview(showBackground = true, backgroundColor = 0xFF1C1C1C, widthDp = 390, heightDp = 844)
 @Composable

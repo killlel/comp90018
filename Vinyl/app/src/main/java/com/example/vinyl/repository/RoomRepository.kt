@@ -42,6 +42,8 @@ data class RoomCard(
     @SerialName("artwork_url") val artworkUrl: String? = null,
     @SerialName("preview_url") val previewUrl: String? = null,
     val saved: Boolean = false,
+    /** The hand's random pick (its last, "explore" slot) rather than one of its top matches. */
+    val wildcard: Boolean = false,
     /** The sender's EnvelopeStyle slug. Not in room_card; merged in from get_envelope_styles(). */
     @SerialName("envelope_style") val envelopeStyle: String? = null,
 ) {

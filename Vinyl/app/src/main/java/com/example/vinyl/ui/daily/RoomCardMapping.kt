@@ -111,5 +111,6 @@ internal fun RoomCard.toArrivedOption(readerLat: Double?, readerLng: Double?): A
         senderLng = lng,
         previewUrl = previewUrl,
         envelopeStyle = envelopeStyle,
+        isWildcard = wildcard,
     )
 }
