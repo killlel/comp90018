@@ -96,7 +96,6 @@ import com.example.vinyl.ui.daily.ArrivedTodayScreen
 import com.example.vinyl.ui.daily.ArrivedTodayUiState
 import com.example.vinyl.ui.daily.MoodQuestionnaireScreen
 import com.example.vinyl.ui.daily.RoomViewModel
-import com.example.vinyl.ui.daily.ReceiveCardStore
 import com.example.vinyl.ui.daily.DailyGenresViewModel
 import com.example.vinyl.ui.daily.UnopenedRecordScreen
 import com.example.vinyl.ui.daily.UnopenedRecordUiState
@@ -108,6 +107,7 @@ import androidx.compose.ui.text.style.TextAlign
 import com.example.vinyl.ui.theme.PoppinsFontFamily
 import com.example.vinyl.ui.onboarding.OnboardingHorizontalPadding
 import com.example.vinyl.ui.onboarding.OnboardingPagerScreen
+import com.example.vinyl.ui.daily.openKey
 import com.example.vinyl.ui.daily.toArrivedOption
 import com.example.vinyl.ui.location.LocationSettingsScreen
 import com.example.vinyl.ui.location.LocationUiState
@@ -348,7 +348,6 @@ private fun VinylApp(
     val collectionState by collectionViewModel.uiState.collectAsState()
 
     // Opening history survives app restarts and is local to the signed-in account on this device.
-    val receiveCardStore = remember(appContext) { ReceiveCardStore(appContext) }
     var shelfCard by remember { mutableStateOf<ArrivedRecordOption?>(null) }
     var shelfCompassOpen by remember { mutableStateOf(false) }
 
@@ -387,7 +386,6 @@ private fun VinylApp(
 
     // "Play on turntable" on a received card, from page 4 or the shelf's details sheet.
     val playCardOnTurntable: (ArrivedRecordOption) -> Unit = { option ->
-        homeViewModel.publishToday()
         val track = NowPlaying(
             submissionId = option.submissionId,
             title = option.trackName,
@@ -479,8 +477,8 @@ private fun VinylApp(
     LaunchedEffect(openReceiveRequested, homeState.isLoading) {
         if (!openReceiveRequested || homeState.isLoading) return@LaunchedEffect
         selectedTab = AppTab.Home
-        if (homeState.arrivedToday.isEmpty() && homeState.error == null) {
-            if (homeState.pendingToday.isNotEmpty()) {
+        if (homeState.error == null && !homeState.doneForToday) {
+            if (homeState.todayHand.isNotEmpty()) {
                 roomViewModel.showExisting(homeState.todayHand)
                 receiveFlowStep = ReceiveFlowStep.ArrivedToday
             } else {
@@ -549,9 +547,12 @@ private fun VinylApp(
             when (selectedTab) {
                 AppTab.Collection -> CollectionScreen(viewModel = collectionViewModel)
                 AppTab.Home -> HomeScreen(
+                    // Today's pull is made once: the first tap asks the mood question and deals the
+                    // hand; after that the button reopens the same hand's sealed envelopes until
+                    // every one is open.
                     onOpenReceive = {
-                        if (!homeState.isLoading && homeState.error == null && homeState.arrivedToday.isEmpty()) {
-                            if (homeState.pendingToday.isNotEmpty()) {
+                        if (!homeState.isLoading && homeState.error == null && !homeState.doneForToday) {
+                            if (homeState.todayHand.isNotEmpty()) {
                                 roomViewModel.showExisting(homeState.todayHand)
                                 receiveFlowStep = ReceiveFlowStep.ArrivedToday
                             } else if (homeState.canPull) {
@@ -688,12 +689,13 @@ private fun VinylApp(
                             roomState.cards.isEmpty() -> "No music cards yet. Check back later."
                             else -> null
                         },
-                        options = roomState.cards.map {
-                            it.toArrivedOption(readerLat = locationState.lat, readerLng = locationState.lng)
-                        },
+                        // Only the envelopes still sealed; opened ones are already on the shelf.
+                        options = roomState.cards
+                            .filterNot { it.openKey in homeState.openedKeys }
+                            .map { it.toArrivedOption(readerLat = locationState.lat, readerLng = locationState.lng) },
                     ),
                     onSelect = { option ->
-                        if (homeState.arrivedToday.isNotEmpty() || receiveCardStore.wasOpened(option.sessionKey)) {
+                        if (option.sessionKey in homeState.openedKeys) {
                             receiveFlowStep = null
                             shelfCard = option
                         } else {
@@ -727,16 +729,16 @@ private fun VinylApp(
                     envelopeStyle = EnvelopeStyle.fromSlug(step.option.envelopeStyle),
                 ),
                 onOpen = {
-                    receiveCardStore.markOpened(step.option.sessionKey)
+                    homeViewModel.markOpened(step.option.sessionKey)
                     receiveFlowStep = ReceiveFlowStep.Opened(step.option)
                 },
-                onOpening = { receiveCardStore.markOpened(step.option.sessionKey) },
+                onOpening = { homeViewModel.markOpened(step.option.sessionKey) },
                 onBack = { receiveFlowStep = ReceiveFlowStep.ArrivedToday },
             )
         }
 
         is ReceiveFlowStep.Opened -> {
-            LaunchedEffect(step.option.sessionKey) { receiveCardStore.markOpened(step.option.sessionKey) }
+            LaunchedEffect(step.option.sessionKey) { homeViewModel.markOpened(step.option.sessionKey) }
             val submissionId = step.option.submissionId
 
             MusicCardScreen(

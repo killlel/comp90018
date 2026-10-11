@@ -454,6 +454,21 @@ begin
   end if;
   raise notice 'CHECK 24 ok — 05:59 is yesterday''s cards, 06:00 is today''s';
 
+  -- ---------------------------------------------------------------------
+  -- CHECK 25 — a full hand marks exactly one card as the wildcard
+  --
+  -- The last slot is picked at random (matching.md §4) and flagged, so the
+  -- app can say so. The hand from CHECK 2 is the only one A got today.
+  -- ---------------------------------------------------------------------
+  select count(*) filter (where is_wildcard)::integer into v_cnt
+  from public.recommendations
+  where recipient_id = v_a and created_at >= now() - interval '1 minute';
+
+  if (v_dealt = 3 and v_cnt <> 1) or v_cnt > 1 then
+    raise exception 'CHECK 25 FAILED: % wildcard(s) in a hand of %', v_cnt, v_dealt;
+  end if;
+  raise notice 'CHECK 25 ok — % wildcard in a hand of %', v_cnt, v_dealt;
+
   raise notice '=== ALL CHECKS PASSED ===';
 end $$;
 
