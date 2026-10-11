@@ -15,7 +15,6 @@ import android.util.Log
  * Android sensor APIs; the maths for smoothing out noisy readings lives separately in
  * [CompassAlgorithm].
  *
- *
  * One complication: the magnetometer points at magnetic north, which differs from true
  * (geographic) north by an amount - "declination" - that varies by location and can exceed 20
  * degrees. When [readerLat]/[readerLng] are supplied, that offset is looked up and corrected for,

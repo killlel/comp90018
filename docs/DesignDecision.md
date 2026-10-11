@@ -64,8 +64,8 @@ require it.
 | **Location is coarse and opt-in**             | Snapped to the nearest city centre on the device, then rounded to 2dp on write as a backstop. Set by the user, never tracked continuously |
 | **Real names never leave the owner's device** | The Google name/avatar are private to their own settings screen                                                                           |
 
-The anonymity rules are proven by `supabase/tests/smoke_test.sql` (checks 4, 5,
-8, 9, 10, 20, 26–28). If a change breaks one of those checks, the change is wrong.
+The anonymity rules are proven by `supabase/tests/smoke_test.sql` (checks 1, 4,
+5, 7–10, 16, 18 and 20). If a change breaks one of those checks, the change is wrong.
 
 ---
 
@@ -171,8 +171,8 @@ Consequences to know about:
    user's `favorite_genres`; whatever is selected replaces the favourites for
    that pull. None selected falls back to the favourites.
 3. **Three records arrive**, each in a sealed envelope drawn in the sender's
-   chosen style. Pick one, shake or hold to open it, listen, optionally shelve
-   it.
+   chosen style. Pick one, shake it or press and hold to open it, listen,
+   optionally shelve it.
 
 Matching never returns your own songs, and never repeats a record you have
 already been shown. How the three are chosen is explained in `matching.md`.
@@ -207,6 +207,8 @@ already been shown. How the three are chosen is explained in `matching.md`.
 | The envelope style is served by **`get_envelope_styles()`**, not a `room_card` field | `room_card` is frozen until every build ignores unknown keys. A separate call also fails harmlessly: no style just means the default look |
 | A missing or unknown style means the **default (Rainbow)**                  | Records sent before styles were saved, and any slug a newer app adds that an older one doesn't know, still show a valid envelope |
 | **Only one audio source plays at a time**, arbitrated by `AudioPlaybackArbiter` | The card preview, the Write preview and the Home turntable each own a separate `MediaPlayer`, so they overlapped. Anything that starts audio must `claim` first; the previous owner pauses, so it can resume. New players must do the same |
+| **Compass heading comes from the rotation vector sensor**, with accelerometer + magnetometer as the fallback | The platform already fuses the sensors and handles tilt. The fallback keeps older devices working, and a device with neither shows an "unavailable" state. The heading is smoothed on sin/cos, not raw degrees, so 359° and 1° average correctly |
+| **Shake means 3 peaks above 2.7 g within 1 s**, then a 1.5 s cooldown | One knock or a bump while walking must not open the envelope. Press and hold (1.2 s) and the TalkBack action open it too, so shaking is never the only way |
 
 ---
 
@@ -362,12 +364,12 @@ Unresolved. Do not build past these without agreeing them first.
 
 ## 11. Ownership
 
-| Area                                     | Owner   |
-| ---------------------------------------- | ------- |
-| Database, matchmaking, Home              | Ivan    |
-| Auth, record room, GPS, onboarding flow  | Scott   |
-| Submission, questionnaire, accelerometer | Natalie |
-| UI / UX                                  | Raina   |
+| Area                                              | Owner   |
+|---------------------------------------------------| ------- |
+| Database, matchmaking, Home                       | Ivan    |
+| Auth, record room, GPS                            | Scott   |
+| Receive, send, onboarding, accelerometer, compass | Natalie |
+| UI / UX                                           | Raina   |
 
 Schema changes go through Ivan. Anything touching `sender_id`, `reactor_id` or
 location needs a second pair of eyes.
@@ -418,7 +420,7 @@ with a few unused Kotlin helpers. Every remaining function behaves as before.
 1. `grep -rn` the app for the name first. Confirm nothing calls it.
 2. One migration per feature. Drop old function signatures explicitly, or the
    old ones stay callable and PostgREST can see two overloads.
-3. Update `DATABASE.md`, this file (§2, §6, §8, §9, §12), and the smoke test in
+3. Update `database.md`, this file (§2, §6, §8, §9, §12), and the smoke test in
    the same change.
 4. Commit the docs on their own.
 

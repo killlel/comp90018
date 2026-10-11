@@ -7,6 +7,8 @@ import kotlin.math.sqrt
 internal const val EARTH_GRAVITY = 9.80665f
 
 /**
+ * Decides whether a stream of accelerometer readings is a deliberate shake. It is plain Kotlin with
+ * no Android dependency, so it can be unit tested on a computer.
  *
  * Feed it accelerometer readings one at a time via [onReading]. It returns true on the exact
  * reading that should fire a shake, and stays false for everything else: readings below the
