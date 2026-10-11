@@ -1,6 +1,5 @@
 package com.example.vinyl.repository
 
-import com.example.vinyl.data.ContextTag
 import com.example.vinyl.data.MoodTag
 import com.example.vinyl.data.Track
 import com.example.vinyl.data.Supabase
@@ -43,12 +42,11 @@ open class SubmissionRepository(
         track: Track,
         message: String,
         mood: MoodTag?,
-        context: ContextTag? = null,
         submissionGenres: List<String> = emptyList(),
         attachLocation: Boolean = false,
         envelopeStyle: String? = null,
     ): Result<String> = runCatching {
-        val params = submitSongParams(track, message, mood, context, submissionGenres, attachLocation, envelopeStyle)
+        val params = submitSongParams(track, message, mood, submissionGenres, attachLocation, envelopeStyle)
 
         // submit_song() returns a bare uuid
         supabase.postgrest.rpc("submit_song", params).decodeAs<String>()
@@ -64,7 +62,6 @@ internal fun submitSongParams(
     track: Track,
     message: String,
     mood: MoodTag?,
-    context: ContextTag?,
     submissionGenres: List<String>,
     attachLocation: Boolean,
     envelopeStyle: String? = null,
@@ -82,7 +79,6 @@ internal fun submitSongParams(
     put("p_duration_ms", track.durationMs)
     put("p_track_genres", JsonArray(track.genre?.let { listOf(JsonPrimitive(it)) } ?: emptyList()))
 
-    put("p_context", context?.wireValue)
     put("p_genres", JsonArray(submissionGenres.map { JsonPrimitive(it) }))
 
     put("p_attach_location", attachLocation)

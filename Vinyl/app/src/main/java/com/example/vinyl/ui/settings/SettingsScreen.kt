@@ -304,15 +304,6 @@ private fun ProfileHeader(
 }
 
 @Composable
-private fun VinylAvatar() {
-    Box(Modifier.size(64.dp), contentAlignment = Alignment.Center) {
-        Box(Modifier.size(64.dp).clip(CircleShape).background(Color(0xFF141414)).border(1.dp, Color(0xFF2A2A2A), CircleShape))
-        Box(Modifier.size(38.dp).clip(CircleShape).background(Color(0xFF0A0A0A)))
-        Box(Modifier.size(16.dp).clip(CircleShape).background(VinylPalette.TealAccent))
-    }
-}
-
-@Composable
 private fun SettingsGroup(content: @Composable () -> Unit) {
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(GroupRadius)).background(CardBg)) { content() }
 }

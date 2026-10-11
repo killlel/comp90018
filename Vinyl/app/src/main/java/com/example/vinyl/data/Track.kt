@@ -19,20 +19,7 @@ data class Track(
     @SerialName("previewUrl") val previewUrl: String? = null,
     @SerialName("trackTimeMillis") val durationMs: Long? = null,
     @SerialName("primaryGenreName") val genre: String? = null,
-) {
-
-    fun toSubmitSongParams(): Map<String, Any?> = mapOf(
-        "p_provider" to "itunes",
-        "p_provider_track_id" to trackId.toString(),
-        "p_title" to trackName,
-        "p_artist" to artistName,
-        "p_album" to collectionName,
-        "p_artwork_url" to artworkUrl,
-        "p_preview_url" to previewUrl,
-        "p_duration_ms" to durationMs,
-        "p_track_genres" to (genre?.let { listOf(it) } ?: emptyList<String>()),
-    )
-}
+)
 
 /**
  * The same iTunes cover at [px]×[px]. Search results only carry `artworkUrl100`, a 100px image

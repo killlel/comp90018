@@ -103,8 +103,6 @@ class WriteCardViewModel(
                 track = track,
                 message = state.message,
                 mood = state.mood,
-                // context is the recipient's listening moment, not something the sender sets
-                context = null,
                 submissionGenres = state.selectedGenres.toList(),
                 attachLocation = state.attachLocation,
                 envelopeStyle = state.envelopeStyle.slug,

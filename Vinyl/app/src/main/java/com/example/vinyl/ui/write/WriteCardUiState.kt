@@ -72,11 +72,6 @@ data class WriteCardUiState(
     val submissionError: String? = null,
     val submittedId: String? = null,
 ) {
-    val messageCharsRemaining: Int get() = 280 - message.length
-    /** What to show for [selectedGenres]: labels from [genreOptions], falling back to the slug. */
-    val selectedGenreLabels: List<String>
-        get() = selectedGenres.map { slug -> genreOptions.firstOrNull { it.slug == slug }?.label ?: slug }
-
     // The database requires all three: submit_song() rejects a missing message (22023) and a
     // missing mood (23502), and matching depends on the mood. Genre stays optional.
     val canSubmit: Boolean get() = selectedTrack != null && mood != null && message.isNotBlank()

@@ -18,20 +18,3 @@ enum class MoodTag {
 
     val wireValue: String get() = name.lowercase()
 }
-
-@Serializable
-enum class ContextTag {
-    @SerialName("commuting") Commuting,
-    @SerialName("studying") Studying,
-    @SerialName("working_out") WorkingOut,
-    @SerialName("relaxing") Relaxing,
-    @SerialName("sleeping") Sleeping,
-    @SerialName("partying") Partying,
-    @SerialName("heartbroken") Heartbroken,
-    @SerialName("celebrating") Celebrating,
-    @SerialName("late_night") LateNight;
-
-    val wireValue: String get() = name.let {
-        it.replace(Regex("([a-z])([A-Z])"), "$1_$2").lowercase()
-    }
-}

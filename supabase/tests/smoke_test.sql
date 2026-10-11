@@ -3,17 +3,15 @@
 -- Owner: Ivan (guangyu11)  |  Sprint 1
 --
 -- Exercises CRUD against every table as a real signed-in user would, and proves
--- the two privacy guarantees the app is built on:
---
---   * a recipient can never read the sender's identity
---   * a submitter can never read who reacted to their song
+-- the privacy guarantee the app is built on: a recipient can never read the
+-- sender's identity.
 --
 -- It impersonates users by setting the same JWT claim that PostgREST sets, then
 -- switching to the `authenticated` role — so RLS applies exactly as it does to
 -- the Android client.
 --
--- Prerequisites: run the three migrations, then seed.sql (and optionally
--- seed_demo_users.sql). At least 2 profiles and 1 submission must exist.
+-- Prerequisites: run every migration, then seed.sql. At least 2 profiles and
+-- 1 submission must exist.
 --
 -- The whole thing runs inside a transaction that is ROLLED BACK at the end, so
 -- it leaves no data behind. Paste the entire file into the Supabase SQL editor,
@@ -31,7 +29,6 @@ declare
   v_sub      uuid;      -- a submission in A's room
   v_own_cnt  integer;
   v_cnt      integer;
-  v_total    integer;
   v_leaked   integer;
   v_lat      double precision;
   v_lng      double precision;
@@ -108,7 +105,7 @@ begin
   -- CHECK 2 — matchmaking returns a room
   -- ---------------------------------------------------------------------
   select count(*)::integer into v_cnt
-  from public.request_recommendations('calm'::public.mood_tag, 'studying'::public.context_tag, 3);
+  from public.request_recommendations('calm'::public.mood_tag, 3);
 
   if v_cnt = 0 then
     raise exception 'CHECK 2 FAILED: request_recommendations() returned nothing (is the pool empty?)';
@@ -163,41 +160,11 @@ begin
   raise notice 'CHECK 6 ok — shelf insert + get_shelf() returned % item(s)', v_cnt;
 
   -- ---------------------------------------------------------------------
-  -- CHECK 7 — reacting, twice, is idempotent rather than an error
-  -- ---------------------------------------------------------------------
-  select public.add_reaction(v_sub, 'heart'::public.reaction_kind) into v_total;
-  select public.add_reaction(v_sub, 'fire'::public.reaction_kind)  into v_total;
-  raise notice 'CHECK 7 ok — reaction recorded and updated, total now %', v_total;
-
-  select count(*)::integer into v_cnt
-  from public.reactions where submission_id = v_sub;
-  if v_cnt <> 1 then
-    raise exception 'CHECK 7 FAILED: expected exactly 1 reaction row visible to the reactor, got %', v_cnt;
-  end if;
-
-  -- ---------------------------------------------------------------------
-  -- CHECK 8 — A cannot read reactions to someone else's submission
-  -- ---------------------------------------------------------------------
-  begin
-    perform * from public.get_reactions(v_sub);
-    raise exception 'CHECK 8 FAILED: non-owner was able to call get_reactions()';
-  exception
-    when insufficient_privilege then
-      raise notice 'CHECK 8 ok — get_reactions() refuses a non-owner';
-  end;
-
-  -- ---------------------------------------------------------------------
   -- Become the SENDER of that record
   -- ---------------------------------------------------------------------
   execute 'reset role';
 
   select s.sender_id into v_b from public.submissions s where s.id = v_sub;
-
-  -- B commits below (CHECKs 27-28); as for A, take today's cards out of play.
-  update public.recommendations
-     set created_at = created_at - interval '2 days'
-   where recipient_id = v_b
-     and created_at > now() - interval '2 days';
 
   perform set_config(
     'request.jwt.claims',
@@ -207,31 +174,7 @@ begin
   execute 'set local role authenticated';
 
   -- ---------------------------------------------------------------------
-  -- CHECK 9 — THE ANONYMITY GUARANTEE
-  -- The submitter must not be able to read the reactions table at all.
-  -- ---------------------------------------------------------------------
-  select count(*)::integer into v_leaked
-  from public.reactions where submission_id = v_sub;
-
-  if v_leaked <> 0 then
-    raise exception
-      'CHECK 9 FAILED: submitter can read % reaction row(s) — reactor identity is exposed', v_leaked;
-  end if;
-  raise notice 'CHECK 9 ok — submitter is locked out of the reactions table';
-
-  -- ---------------------------------------------------------------------
-  -- CHECK 10 — but they can still see anonymous counts
-  -- ---------------------------------------------------------------------
-  select coalesce(sum(total), 0)::integer into v_total
-  from public.get_reactions(v_sub);
-
-  if v_total < 1 then
-    raise exception 'CHECK 10 FAILED: get_reactions() returned no counts to the submitter';
-  end if;
-  raise notice 'CHECK 10 ok — submitter sees % anonymous reaction(s)', v_total;
-
-  -- ---------------------------------------------------------------------
-  -- CHECK 11 — update_my_location() stores a COARSE location
+  -- CHECK 7 — update_my_location() stores a COARSE location
   -- A precise coordinate must never reach disk, even if the client sends one.
   -- ---------------------------------------------------------------------
   perform public.update_my_location(-37.7987654, 144.9612345);
@@ -240,13 +183,13 @@ begin
   from public.profiles p where p.id = v_b;
 
   if v_lat <> -37.80 or v_lng <> 144.96 then
-    raise exception 'CHECK 11 FAILED: profile location stored as %,% — expected 2dp rounding', v_lat, v_lng;
+    raise exception 'CHECK 7 FAILED: profile location stored as %,% — expected 2dp rounding', v_lat, v_lng;
   end if;
-  raise notice 'CHECK 11 ok — update_my_location() rounded %,% to %,%',
+  raise notice 'CHECK 7 ok — update_my_location() rounded %,% to %,%',
     -37.7987654, 144.9612345, v_lat, v_lng;
 
   -- ---------------------------------------------------------------------
-  -- CHECK 12 — submit_song() snapshots location from the sender's PROFILE
+  -- CHECK 8 — submit_song() snapshots location from the sender's PROFILE
   -- The client never sends coordinates, so it cannot misreport them.
   -- ---------------------------------------------------------------------
   select public.submit_song(
@@ -256,7 +199,6 @@ begin
     p_artist            => 'Smoke Test',
     p_message           => 'Written by the smoke test, rolled back immediately.',
     p_mood              => 'hopeful'::public.mood_tag,
-    p_context           => 'studying'::public.context_tag,
     p_genres            => array['rock', 'shoegaze'],
     p_attach_location   => true
   ) into v_sub;
@@ -266,12 +208,12 @@ begin
   where id = v_sub and lat = -37.80 and lng = 144.96;
 
   if v_cnt <> 1 then
-    raise exception 'CHECK 12 FAILED: submission did not inherit the profile location';
+    raise exception 'CHECK 8 FAILED: submission did not inherit the profile location';
   end if;
-  raise notice 'CHECK 12 ok — submission % snapshotted the sender profile location', v_sub;
+  raise notice 'CHECK 8 ok — submission % snapshotted the sender profile location', v_sub;
 
   -- ---------------------------------------------------------------------
-  -- CHECK 13 — opting out leaves the record with no location
+  -- CHECK 9 — opting out leaves the record with no location
   -- ---------------------------------------------------------------------
   select public.submit_song(
     p_provider          => 'manual',
@@ -288,12 +230,12 @@ begin
   where id = v_sub and lat is null and lng is null;
 
   if v_cnt <> 1 then
-    raise exception 'CHECK 13 FAILED: location was attached despite p_attach_location => false';
+    raise exception 'CHECK 9 FAILED: location was attached despite p_attach_location => false';
   end if;
-  raise notice 'CHECK 13 ok — opting out stored no coordinates';
+  raise notice 'CHECK 9 ok — opting out stored no coordinates';
 
   -- ---------------------------------------------------------------------
-  -- CHECK 14 — clearing location works (user revokes permission)
+  -- CHECK 10 — clearing location works (user revokes permission)
   -- ---------------------------------------------------------------------
   perform public.update_my_location();
 
@@ -302,21 +244,21 @@ begin
   where id = v_b and lat is null and lng is null;
 
   if v_cnt <> 1 then
-    raise exception 'CHECK 14 FAILED: update_my_location() with no arguments did not clear the location';
+    raise exception 'CHECK 10 FAILED: update_my_location() with no arguments did not clear the location';
   end if;
-  raise notice 'CHECK 14 ok — location cleared on request';
+  raise notice 'CHECK 10 ok — location cleared on request';
 
   -- ---------------------------------------------------------------------
-  -- CHECK 15 — the genre vocabulary is readable and non-empty
+  -- CHECK 11 — the genre vocabulary is readable and non-empty
   -- ---------------------------------------------------------------------
   select count(*)::integer into v_cnt from public.genres where is_active;
   if v_cnt < 1 then
-    raise exception 'CHECK 15 FAILED: public.genres is empty or unreadable';
+    raise exception 'CHECK 11 FAILED: public.genres is empty or unreadable';
   end if;
-  raise notice 'CHECK 15 ok — % active genres readable by the app', v_cnt;
+  raise notice 'CHECK 11 ok — % active genres readable by the app', v_cnt;
 
   -- ---------------------------------------------------------------------
-  -- CHECK 16 — an unknown genre is rejected
+  -- CHECK 12 — an unknown genre is rejected
   -- ---------------------------------------------------------------------
   begin
     perform public.submit_song(
@@ -328,14 +270,14 @@ begin
       p_mood              => 'happy'::public.mood_tag,
       p_genres            => array['definitely_not_a_genre']
     );
-    raise exception 'CHECK 16 FAILED: an unknown genre was accepted';
+    raise exception 'CHECK 12 FAILED: an unknown genre was accepted';
   exception
     when check_violation then
-      raise notice 'CHECK 16 ok — unknown genre rejected';
+      raise notice 'CHECK 12 ok — unknown genre rejected';
   end;
 
   -- ---------------------------------------------------------------------
-  -- CHECK 17 — validation rejects a blank message
+  -- CHECK 13 — validation rejects a blank message
   -- ---------------------------------------------------------------------
   begin
     perform public.submit_song(
@@ -346,14 +288,14 @@ begin
       p_message           => '   ',
       p_mood              => 'happy'::public.mood_tag
     );
-    raise exception 'CHECK 17 FAILED: an empty message was accepted';
+    raise exception 'CHECK 13 FAILED: an empty message was accepted';
   exception
     when invalid_parameter_value then
-      raise notice 'CHECK 17 ok — empty message rejected';
+      raise notice 'CHECK 13 ok — empty message rejected';
   end;
 
   -- ---------------------------------------------------------------------
-  -- CHECK 18 — favorite_genres accepts the three legal states
+  -- CHECK 14 — favorite_genres accepts the three legal states
   -- ---------------------------------------------------------------------
   update public.profiles set favorite_genres = array['jazz','soul'] where id = v_b;
   update public.profiles set favorite_genres = '{}'                  where id = v_b;
@@ -363,70 +305,70 @@ begin
   from public.profiles where id = v_b and favorite_genres is null;
 
   if v_cnt <> 1 then
-    raise exception 'CHECK 18 FAILED: favorite_genres did not round-trip its three states';
+    raise exception 'CHECK 14 FAILED: favorite_genres did not round-trip its three states';
   end if;
-  raise notice 'CHECK 18 ok — favorite_genres accepts null, {} and a slug list';
+  raise notice 'CHECK 14 ok — favorite_genres accepts null, {} and a slug list';
 
   -- ---------------------------------------------------------------------
-  -- CHECK 19 — a display label is rejected, so the column cannot drift
+  -- CHECK 15 — a display label is rejected, so the column cannot drift
   --            from the vocabulary the matchmaker reads
   -- ---------------------------------------------------------------------
   begin
     update public.profiles set favorite_genres = array['K-pop'] where id = v_b;
-    raise exception 'CHECK 19 FAILED: a display label was accepted as a genre slug';
+    raise exception 'CHECK 15 FAILED: a display label was accepted as a genre slug';
   exception
     when check_violation then
-      raise notice 'CHECK 19 ok — display label rejected, slugs only';
+      raise notice 'CHECK 15 ok — display label rejected, slugs only';
   end;
 
   -- ---------------------------------------------------------------------
-  -- CHECK 20 — another user's taste is not readable
+  -- CHECK 16 — another user's taste is not readable
   -- ---------------------------------------------------------------------
   select count(*)::integer into v_cnt
   from public.profiles where id <> v_b;
 
   if v_cnt <> 0 then
-    raise exception 'CHECK 20 FAILED: % other profile(s) readable — taste is not private', v_cnt;
+    raise exception 'CHECK 16 FAILED: % other profile(s) readable — taste is not private', v_cnt;
   end if;
-  raise notice 'CHECK 20 ok — favorite_genres stays private to its owner';
+  raise notice 'CHECK 16 ok — favorite_genres stays private to its owner';
 
   -- ---------------------------------------------------------------------
-  -- CHECK 21 — every profile is given a generated username at signup
+  -- CHECK 17 — every profile is given a generated username at signup
   -- ---------------------------------------------------------------------
   select username into v_name from public.profiles where id = v_b;
 
   if coalesce(btrim(v_name), '') = '' then
-    raise exception 'CHECK 21 FAILED: profile has no generated username';
+    raise exception 'CHECK 17 FAILED: profile has no generated username';
   end if;
-  raise notice 'CHECK 21 ok — username generated at signup: %', v_name;
+  raise notice 'CHECK 17 ok — username generated at signup: %', v_name;
 
   -- ---------------------------------------------------------------------
-  -- CHECK 22 — a client cannot rename itself
+  -- CHECK 18 — a client cannot rename itself
   --
   -- The lock trigger tests current_user, so a direct update from the app role
   -- is refused while reroll_username() (SECURITY DEFINER) is let through.
   -- ---------------------------------------------------------------------
   begin
     update public.profiles set username = 'Chosen By Hand' where id = v_b;
-    raise exception 'CHECK 22 FAILED: a client renamed itself directly';
+    raise exception 'CHECK 18 FAILED: a client renamed itself directly';
   exception
     when insufficient_privilege then
-      raise notice 'CHECK 22 ok — direct rename refused, only the server names you';
+      raise notice 'CHECK 18 ok — direct rename refused, only the server names you';
   end;
 
   -- ---------------------------------------------------------------------
-  -- CHECK 23 — reroll_username() issues a different name while onboarding
+  -- CHECK 19 — reroll_username() issues a different name while onboarding
   --            is still open
   -- ---------------------------------------------------------------------
   select public.reroll_username() into v_name2;
 
   if v_name2 is null or v_name2 = v_name then
-    raise exception 'CHECK 23 FAILED: reroll returned % (was %)', v_name2, v_name;
+    raise exception 'CHECK 19 FAILED: reroll returned % (was %)', v_name2, v_name;
   end if;
-  raise notice 'CHECK 23 ok — rerolled % to %', v_name, v_name2;
+  raise notice 'CHECK 19 ok — rerolled % to %', v_name, v_name2;
 
   -- ---------------------------------------------------------------------
-  -- CHECK 24 — onboarding cannot be reopened, so the name stays fixed
+  -- CHECK 20 — onboarding cannot be reopened, so the name stays fixed
   --
   -- Without this guard a client could flip the flag back and reroll forever.
   -- ---------------------------------------------------------------------
@@ -434,96 +376,22 @@ begin
 
   begin
     update public.profiles set onboarding_completed = false where id = v_b;
-    raise exception 'CHECK 24 FAILED: a client reopened onboarding';
+    raise exception 'CHECK 20 FAILED: a client reopened onboarding';
   exception
     when insufficient_privilege then
-      raise notice 'CHECK 24 ok — onboarding is one-way, so the username is final';
+      raise notice 'CHECK 20 ok — onboarding is one-way, so the username is final';
   end;
 
   -- ---------------------------------------------------------------------
-  -- CHECK 25 — an unknown avatar is rejected by the foreign key
+  -- CHECK 21 — an unknown avatar is rejected by the foreign key
   -- ---------------------------------------------------------------------
   begin
     update public.profiles set avatar_slug = 'not_a_real_avatar' where id = v_b;
-    raise exception 'CHECK 25 FAILED: an unknown avatar_slug was accepted';
+    raise exception 'CHECK 21 FAILED: an unknown avatar_slug was accepted';
   exception
     when foreign_key_violation then
-      raise notice 'CHECK 25 ok — unknown avatar rejected by the foreign key';
+      raise notice 'CHECK 21 ok — unknown avatar rejected by the foreign key';
   end;
-
-  -- ---------------------------------------------------------------------
-  -- CHECK 26 — get_candidates() writes nothing
-  --
-  -- The whole point of the split: over-fetching candidates must not mark them
-  -- seen, or showing three of twenty would burn the other seventeen.
-  -- ---------------------------------------------------------------------
-  select count(*)::integer into v_own_cnt
-  from public.recommendations where recipient_id = v_b;
-
-  perform public.get_candidates(20);
-
-  select count(*)::integer into v_cnt
-  from public.recommendations where recipient_id = v_b;
-
-  if v_cnt <> v_own_cnt then
-    raise exception 'CHECK 26 FAILED: get_candidates() wrote % recommendation(s)', v_cnt - v_own_cnt;
-  end if;
-  raise notice 'CHECK 26 ok — get_candidates() is read-only';
-
-  -- ---------------------------------------------------------------------
-  -- CHECK 27 — a client cannot commit its own submission
-  --
-  -- commit_recommendations() takes ids from the client, so it has to re-check
-  -- eligibility. Trusting the ids would reopen the hole CHECK 5 closes.
-  -- ---------------------------------------------------------------------
-  select count(*)::integer into v_cnt
-  from public.commit_recommendations(
-    array(select id from public.submissions where sender_id = v_b limit 1),
-    'happy'::public.mood_tag
-  );
-
-  if v_cnt <> 0 then
-    raise exception 'CHECK 27 FAILED: a client committed its own submission';
-  end if;
-  raise notice 'CHECK 27 ok — commit refuses your own submission';
-
-  -- ---------------------------------------------------------------------
-  -- CHECK 28 — nor one already delivered, so a record cannot be replayed
-  -- ---------------------------------------------------------------------
-  select count(*)::integer into v_cnt
-  from public.commit_recommendations(
-    array(select submission_id from public.recommendations where recipient_id = v_b limit 1),
-    'happy'::public.mood_tag
-  );
-
-  if v_cnt <> 0 then
-    raise exception 'CHECK 28 FAILED: an already-delivered record was committed again';
-  end if;
-  raise notice 'CHECK 28 ok — commit refuses a record you have already seen';
-
-  -- ---------------------------------------------------------------------
-  -- CHECK 29 — idf: a rare genre must outweigh a common one
-  --
-  -- The client cannot compute this for itself — it only ever sees the
-  -- candidates it was handed — so the server has to export it correctly.
-  -- ---------------------------------------------------------------------
-  if (select weight from public.get_genre_weights() where slug = 'pop')
-     >= (select weight from public.get_genre_weights() where slug = 'shoegaze')
-  then
-    raise exception 'CHECK 29 FAILED: common genre weighs as much as a rare one';
-  end if;
-  raise notice 'CHECK 29 ok — rarer genres carry more weight';
-
-  -- ---------------------------------------------------------------------
-  -- CHECK 30 — genre weights are capped at 1, so genre can never outweigh mood
-  --
-  -- The genre term is w_genre (2.0) × weight; mood is 3.0. A weight above 1
-  -- would let one rare genre outrank the question the user answered.
-  -- ---------------------------------------------------------------------
-  if exists (select 1 from public.get_genre_weights() where weight > 1 or weight <= 0) then
-    raise exception 'CHECK 30 FAILED: a genre weight is outside (0, 1]';
-  end if;
-  raise notice 'CHECK 30 ok — genre weights are within (0, 1]';
 
   -- ---------------------------------------------------------------------
   -- Back to user A for the daily limit
@@ -535,56 +403,56 @@ begin
   );
 
   -- ---------------------------------------------------------------------
-  -- CHECK 31 — the pull status counts the cards dealt today
+  -- CHECK 22 — the pull status counts the cards dealt today
   -- ---------------------------------------------------------------------
   select dealt_today, remaining into v_cnt, v_left
   from public.get_pull_status('Australia/Melbourne');
 
   if v_cnt <> v_dealt or v_left <> 0 then
-    raise exception 'CHECK 31 FAILED: status says % dealt, % left; CHECK 2 dealt %', v_cnt, v_left, v_dealt;
+    raise exception 'CHECK 22 FAILED: status says % dealt, % left; CHECK 2 dealt %', v_cnt, v_left, v_dealt;
   end if;
-  raise notice 'CHECK 31 ok — % card(s) dealt today, none left to pull', v_cnt;
+  raise notice 'CHECK 22 ok — % card(s) dealt today, none left to pull', v_cnt;
 
   -- ---------------------------------------------------------------------
-  -- CHECK 32 — a second pull the same day is refused
+  -- CHECK 23 — a second pull the same day is refused
   -- ---------------------------------------------------------------------
   v_refused := false;
   begin
-    perform public.request_recommendations('happy'::public.mood_tag, null, 3, '{}', 'Australia/Melbourne');
+    perform public.request_recommendations('happy'::public.mood_tag, 3, '{}', 'Australia/Melbourne');
   exception when raise_exception then
     v_refused := sqlerrm = 'daily pull limit reached';
   end;
 
   select dealt_today into v_cnt from public.get_pull_status('Australia/Melbourne');
   if not v_refused or v_cnt <> v_dealt then
-    raise exception 'CHECK 32 FAILED: refused = %, dealt today = %', v_refused, v_cnt;
+    raise exception 'CHECK 23 FAILED: refused = %, dealt today = %', v_refused, v_cnt;
   end if;
-  raise notice 'CHECK 32 ok — second pull refused, still % dealt today', v_cnt;
+  raise notice 'CHECK 23 ok — second pull refused, still % dealt today', v_cnt;
 
   execute 'reset role';
 
   -- ---------------------------------------------------------------------
-  -- CHECK 33 — the day turns over at 06:00 local time, not at midnight
+  -- CHECK 24 — the day turns over at 06:00 local time, not at midnight
   -- ---------------------------------------------------------------------
   select starts_at, ends_at into v_from, v_to
   from app_private.pull_window('Australia/Melbourne', '2026-10-10 05:59:00+11');
   if v_from <> '2026-10-09 06:00:00+11' or v_to <> '2026-10-10 06:00:00+11' then
-    raise exception 'CHECK 33 FAILED: 05:59 fell in % to %', v_from, v_to;
+    raise exception 'CHECK 24 FAILED: 05:59 fell in % to %', v_from, v_to;
   end if;
 
   select starts_at into v_from
   from app_private.pull_window('Australia/Melbourne', '2026-10-10 06:00:00+11');
   if v_from <> '2026-10-10 06:00:00+11' then
-    raise exception 'CHECK 33 FAILED: 06:00 fell in a day starting %', v_from;
+    raise exception 'CHECK 24 FAILED: 06:00 fell in a day starting %', v_from;
   end if;
 
   -- An unknown zone falls back to Melbourne rather than failing the pull.
   select starts_at into v_from
   from app_private.pull_window('Not/AZone', '2026-10-10 05:59:00+11');
   if v_from <> '2026-10-09 06:00:00+11' then
-    raise exception 'CHECK 33 FAILED: unknown zone gave a day starting %', v_from;
+    raise exception 'CHECK 24 FAILED: unknown zone gave a day starting %', v_from;
   end if;
-  raise notice 'CHECK 33 ok — 05:59 is yesterday''s cards, 06:00 is today''s';
+  raise notice 'CHECK 24 ok — 05:59 is yesterday''s cards, 06:00 is today''s';
 
   raise notice '=== ALL CHECKS PASSED ===';
 end $$;

@@ -59,21 +59,6 @@ val Typography = Typography(
     ),
 )
 
-// The "Vinyl" wordmark used in top bars/logotype — bold geometric sans per the logo mark.
-val VinylWordmarkStyle = TextStyle(
-    fontFamily = PoppinsFontFamily,
-    fontWeight = FontWeight.Bold,
-    fontSize = 24.sp,
-)
-
-// Small tracked all-caps label/tagline, e.g. "MUSIC TRAVELS FURTHER" in the logo lockup.
-val VinylOverlineStyle = TextStyle(
-    fontFamily = PoppinsFontFamily,
-    fontWeight = FontWeight.Medium,
-    fontSize = 11.sp,
-    letterSpacing = 1.5.sp,
-)
-
 // Section title used above each shelf row, e.g. "Recently collected" / "Favourites".
 // Heading 2 in the design-system spec sheet: Poppins Regular 16px.
 val VinylSectionTitleStyle = TextStyle(

@@ -83,7 +83,6 @@ object VinylPalette {
 
     val TealAccent: Color get() = ThemeState.accent.color
     internal val PanelColors: AccentPanelColors get() = accentPanelColors(TealAccent)
-    val BrownAccent = Color(0xFF6E3A2C)
 
     val Cream = Color(0xFFF4F0EA)
     val TextPrimary = Color(0xFFF4F0EA)
