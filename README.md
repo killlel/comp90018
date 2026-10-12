@@ -75,7 +75,7 @@ sequenceDiagram
 
     Sender->>App: Pick song, mood, note, envelope style, attach location or not
     App->>DB: rpc submit_song(..., p_attach_location, p_envelope_style)
-    DB-->>DB: Insert submission (sender id kept server-side only; profile's city centre copied if attached)
+   DB-->>DB: Insert submission (sender id kept server-side only, profile's city centre copied if attached)
 
     Recipient->>App: Answer daily mood prompt
     App->>DB: rpc request_recommendations(mood, genres, tz)

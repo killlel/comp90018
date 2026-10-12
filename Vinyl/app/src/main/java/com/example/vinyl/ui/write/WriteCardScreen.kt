@@ -142,14 +142,14 @@ fun WriteCardScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 40.dp, end = 40.dp, top = 48.dp, bottom = 16.dp),
+                        .padding(start = 40.dp, end = 40.dp, top = 20.dp, bottom = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text(
                         text = "Preview",
                         color = VinylPalette.Cream,
-                        style = formText(32.sp, FontWeight.Normal, 40.sp),
+                        style = formText(22.sp, FontWeight.Medium, 30.sp),
                     )
                     Button(
                         onClick = viewModel::onTogglePreview,
@@ -803,13 +803,6 @@ private fun CardPreview(state: WriteCardUiState, modifier: Modifier = Modifier, 
             .padding(horizontal = 40.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Text(
-            text = "MUSIC CARD · ANONYMOUS",
-            color = VinylPalette.TextMuted,
-            fontSize = 11.sp,
-            letterSpacing = 1.sp,
-        )
-
         VinylPreviewDisc(artworkUrl = track.artworkUrl)
 
         // Paper card
