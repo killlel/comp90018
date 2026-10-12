@@ -35,7 +35,7 @@ enum class EnvelopeStyle(
     ),
 
     // Flat, single colour — no fold crease, just clean and plain
-    Simple("Simple", listOf(Color(0xFF6E3A2C), Color(0xFF6E3A2C)), showFold = false),
+    Simple("Simple", listOf(Color(0xFF6E3A2C), Color(0xFF6E3A2C))),
 
     // Pink/red with scattered hearts
     Sweetheart(

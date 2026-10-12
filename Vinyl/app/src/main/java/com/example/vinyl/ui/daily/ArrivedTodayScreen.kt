@@ -72,7 +72,10 @@ data class ArrivedRecordOption(
     val envelopeStyle: String? = null,
     /** Picked at random to fill the hand's last slot, rather than as one of its top matches. */
     val isWildcard: Boolean = false,
-)
+) {
+    /** Identifies this card in the session's set of opened cards: its record id, else its delivery's. */
+    val sessionKey: String get() = submissionId ?: id
+}
 
 data class ArrivedTodayUiState(
     val moodLabel: String,

@@ -1,6 +1,6 @@
 # Vinyl
 
-Vinyl is an anonymous music-connection Android app. You write a short card with a song, a mood and a note, and it is delivered to a stranger. Each day you answer a mood prompt, get a hand of records matched to you, and open them by shaking or holding the envelope. Records you keep go on your Record Shelf. Senders are never identified to recipients.
+Vinyl is an anonymous music-connection Android app. You write a short card with a song, a mood and a note, and it is delivered to a stranger. Each day you answer a mood prompt, get a hand of records matched to you, and open them by shaking, or pressing and holding, the envelope. Records you keep go in your Collection. Senders are never identified to recipients.
 
 ## Tech Stack & Features
 - **UI**: Jetpack Compose (Material Design 3), with custom Canvas drawing for envelopes, the turntable and vinyl sleeves
@@ -8,8 +8,8 @@ Vinyl is an anonymous music-connection Android app. You write a short card with 
 - **Onboarding**: get a database-generated username (with a "try another name" re-roll), pick an avatar and favourite genres, then set up location and notifications
 - **Daily matching**: mood-based recommendations through Supabase RPCs, with a daily pull limit that resets at 06:00 local time and a daily reminder notification
 - **Envelope styles**: the sender picks one of 8 styles (Rainbow, Sunset, Ocean, Berry, Cute, Midnight, Simple, Sweetheart) when writing. It is stored as a slug on the submission and shown to the recipient on the unopened-record screen. Styles are drawn in code, not image files.
-- **Accelerometer**: shake the sealed envelope to open it. A deliberate shake means 3 jolts above 2.7g within a second; there is also a long-press and an "Open it now" button, with TalkBack actions.
-- **Magnetometer compass**: "See where it's from" opens a compass whose needle points towards the sender's city. It corrects for magnetic declination using your saved location, smooths the heading, counts down the degrees to go, and buzzes once when you line up. It uses the rotation-vector sensor where available and falls back to accelerometer + magnetometer. Devices with no compass sensor see an "unavailable" state instead of crashing.
+- **Accelerometer**: shake the sealed envelope to open it. A deliberate shake means 3 jolts above 2.7g within a second; there is also a press-and-hold (1.2 s) and TalkBack actions, so the envelope can be opened without shaking.
+- **Compass (rotation vector sensor)**: "See where it's from" opens a compass whose needle points towards the sender's city. It corrects for magnetic declination using your saved location, smooths the heading, counts down the degrees to go, and buzzes once when you line up. It uses the rotation-vector sensor where available and falls back to accelerometer + magnetometer. Devices with no compass sensor see an "unavailable" state instead of crashing.
 - **30s preview in the card**: the opened card plays a 30s preview in place, with a countdown and progress line
 - **Play on turntable**: sends the record to the Home turntable, with a now-playing panel and progress bar
 - **Full song, outside the app**: the Apple Music and Spotify buttons open a search for the song's title and artist in that app (or the browser). This leaves Vinyl, and the app has no way to return you automatically.
@@ -33,7 +33,7 @@ flowchart LR
         Local["ReceiveCardStore<br/>(SharedPreferences cache)"]
     end
     subgraph Device["Device services"]
-        Sensors["Accelerometer (shake)<br/>Magnetometer (compass)<br/>GPS (location)"]
+        Sensors["Accelerometer (shake)<br/>Rotation vector sensor (compass)<br/>GPS (location)"]
         Haptic["Haptics"]
         Ext["Spotify / Apple Music<br/>(external deep links)"]
         Loc["LocationRepository<br/>(GPS location → city centre)"]
@@ -66,14 +66,16 @@ sequenceDiagram
     actor Recipient
     participant Ext as Spotify / Apple Music
 
-    Sender->>App: Pick song, mood, note, envelope style
-    opt Attach my location
+    opt Set my location (onboarding or Settings)
         App->>GPS: Request current location
         GPS-->>App: Raw position (never leaves LocationRepository)
         App->>App: Snap to nearest city centre (bundled city list)
+        App->>DB: rpc update_my_location(city-centre lat/lng)
     end
-    App->>DB: rpc submit_song(..., p_envelope_style, city-centre lat/lng)
-    DB-->>DB: Insert submission (sender id kept server-side only)
+
+    Sender->>App: Pick song, mood, note, envelope style, attach location or not
+    App->>DB: rpc submit_song(..., p_attach_location, p_envelope_style)
+    DB-->>DB: Insert submission (sender id kept server-side only; profile's city centre copied if attached)
 
     Recipient->>App: Answer daily mood prompt
     App->>DB: rpc request_recommendations(mood, genres, tz)
@@ -81,13 +83,12 @@ sequenceDiagram
     App->>DB: rpc get_envelope_styles(submission_ids)
     DB-->>App: style slug per card
     App-->>Recipient: Sealed envelope in sender's style
-    Recipient->>App: Shake (accelerometer) or hold to open
-    App->>DB: rpc commit_recommendations
+    Recipient->>App: Shake (accelerometer) or press and hold to open
     App-->>Recipient: Opened card, 30s preview plays in the card
 
     opt Where is it from?
         Recipient->>App: Tap "See where it's from"
-        App-->>Recipient: Compass (magnetometer) points towards sender's city
+        App-->>Recipient: Compass (rotation vector sensor) points towards sender's city
         Note over App,GPS: Bearing uses the recipient's saved city centre (from an earlier GPS reading) and the sender's city centre. Declination is corrected from the same point.
     end
     opt Hear it on the turntable
@@ -113,9 +114,9 @@ stateDiagram-v2
     [*] --> Mood: New day (06:00 reset)
     Mood --> Genres: Pick mood
     Genres --> Unopened: Hand requested
-    Unopened --> Arrived: Shake (accelerometer) or hold to open
+    Unopened --> Arrived: Shake (accelerometer) or press and hold to open
     Arrived --> Card: Choose a record
-    Card --> Compass: See where it's from (magnetometer + saved GPS city)
+    Card --> Compass: See where it's from (rotation vector sensor + saved GPS city)
     Compass --> Card: Back
     Card --> Turntable: Play on turntable
     Card --> Shelf: Add to collection
@@ -154,13 +155,13 @@ erDiagram
     }
 ```
 
-See `DATABASE.md` for the full schema.
+See `database.md` for the full schema.
 
 ## Project Structure
 
 ```
 app/src/main/java/com/example/vinyl/
-├── MainActivity.kt                    # Entry point, navigation graph, receive-flow wiring
+├── MainActivity.kt                    # The activity: sign-in/app switch, onboarding gate, tab shell, overlay back handling
 │
 ├── data/                              # Data models & backend setup
 │   ├── GoogleAuthRepository.kt        # Google Sign-In / auth
@@ -187,17 +188,14 @@ app/src/main/java/com/example/vinyl/
 ├── repository/                        # Submission & room repositories
 │   ├── SubmissionRepository.kt        # Sends cards (submit_song, incl. envelope style)
 │   ├── FakeSubmissionRepository.kt    # Mock implementation
-│   └── RoomRepository.kt              # Daily hand: request/commit recommendations,
+│   └── RoomRepository.kt              # Daily hand: request recommendations,
 │                                      #   room cards, envelope styles (get_envelope_styles)
 │
-├── matchmaking/
-│   └── Matchmaker.kt                  # Matching logic
-│
-├── sensor/                            # Accelerometer & magnetometer
+├── sensor/                            # Accelerometer & rotation vector sensor
 │   ├── ShakeAlgorithm.kt              # Pure shake logic (3 peaks over 2.7g, cooldown), JVM-testable
 │   ├── ShakeDetector.kt               # Accelerometer listener; unregistered when not needed
 │   ├── CompassAlgorithm.kt            # Circular smoothing, arrow rotation, 8-point labels
-│   └── CompassDetector.kt             # Rotation-vector / magnetometer listener + declination
+│   └── CompassDetector.kt             # Rotation-vector listener (accelerometer + magnetometer fallback) + declination
 │
 ├── haptics/
 │   └── Haptics.kt                     # Haptic feedback helpers
@@ -214,9 +212,14 @@ app/src/main/java/com/example/vinyl/
     ├── theme/                         # Color.kt, Theme.kt, ThemeState.kt, Type.kt, VinylPalette.kt
     │
     ├── components/                    # Reusable UI
+    │   ├── AnimatedBottomSheet.kt     # Bottom sheet that slides in and out, with swipe-to-dismiss
     │   ├── ShelfLedge.kt
     │   ├── VinylSleeveThumbnail.kt
+    │   ├── VinylSnackbar.kt           # Snackbar in the app's panel style ("Removed. Undo")
     │   └── VinylWordmark.kt
+    │
+    ├── auth/                          # Feature: sign-in
+    │   └── AuthScreen.kt              # Google sign-in (Credential Manager first, browser fallback)
     │
     ├── onboarding/                    # Feature: first-run setup
     │   ├── OnboardingPagerScreen.kt / OnboardingViewModel.kt
@@ -230,13 +233,10 @@ app/src/main/java/com/example/vinyl/
     │   ├── WriteCardUiState.kt        # UI state + EnvelopeStyle enum (slug helpers)
     │   └── SendingAnimation.kt
     │
-    ├── submission/
-    │   └── SubmissionViewModel.kt
-    │
     ├── daily/                         # Feature: daily prompt & receive flow
     │   ├── MoodQuestionnaireScreen.kt # Daily mood prompt
     │   ├── DailyGenresViewModel.kt
-    │   ├── UnopenRecordScreen.kt      # Sealed, styled envelope; shake / hold to open
+    │   ├── UnopenRecordScreen.kt      # Sealed, styled envelope; shake / press and hold to open
     │   ├── DetectShakeGesture.kt
     │   ├── ArrivedTodayScreen.kt      # Records that arrived today
     │   ├── RoomViewModel.kt           # Daily hand state
@@ -245,6 +245,8 @@ app/src/main/java/com/example/vinyl/
     │   └── ReceiveFlowStyle.kt
     │
     ├── receive/                       # Feature: view a received card
+    │   ├── ReceiveFlow.kt             # The receive flow: step state, mood sheet and the four full-screen steps
+    │   ├── CardSheets.kt              # Bottom sheets for an opened card (Home shelf, Collection)
     │   ├── MusicCardScreen.kt         # Opened card: in-card preview, compass chip, store buttons
     │   ├── CompassScreen.kt           # Rotating compass rose pointing to the sender
     │   ├── DetectCompassBearing.kt    # Turns sensor heading into compass UI state
@@ -255,7 +257,7 @@ app/src/main/java/com/example/vinyl/
     │   ├── PlaybackViewModel.kt / PlaybackProgressBar.kt / NowPlayingPanel.kt
     │   └── Turntable.kt / TurntableHaptics.kt
     │
-    ├── collection/                    # Feature: Record Shelf
+    ├── collection/                    # Feature: Collection
     │   ├── CollectionScreen.kt / CollectionGridScreen.kt
     │   ├── CollectionViewModel.kt
     │   └── CollectionUiState.kt
@@ -274,11 +276,46 @@ app/src/main/java/com/example/vinyl/
         └── AvatarMakerScreen.kt / AvatarAppearance.kt
 ```
 
+### Where things live
+
+`MainActivity.kt` only wires the app together. Each feature has its own file, so a screen can be read
+without scrolling past another one:
+
+- `MainActivity` is the activity. It switches between sign-in and the app, handles the two intents
+  that arrive outside the UI (the sign-in callback and a tap on the daily reminder), and signs out.
+- `OnboardingGate` runs first-run setup once per account, then shows the app.
+- `VinylApp` is the tab shell (Collection, Home, Create). It owns the state that links the screens
+  (selected tab, receive-flow step, card open in a sheet) and hands each job to a small composable:
+  `VinylBottomBar`, `OverlayBackHandlers`, `ReceiveFlow`, and `offerUndoAfterRemove` for the
+  "Removed. Undo" snackbar.
+- `ReceiveFlow` (in `ui/receive/`) draws one receive step at a time. It only reads the step and the
+  chosen mood and reports changes, because Home and the daily reminder also start the flow.
+
+## Testing
+
+```
+./gradlew assembleDebug                  # compiles
+./gradlew testDebugUnitTest              # JVM unit tests (no device needed)
+./gradlew check                          # unit tests + lint
+./gradlew connectedDebugAndroidTest      # Compose tests; needs an emulator or phone
+```
+
+Instrumented tests are in `app/src/androidTest/java/com/example/vinyl/ui/`:
+
+| File | What it covers |
+| ---- | -------------- |
+| `settings/SignOutTest.kt` | The sign-out row and its confirm / cancel dialog |
+| `receive/ReceiveFlowTest.kt` | Arrived Today, the sealed envelope (tap, press and hold, back) and the opened music card. Checks that nothing names the song or artist before a letter is opened. |
+| `write/SendFlowTest.kt` | The "Write a music card" form: required markers, message counter, Preview and Send off until the card is complete |
+
+Picking a song (iTunes) and sending (Supabase) are not covered by the app tests. The database side is
+covered by `supabase/tests/smoke_test.sql` (25 checks), run in the Supabase SQL editor.
+
 ## Backend
 
 The database is the real backend: Row Level Security and SECURITY DEFINER functions enforce anonymity, so recipients never see a sender id.
 
-- `DATABASE.md` covers the schema, RPC functions and migrations.
-- `DESIGN_DECISION.md` covers the product and architecture decisions and the client/server contracts.
+- `database.md` covers the schema, RPC functions and migrations.
+- `DesignDecision.md` covers the product and architecture decisions and the client/server contracts.
 
 Migrations are idempotent SQL files applied in order through the Supabase SQL editor.

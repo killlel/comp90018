@@ -8,6 +8,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 
+/**
+ * Plays a 30 second song preview from a URL with a [MediaPlayer].
+ *
+ * [isPlaying] and [currentUrl] are Compose state, so a screen that reads them redraws when the
+ * preview starts, pauses or stops. Before it starts, the controller claims [AudioPlaybackArbiter]
+ * so only one audio source in the app plays at a time. If another source starts, this one pauses
+ * (or drops its load if it was not ready yet).
+ *
+ * Create one with [rememberAudioPreviewController], which also releases it when the screen leaves.
+ */
 class AudioPreviewController {
     private var player: MediaPlayer? = null
     private var prepared = false
@@ -15,6 +25,10 @@ class AudioPreviewController {
     var isPlaying by mutableStateOf(false)
     var currentUrl by mutableStateOf<String?>(null)
 
+    /**
+     * Plays [url], or pauses and resumes it if it is already the current preview. A new URL
+     * replaces whatever was loaded. Does nothing for a null URL (a track with no preview).
+     */
     fun toggle(url: String?) {
         if (url == null) return
 
@@ -60,6 +74,7 @@ class AudioPreviewController {
         }
     }
 
+    /** Pauses the preview where it is. Does nothing if it is not playing. */
     fun pause() {
         if (!isPlaying) return
         runCatching { player?.pause() }
@@ -71,6 +86,10 @@ class AudioPreviewController {
         if (prepared) pause() else release()
     }
 
+    /**
+     * Frees the [MediaPlayer], clears the state and gives up the claim on [AudioPlaybackArbiter].
+     * Safe to call at any time, including when nothing is loaded.
+     */
     fun release() {
         runCatching { player?.release() }
         player = null
@@ -81,6 +100,7 @@ class AudioPreviewController {
     }
 }
 
+/** Remembers one [AudioPreviewController] for the composition and releases it on dispose. */
 @Composable
 fun rememberAudioPreviewController(): AudioPreviewController {
     val controller = remember { AudioPreviewController() }

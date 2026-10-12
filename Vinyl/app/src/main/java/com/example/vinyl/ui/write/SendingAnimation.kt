@@ -36,6 +36,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
 import androidx.compose.ui.draw.shadow
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material3.Icon
 
 /**
  * Plays once, from a frozen snapshot of the card's data, when the user taps "Send this record":
@@ -322,7 +325,12 @@ private fun AnimatedEnvelope(style: EnvelopeStyle, flapProgress: Float, modifier
                             .background(VinylPalette.TealAccent),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("♪", color = VinylPalette.Background, fontSize = 22.sp)
+                        Icon(
+                            Icons.Rounded.MusicNote,
+                            contentDescription = null,
+                            tint = VinylPalette.Background,
+                            modifier = Modifier.size(28.dp),
+                        )
                     }
                 }
             }
