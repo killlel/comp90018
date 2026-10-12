@@ -1,7 +1,9 @@
 package com.example.vinyl.ui.settings
 
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -16,28 +18,32 @@ class SignOutTest {
 
     private var signOutCalls = 0
 
-    private fun showSettings() {
+    // The Settings row and the dialog's confirm button are both labelled "Sign out" (and the
+    // dialog title too), so the confirm button is picked out by being clickable inside the dialog.
+    private val confirmButton = hasText("Sign out") and hasClickAction() and hasAnyAncestor(isDialog())
+
+    /** Opens Settings and taps the Sign out row, which raises the confirmation dialog. */
+    private fun showSignOutDialog() {
         compose.setContent {
             VinylTheme { SettingsScreen(onBack = {}, onSignOut = { signOutCalls++ }) }
         }
-        compose.onNodeWithText("Sign Out").performScrollTo().performClick()
+        compose.onNodeWithText("Sign out").performScrollTo().performClick()
     }
 
     @Test
     fun confirmingTheDialogSignsOut() {
-        showSettings()
-        // The dialog title is also "Sign out", so pick the clickable one.
-        compose.onNode(hasText("Sign out") and hasClickAction()).performClick()
+        showSignOutDialog()
+        compose.onNode(confirmButton).performClick()
         compose.waitForIdle()
         assertEquals(1, signOutCalls)
     }
 
     @Test
     fun cancellingTheDialogKeepsTheUserSignedIn() {
-        showSettings()
+        showSignOutDialog()
         compose.onNodeWithText("Cancel").performClick()
         compose.waitForIdle()
         assertEquals(0, signOutCalls)
-        compose.onNode(hasText("Sign out") and hasClickAction()).assertDoesNotExist()
+        compose.onNode(confirmButton).assertDoesNotExist()
     }
 }

@@ -12,6 +12,13 @@ import io.ktor.http.ContentType
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 
+/**
+ * Searches the public iTunes Search API for songs. It gives Vinyl its track metadata, artwork and
+ * 30 second preview URLs; no account or API key is needed.
+ *
+ * The client ignores JSON keys the app does not read, and also accepts the `text/javascript`
+ * content type, which is how the iTunes API labels its JSON.
+ */
 class ITunesApiService(
     private val client: HttpClient = HttpClient(OkHttp) {
         install(ContentNegotiation) {
@@ -26,6 +33,11 @@ class ITunesApiService(
         private const val STOREFRONT_COUNTRY = "US"
     }
 
+    /**
+     * Returns up to [limit] songs matching [query], or an empty list for a blank query. Results
+     * always come from the US storefront. Network failures are thrown to the caller, which decides
+     * how to show them.
+     */
     suspend fun searchSongs(query: String, limit: Int = 25): List<Track> {
         if (query.isBlank()) return emptyList()
 

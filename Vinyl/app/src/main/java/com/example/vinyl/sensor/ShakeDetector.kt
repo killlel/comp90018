@@ -8,12 +8,13 @@ import android.hardware.SensorManager
 import android.util.Log
 
 /**
- * SHAKE SENSOR CONTROLLER
- *  This class is only the SensorEventListener plumbing: read the raw values,
- *  hand them to the algorithm, act on what it says.
+ * Reads the accelerometer and calls back when the user shakes the phone.
  *
- * ENERGY CONSERVATION: the accelerometer is registered only while needed
- * and unregistered immediately once not - see [enableSensor] / [disableSensor].
+ * This class is only the [SensorEventListener] plumbing: it reads the raw values, hands them to
+ * [ShakeAlgorithm], and acts on what the algorithm says.
+ *
+ * The accelerometer is registered only while it is needed and unregistered as soon as it is not,
+ * so it does not drain the battery. See [enableSensor] and [disableSensor].
  */
 class ShakeDetector(
     private val context: Context,
@@ -27,15 +28,12 @@ class ShakeDetector(
     private val primarySensor = Sensor.TYPE_ACCELEROMETER
 
     /**
-     * Registers this class to start listening to the physical accelerometer hardware sensor, the
-     * same two steps as Barometer.enableSensor(): fetch the SensorManager, then look up the
-     * specific sensor.
+     * Starts listening to the accelerometer: fetches the SensorManager, then looks up the sensor.
      *
      * Devices (or standard emulators) might not have an accelerometer, and on some OEM builds the
-     * sensor service itself can misbehave - either way this must never crash the app, it should
-     * just mean shaking has no effect. [onShake] itself still works either way through the "Open
-     * it now" button, exactly like the barometer screen still shows its "not supported" label
-     * rather than crashing.
+     * sensor service itself can misbehave. Either way this must never crash the app; it only means
+     * shaking has no effect. The envelope can still be opened by pressing and holding it, or with
+     * the TalkBack action.
      */
     fun enableSensor(onShake: () -> Unit) {
         this.onShake = onShake
@@ -70,8 +68,8 @@ class ShakeDetector(
     }
 
     /**
-     * Unregisters our listener to stop receiving sensor updates.
-     * ALWAYS call this when the screen goes into the background, to prevent battery drain.
+     * Stops receiving sensor updates. Call this when the screen leaves the foreground, so the
+     * sensor does not keep running and drain the battery.
      */
     fun disableSensor() {
         sensorManager?.let {
@@ -87,9 +85,9 @@ class ShakeDetector(
     }
 
     /**
-     * ONSENSORCHANGED: runs whenever the hardware reports a new reading. Every reading is handed
-     * to [ShakeAlgorithm], which returns true on the exact reading that completes a shake; only
-     * then is [onShake] called.
+     * Runs whenever the hardware reports a new reading. Every reading is handed to
+     * [ShakeAlgorithm], which returns true on the exact reading that completes a shake; only then
+     * is [onShake] called.
      */
     override fun onSensorChanged(event: SensorEvent) {
         if (event.sensor?.type != sensor?.type) return

@@ -5,7 +5,20 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -19,7 +32,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
@@ -27,9 +39,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -41,23 +57,20 @@ import com.example.vinyl.ui.theme.VinylPalette
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.withStyle
 
 private object CompassColors {
     val DialBackground = VinylColors.Charcoal
     val TealArrow get() = VinylColors.Teal
-    /** The ring itself only - decorative, not informational, so it can stay faint without
+    /** The minor tick marks - decorative, not informational, so they can stay faint without
      *  hurting anyone's ability to read the compass. */
     val Ring get() = VinylColors.Teal.copy(alpha = 0.45f)
-    /** The N/E/S/W letters and the degree numbers - these ARE the information, so they need to
-     *  be genuinely legible, not just present. */
+    /** The N/E/S/W letters, the degree numbers and the main ring: this is the information, so it
+     *  has to be legible, not just present. */
     val CardinalLabel get() = TealArrow
-    /** The record's centre "label" sticker - a step lighter than Charcoal so the two discs read
-     *  as distinct circles rather than one flat shape. Purely decorative. */
+    /** The record's centre label sticker. Cream against the charcoal record, so the two discs read
+     *  as distinct circles. Purely decorative. */
     val RecordLabel = VinylColors.Cream
-    /** The spindle hole at the very centre of the record - the darkest tone in the palette. */
+    /** The spindle hole at the centre of the record: the darkest tone in the palette. */
     val SpindleHole = VinylColors.Ink
 }
 
@@ -67,25 +80,27 @@ data class CompassUiState(
 )
 
 /**
- * Which way the sender's record arrived from, relative to however the reader is currently
- * holding their phone. Backed by the magnetometer (see CompassDetector / CompassAlgorithm);
- * Loading is the brief window before the first sensor reading arrives, Unavailable is the
- * permanent state on a device with no compass-capable sensor - this is NOT the same as Loading
- * taking a long time, it is reported synchronously, so the screen never has to guess which one
- * it is from a timeout.
+ * Which way the sender's record arrived from, relative to however the reader is holding their
+ * phone. The heading comes from the rotation vector sensor, or from the accelerometer and
+ * magnetometer on a device without one (see CompassDetector and CompassAlgorithm).
+ *
+ * [Loading] is the brief window before the first sensor reading arrives. [Unavailable] is the
+ * permanent state on a device with neither sensor setup. It is reported straight away, so the
+ * screen never has to guess from a timeout whether it is still loading.
  */
 sealed interface CompassState {
     data object Loading : CompassState
     data object Unavailable : CompassState
 
     /**
-     * [deviceHeadingDegrees] is the phone's own smoothed compass heading (0..360, true north);
-     * [targetBearingDegrees] is the fixed, never-changing true-north bearing to the sender (from
-     * Distance.bearingOrNull). Kept as two separate numbers, not one pre-combined angle, because
-     * the dial now needs both independently: the whole rose (ring/ticks/N-E-S-W) spins by
-     * [deviceHeadingDegrees] alone, so "N" always points at true north as the phone turns, while
-     * [arrowRotationDegrees] below (unchanged, for anything already reading it) is the two
-     * combined - how far the sender's bearing sits from "straight ahead" right now.
+     * [deviceHeadingDegrees] is the phone's smoothed compass heading (0..360, true north, after
+     * the declination correction). [targetBearingDegrees] is the fixed true-north bearing to the
+     * sender's city (from Distance.bearingOrNull).
+     *
+     * They are kept as two numbers because the dial needs both: the rose (ring, ticks and
+     * N/E/S/W) turns by [deviceHeadingDegrees] alone, so "N" stays on true north as the phone
+     * turns, while [arrowRotationDegrees] combines the two into how far the sender's bearing is
+     * from straight ahead.
      */
     data class Available(
         val deviceHeadingDegrees: Float,
@@ -96,6 +111,13 @@ sealed interface CompassState {
     }
 }
 
+/**
+ * "See where it's from": how far away the sender is, their city, and a compass whose needle points
+ * towards it. Turning the phone until the needle lines up with the mark at the top faces the
+ * sender's city; the phone buzzes once as it locks on.
+ *
+ * Full screen with its own back arrow, not a bottom sheet.
+ */
 @Composable
 fun CompassScreen(
     state: CompassUiState,
@@ -141,9 +163,8 @@ fun CompassScreen(
         val isFacingSender = compassState is CompassState.Available &&
                 CompassAlgorithm.isFacingTarget(compassState.arrowRotationDegrees)
 
-        // From the TARGET bearing, not the arrow's screen rotation - "they're SE of you" is a
-        // fact about the real world, unaffected by which way the phone happens to be held right
-        // now.
+        // From the target bearing, not the arrow's screen rotation: "they're SE of you" is a fact
+        // about the real world, whichever way the phone is held.
         val targetDirectionLabel = (compassState as? CompassState.Available)
             ?.let { CompassAlgorithm.compassPointLabel(it.targetBearingDegrees) }
 
@@ -177,15 +198,14 @@ fun CompassScreen(
             }
         }
 
-        // One buzz on the moment of crossing INTO facing, not a continuous buzz while held there
+        // One buzz as the arrow crosses into "facing", not a continuous buzz while it stays there.
         val context = LocalContext.current
         LaunchedEffect(isFacingSender) {
             if (isFacingSender) context.vibrateOnce()
         }
 
-        // Live countdown: needs no compass knowledge at all to read - the number just gets
-        // smaller as you turn the right way, and "0 to go" lines up with "You found them!"
-        // appearing above. Shown only once there's an actual angle to count down from.
+        // Live countdown: the number shrinks as you turn the right way, and "lined up" matches
+        // "You found them!" below. Shown only once there is an angle to count down from.
         if (compassState is CompassState.Available) {
             val degreesToGo = CompassAlgorithm.degreesFromFacingTarget(compassState.arrowRotationDegrees).roundToInt()
             Row(modifier = Modifier.fillMaxWidth().padding(top = 20.dp), horizontalArrangement = Arrangement.Center) {
@@ -255,12 +275,15 @@ fun CompassScreen(
     }
 }
 
-/** A single N/E/S/W label: the letter plus its bearing in degrees.
- *  [sideBySide] = true draws them in a row (wide, short) - used for N/S, where the label's
- *  HEIGHT is what has to clear the narrow gap between the ring and the inner dial. false draws
- *  them stacked (narrow, tall) - used for E/W, where it's the label's WIDTH that matters instead.
- *  [scale] keeps the letters in proportion as the whole dial grows or shrinks with screen width -
- *  see [CompassDial]'s own `scale`. */
+/**
+ * A single N/E/S/W label: the letter plus its bearing in degrees.
+ *
+ * [sideBySide] draws the letter and degrees in a row (wide, short), used for N and S, where the
+ * label's height has to clear the narrow gap between the ring and the inner dial. Otherwise they
+ * are stacked (narrow, tall), used for E and W, where the width matters instead.
+ * [scale] keeps the letters in proportion as the dial grows or shrinks with screen width (see
+ * [CompassDial]'s own `scale`).
+ */
 @Composable
 private fun CardinalMark(label: String, degrees: Int, sideBySide: Boolean, scale: Float = 1f) {
     val letter: @Composable () -> Unit = {
@@ -297,21 +320,20 @@ private fun CardinalMark(label: String, degrees: Int, sideBySide: Boolean, scale
 }
 
 /**
- * A REAL rotating compass rose now, not static dial art: the ring, ticks and N/E/S/W labels all
- * spin together as [deviceHeadingDegrees] changes, so "N" always sits at whichever screen angle
- * true north is actually at - turn the phone 90 degrees and the whole rose visibly turns 90
- * degrees the other way under it, exactly like a real compass. The dial background (the "record")
- * and centre dot stay fixed; only the rose and the arrow move, each animated with its own short
- * tween so a jump from the compass filter reads as a smooth turn, not a snap - the smoothing in
- * CompassAlgorithm already removes most of the raw jitter, this is just softening what's left of
- * the frame-to-frame motion for the screen itself.
+ * A rotating compass rose: the ring, ticks and N/E/S/W labels turn together as
+ * [deviceHeadingDegrees] changes, so "N" always sits at the screen angle true north is at. Turn
+ * the phone 90 degrees and the rose turns 90 degrees the other way under it, like a real compass.
+ *
+ * The dial background (the "record") and the centre dot stay fixed; only the rose and the arrow
+ * move. Each has its own short tween, so a jump in the heading reads as a smooth turn. The
+ * smoothing in CompassAlgorithm removes most of the jitter; this softens what is left.
  */
 @Composable
 private fun CompassDial(
     deviceHeadingDegrees: Float,
     targetBearingDegrees: Float,
-    dialSize: Dp = 320.dp,
     modifier: Modifier = Modifier,
+    dialSize: Dp = 320.dp,
 ) {
     val arrowRotationDegrees = CompassAlgorithm.arrowRotationDegrees(deviceHeadingDegrees, targetBearingDegrees)
     val animatedRotation = remember { Animatable(arrowRotationDegrees) }
@@ -332,7 +354,6 @@ private fun CompassDial(
 
     val scale = dialSize.value / 320f
     Box(modifier = modifier.size(dialSize), contentAlignment = Alignment.Center) {
-
         val ringRadiusDp = 95.dp * scale
 
         Box(
@@ -353,7 +374,7 @@ private fun CompassDial(
             )
         }
 
-        // The rose itself - ring + ticks - rotated as one rigid piece by animatedRoseRotation..
+        // The rose itself (ring and ticks), turned as one piece by animatedRoseRotation.
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -393,8 +414,8 @@ private fun CompassDial(
             }
         }
 
-        // FIXED - does NOT rotate with the rose, unlike everything above. This is "the direction
-        // your phone is currently facing", always straight up on screen by definition.
+        // The mark at the top. It does not turn with the rose: it is the direction the phone is
+        // facing, which is straight up on screen by definition.
         Canvas(modifier = Modifier.fillMaxSize()) {
             val cx = size.width / 2
             val cy = size.height / 2
@@ -429,8 +450,8 @@ private fun CompassDial(
             }
         }
 
-        // The arrow: a classic compass needle silhouette - pointed at BOTH ends (the tip at the
-        // ring, and the base back at the centre)
+        // The arrow: a compass-needle silhouette, pointed at both ends (the tip at the ring and
+        // the base at the centre).
         Canvas(
             modifier = Modifier
                 .size(ringRadiusDp * 2)
@@ -452,9 +473,8 @@ private fun CompassDial(
             }
             drawPath(needle, color = CompassColors.TealArrow)
 
-            // A thin pale spine down the centre - the light-catching highlight a real metal
-            // needle has along its length, so it reads as a faceted object rather than a flat
-            // teal silhouette.
+            // A thin pale spine down the centre, like the highlight on a metal needle, so it reads
+            // as a faceted object rather than a flat silhouette.
             drawLine(
                 color = Color.White.copy(alpha = 0.28f),
                 start = Offset(cx, tip.y + (4f * scale).dp.toPx()),
@@ -489,8 +509,8 @@ private fun UnavailableNotice() {
 private fun CompassScreenAvailablePreview() {
     CompassScreen(
         state = CompassUiState(distanceLabel = "3000+ km", cityLabel = "Chicago, US"),
-        // Phone held facing true north (0), sender bearing 15 degrees east of that - same
-        // effective arrow angle (15) as the old single-number preview, rose un-rotated.
+        // Phone facing true north, sender 15 degrees east of that: the rose is un-rotated and the
+        // arrow sits 15 degrees from the mark.
         compassState = CompassState.Available(deviceHeadingDegrees = 0f, targetBearingDegrees = 15f),
     )
 }
@@ -498,9 +518,9 @@ private fun CompassScreenAvailablePreview() {
 @Preview(showBackground = true, backgroundColor = 0xFF0D0D0D, widthDp = 393, heightDp = 852)
 @Composable
 private fun CompassScreenRotatedPreview() {
-    // Phone turned 130 degrees off north, sender bearing a fixed 55 degrees - demonstrates the
-    // rose actually having turned (N is no longer at the top), independently of the arrow, which
-    // still just shows how far "straight ahead" is from the sender (unchanged math).
+    // Phone turned 130 degrees off north, sender at a fixed 55 degrees: the rose has turned (N is
+    // no longer at the top) independently of the arrow, which shows how far straight ahead is
+    // from the sender.
     CompassScreen(
         state = CompassUiState(distanceLabel = "3000+ km", cityLabel = "Chicago, US"),
         compassState = CompassState.Available(deviceHeadingDegrees = 130f, targetBearingDegrees = 55f),

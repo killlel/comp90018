@@ -968,7 +968,12 @@ internal fun EnvelopePreview(style: EnvelopeStyle, modifier: Modifier = Modifier
                 .background(VinylPalette.TealAccent),
             contentAlignment = Alignment.Center,
         ) {
-            Text("♪", color = VinylPalette.Background, fontSize = 22.sp)
+            Icon(
+                Icons.Rounded.MusicNote,
+                contentDescription = null,
+                tint = VinylPalette.Background,
+                modifier = Modifier.size(28.dp),
+            )
         }
 
         Text(

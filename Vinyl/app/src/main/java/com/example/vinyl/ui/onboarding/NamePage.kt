@@ -1,7 +1,5 @@
 package com.example.vinyl.ui.onboarding
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -18,9 +16,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,6 +32,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.vinyl.ui.theme.VinylPalette
 
+/**
+ * Onboarding page where the user sees the anonymous username the database generated for them.
+ *
+ * Nobody types a name: the refresh button asks the server for another one
+ * ([OnboardingViewModel.rerollUsername]) until the user is happy. "Continue" stays disabled while
+ * the profile is loading, a new name is being fetched, or there is no name yet. A failed load or
+ * reroll shows its message under the name.
+ */
 @Composable
 fun NamePage(
     viewModel: OnboardingViewModel,
@@ -97,10 +105,14 @@ fun NamePage(
                 modifier = Modifier.padding(top = 12.dp),
             )
         }
-
     }
 }
 
+/**
+ * Single-line text that shrinks to fit its width. It starts at [maxSp] and steps down 8% at a time,
+ * never below [minSp], until it no longer overflows. It stays hidden until it has settled, so the
+ * name does not flash at the wrong size.
+ */
 @Composable
 private fun FitText(
     text: String,

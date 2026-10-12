@@ -1,15 +1,19 @@
 package com.example.vinyl.ui.onboarding
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import com.example.vinyl.R
 import com.example.vinyl.ui.theme.VinylPalette
 
+/**
+ * Last onboarding page. "Enter Vinyl" saves the user's choices and marks onboarding complete
+ * ([OnboardingViewModel.finishOnboarding]), then calls [onEnter] to go to the main screen. The
+ * button shows "Finishing…" and is disabled while saving, and a save error appears under the text.
+ */
 @Composable
 fun ReadyPage(viewModel: OnboardingViewModel, onEnter: () -> Unit, modifier: Modifier = Modifier) {
     val state by viewModel.uiState.collectAsState()
