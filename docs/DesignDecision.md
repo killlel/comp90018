@@ -375,4 +375,4 @@ Unresolved. Do not build past these without agreeing them first.
 
 Schema changes go through Ivan. Anything touching `sender_id`, `reactor_id` or
 location needs a second pair of eyes.
-matching client change, or their calls will fail.---
+---
