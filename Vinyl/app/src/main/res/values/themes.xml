@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <style name="Theme.Vinyl" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#0D0D0D</item>
+        <item name="android:colorAccent">#77EDE5</item>
 
-    <style name="Theme.Vinyl" parent="android:Theme.Material.Light.NoActionBar" />
+        <item name="android:windowSplashScreenBackground">#0D0D0D</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+    </style>
 </resources>
